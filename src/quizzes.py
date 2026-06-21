@@ -1200,6 +1200,47 @@ QUIZZES = {
             {"zh": "第 21 课那个 unavailable≠removed 原则，当时看像无关痛痒的设计洁癖，六课后却在「换 agent」这个最关键场景结出最重要的果实。回顾你读过的代码/系统，举一个「当初一个不起眼的克制，后来成了关键能力」的例子。", "en": "Lesson 21's unavailable≠removed principle seemed like inconsequential fastidiousness then, yet six lessons later bears its most important fruit in the critical \"switch agent\" scenario. From code/systems you've read, give an example where \"an early, unremarkable bit of restraint later became a key capability.\""},
         ],
     },
+    "28-llm-overview.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode 的 core 怎么和各说各话的模型供应商打交道？", "en": "How does opencode's core deal with model providers that each speak their own tongue?"},
+                "opts": [
+                    {"zh": "core 只说一种规范语言（LLMRequest/LLMEvent），一层协议适配器翻成各家方言、再翻回来", "en": "Core speaks only one canonical language (LLMRequest/LLMEvent); a protocol-adapter layer translates to each dialect and back"},
+                    {"zh": "core 里到处 if (provider === ...) 分别处理", "en": "core handles each with if (provider === ...) everywhere"},
+                    {"zh": "只支持一家供应商", "en": "Supports only one provider"},
+                    {"zh": "让模型自己适配", "en": "Lets the model adapt itself"},
+                ],
+                "answer": 0,
+                "why": {"zh": "经典「反腐层」：core 和外部供应商之间砌一道翻译墙。core 永远说规范语（出去 LLMRequest、回来 LLMEvent 流），适配器把它翻成各家方言、把回话翻回规范事件。墙内 agent 循环对供应商一无所知——第 17 课那句 llm.stream 消费的就是规范 LLMEvent。", "en": "Classic anti-corruption layer: a translation wall between core and external providers. Core always speaks canonical (outbound LLMRequest, inbound LLMEvent stream), adapters translate to each dialect and replies back to canonical events. The agent loop inside knows nothing of the provider — Lesson 17's llm.stream consumes exactly these canonical LLMEvents."},
+            },
+            {
+                "q": {"zh": "「协议（protocol）」和「供应商（provider）」的区别是？", "en": "What's the difference between a \"protocol\" and a \"provider\"?"},
+                "opts": [
+                    {"zh": "协议=线缆格式(请求/响应具体长啥样,6 种)；供应商=具体厂商(用哪种协议+认证+端点)，二者多对多", "en": "Protocol = wire format (what request/response look like, 6 of them); provider = specific vendor (which protocol + auth + endpoint); many-to-many"},
+                    {"zh": "协议是新的、供应商是旧的", "en": "Protocols are new, providers are old"},
+                    {"zh": "两者完全一样", "en": "They are identical"},
+                    {"zh": "协议是付费的、供应商是免费的", "en": "Protocols are paid, providers are free"},
+                ],
+                "answer": 0,
+                "why": {"zh": "协议像插头制式、供应商像具体电器：一种制式插一堆电器，一台电器也可能支持两种制式。OpenAI Chat 协议不只 OpenAI 用，一堆「OpenAI 兼容」厂商都借它说话；OpenAI 自己又有 Chat+Responses 两套。解耦二者→6 种协议复用覆盖十几家供应商，少量协议大量复用。", "en": "Protocol is like a plug standard, provider like a specific appliance: one standard fits many appliances, one appliance may support two standards. The OpenAI Chat protocol isn't used only by OpenAI but by many \"OpenAI-compatible\" vendors; OpenAI itself has both Chat and Responses. Decoupling → 6 protocols reusably cover a dozen-plus providers."},
+            },
+            {
+                "q": {"zh": "为什么 OpenAI-Compatible 这一种协议特别有杠杆？", "en": "Why is the OpenAI-Compatible protocol especially high-leverage?"},
+                "opts": [
+                    {"zh": "「OpenAI 兼容」已是事实标准，实现一次就免费搭上整个生态(OpenRouter/xAI/本地模型…)，新厂商无需加代码", "en": "\"OpenAI-compatible\" is a de facto standard; implementing it once free-rides the whole ecosystem (OpenRouter/xAI/local models…), new vendors needing no new code"},
+                    {"zh": "因为它跑得最快", "en": "Because it runs fastest"},
+                    {"zh": "因为它最便宜", "en": "Because it's cheapest"},
+                    {"zh": "因为它是 OpenAI 官方的", "en": "Because it's OpenAI official"},
+                ],
+                "answer": 0,
+                "why": {"zh": "市面上一大票厂商自称「OpenAI 兼容」、API 形态几乎一样。把这套线缆格式抽成一个协议，opencode 实现一次，所有这些厂商都自动接上——它们数量还在涨，opencode 一行新协议代码都不用加。这就是「把线缆格式抽象成协议」的复利。", "en": "A crowd of vendors claim \"OpenAI compatibility\" with near-identical API forms. Abstracting this wire format into one protocol, opencode implements it once and all of them auto-connect — their number grows while opencode adds not a line of new protocol code. That's the compound interest of abstracting the wire format into a protocol."},
+            },
+        ],
+        "open": [
+            {"zh": "课里把「一种规范语言」和第 12 课「用 OpenAPI 规范解耦前后端」说成同一种智慧：中间立一份双方都认的契约，两端就都获得不被对方绑架的自由。结合你做过的集成，说一个「中间立契约，两端各自演化」让你受益（或缺它而受苦）的例子。", "en": "The lesson calls \"one canonical language\" the same wisdom as Lesson 12's \"decouple front/back ends with an OpenAPI spec\": stand a contract both sides honor in the middle, both ends gain freedom from being held hostage. From an integration you've done, give an example where \"a middle contract letting both ends evolve\" benefited you (or its absence hurt)."},
+            {"zh": "课里给了一条判断法则：「凡是『这家供应商怎么怎么样』的知识，都只该住在 llm 包里；一旦泄漏进 core，就是一处设计破窗」。为什么把这种知识的「物理位置」管住，比口头约定「大家别在 core 里写供应商特判」更可靠？", "en": "The lesson gives a rule of thumb: \"any 'how this provider behaves' knowledge should live only in the llm package; once it leaks into core, that's a broken window.\" Why is controlling the physical location of such knowledge more reliable than a verbal agreement \"let's not write provider special-cases in core\"?"},
+        ],
+    },
 }
 
 def render(fname, lang):
