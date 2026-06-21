@@ -1528,6 +1528,47 @@ QUIZZES = {
             {"zh": "Copilot 的认证用「令牌交换」：先拿长期的 GitHub OAuth 凭证，换一个短期、限定用途的 Copilot token，再拿它去认证。课里说这是「最小权限 + 短时效凭证」的安全惯例，且这套复杂流程被整个封装进 auth 这一件、不惊动协议层。请论证：为什么「不直接把长期凭证发给推理端点，而是换一个短期 token」更安全？把这种安全复杂性隔离在 auth 这一层（而非散落各处），对整个系统的可维护性和可审计性有什么好处？", "en": "Copilot's auth uses \"token exchange\": take the long-lived GitHub OAuth credential, exchange for a short-lived, purpose-limited Copilot token, then authenticate with it. The lesson calls this the \"least privilege + short-lived credential\" security convention, with the whole complex flow encapsulated into the auth piece, undisturbing the protocol layer. Argue: why is \"not sending the long-lived credential to inference endpoints, but exchanging for a short-lived token\" more secure? What does isolating this security complexity in the auth layer (rather than scattering it) do for the system's maintainability and auditability?"},
         ],
     },
+    "39-search-exec-tools.html": {
+        "mcq": [
+            {
+                "q": {"zh": "glob 和 grep 这两个搜索工具的底层是什么？为什么这么选？", "en": "What are the two search tools glob and grep built on, and why?"},
+                "opts": [
+                    {"zh": "都架在 Ripgrep（rg）服务上——业界最快的代码搜索之一、默认尊重 .gitignore；opencode 复用权威上游而非自己手写遍历+正则", "en": "Both built on the Ripgrep (rg) service — one of the fastest code searches, respects .gitignore by default; opencode reuses the authoritative upstream rather than hand-writing traversal+regex"},
+                    {"zh": "各自手写文件系统遍历和正则匹配", "en": "Each hand-writes filesystem traversal and regex matching"},
+                    {"zh": "用数据库全文索引", "en": "Use a database full-text index"},
+                    {"zh": "调用一个云搜索 API", "en": "Call a cloud search API"},
+                ],
+                "answer": 0,
+                "why": {"zh": "glob（按文件名）和 grep（按内容正则）都架在 Ripgrep 服务上。ripgrep 是业界公认最快的代码搜索之一，且默认尊重 .gitignore（不把 node_modules/dist 搜进来污染结果）。opencode 没自己手写遍历+正则（又慢又易错），而是站在 ripgrep 肩膀上、只包成两个窄接口——这正是第 35 课「不重复造轮子、复用权威上游」的同一种智慧。两者都带 limit 防结果撑爆模型上下文。", "en": "glob (by filename) and grep (by content regex) are both built on the Ripgrep service. ripgrep is one of the acknowledged fastest code searches, respecting .gitignore by default (not polluting results with node_modules/dist). opencode didn't hand-write traversal+regex (slow, error-prone) but stands on ripgrep's shoulders, wrapping just two narrow interfaces — the same wisdom as lesson 35's \"don't reinvent the wheel, reuse the authoritative upstream.\" Both carry limit to keep results from blowing the model's context."},
+            },
+            {
+                "q": {"zh": "bash 工具拥有「宿主用户的文件/进程/网络全权限」，opencode 给它配了哪些护栏？", "en": "The bash tool holds \"the host user's full file/process/network authority\"; what guardrails does opencode give it?"},
+                "opts": [
+                    {"zh": "限时（默认2分/最长10分，schema 卡上限）+ 限量（stdout/stderr 各1MB）+ 双重 permission（workdir+命令）+ 可强制终止（detached+forceKillAfter 3秒）+ stdin ignore", "en": "Time-limited (default 2min/max 10min, schema-capped) + volume-limited (stdout/stderr each 1MB) + dual permission (workdir+command) + force-terminable (detached+forceKillAfter 3s) + stdin ignore"},
+                    {"zh": "没有任何护栏，模型说啥跑啥", "en": "No guardrails, runs whatever the model says"},
+                    {"zh": "只允许跑预先白名单里的命令", "en": "Only allows pre-whitelisted commands"},
+                    {"zh": "每条命令都要用户手动确认", "en": "Every command needs manual user confirmation"},
+                ],
+                "answer": 0,
+                "why": {"zh": "能力越大、护栏越严。bash 是「什么都能干」的逃生舱，被限时/限量/限地/可中断地团团围住：超时（默认2分、最长10分，且在 schema 层就 ≤MAX_TIMEOUT_MS 卡死）防死循环挂死 agent；1MB 内存上限防 cat 大文件撑爆内存；workdir+命令两道 permission.assert；detached 启动 + forceKillAfter 3秒宽限可强制收尾；stdin=ignore 防命令反问模型。超时还被降格成带 timedOut 的正常结果，回一句「加大 timeout 重试」的可操作指引。", "en": "Greater power, stricter guardrails. bash is the \"do-anything\" escape hatch, hemmed in time/volume/place-limited and interruptible: timeout (default 2min, max 10min, capped ≤MAX_TIMEOUT_MS at the schema layer) prevents an infinite loop hanging the agent; the 1MB in-memory cap prevents cat huge-file blowing memory; dual permission.assert on workdir+command; detached launch + forceKillAfter 3s grace for force cleanup; stdin=ignore prevents commands prompting the model. Timeout is also demoted to a normal result with timedOut, returning an actionable \"retry with a larger timeout\" guide."},
+            },
+            {
+                "q": {"zh": "课里特别澄清：bash 工具是经「PTY 伪终端」运行的吗？", "en": "The lesson specially clarifies: does the bash tool run via \"PTY pseudo-terminal\"?"},
+                "opts": [
+                    {"zh": "不是。bash 经 AppProcess.run→ChildProcessSpawner（spawn/child_process 批处理）；pty/* 是另一套给交互式终端（实时流+可输入）用的基础设施", "en": "No. bash runs via AppProcess.run→ChildProcessSpawner (spawn/child_process batch); pty/* is separate infrastructure for interactive terminals (live stream + typeable)"},
+                    {"zh": "是的，bash 就是 PTY", "en": "Yes, bash is PTY"},
+                    {"zh": "bash 和 pty 是同一个模块", "en": "bash and pty are the same module"},
+                    {"zh": "bash 既不用 spawn 也不用 pty", "en": "bash uses neither spawn nor pty"},
+                ],
+                "answer": 0,
+                "why": {"zh": "常见误解。bash 工具通过 AppProcess.run 执行，底层是 ChildProcessSpawner（child_process/spawn 的跨平台封装）——「启动子进程、跑完、收 stdout/stderr」的批处理模型，不是伪终端。pty/*（Proc.onData/write/resize）是另一套：给交互式终端用（第10课 pty/pty-connect 路由、第33课 WebSocketTracker），让真人在界面开实时可输入的 shell。模型需要确定性批处理（一问一答），不需要会不断吐字符、还等输入的实时流（所以 stdin 干脆 ignore）。两种交互模型，两套机制，诚实切分而非强求统一。", "en": "A common misconception. The bash tool executes via AppProcess.run, underneath ChildProcessSpawner (a cross-platform wrapper over child_process/spawn) — a batch model of \"launch child process, run, collect stdout/stderr,\" not a pseudo-terminal. pty/* (Proc.onData/write/resize) is separate: for interactive terminals (lesson 10's pty/pty-connect routes, lesson 33's WebSocketTracker), letting a human open a live typeable shell in the UI. The model needs deterministic batch (Q&A), not a live stream that spits characters and awaits input (so stdin is ignore). Two interaction models, two mechanisms, an honest split rather than forced unification."},
+            },
+        ],
+        "open": [
+            {"zh": "课里把工具分成「专用」（glob/grep，把高频事做窄做快）和「通用」（bash，全权限的逃生舱），并给出原则：「能力越大、护栏越严」。请结合你设计或用过的系统，谈谈这条原则的体现（如 sudo、危险 API 的二次确认、生产环境的写权限）。一个「什么都能干」的通用接口，相比一组「各管一摊」的专用接口，各自的利弊是什么？", "en": "The lesson splits tools into \"specialized\" (glob/grep, making high-frequency things narrow and fast) and \"general\" (bash, the full-authority escape hatch), with the principle \"greater power, stricter guardrails.\" From a system you've designed or used, discuss this principle's manifestations (sudo, double-confirmation for dangerous APIs, write permission in production). What are the pros/cons of one \"do-anything\" general interface versus a set of \"each minds its own\" specialized interfaces?"},
+            {"zh": "课里强调 opencode 用两套不同机制分别服务「给模型跑命令」（批处理 spawn）和「给真人开终端」（PTY 流式可输入），拒绝硬把一套套到另一种交互上。请论证：为什么「实时交互式」和「确定性批处理」是本质不同的需求？把模型的「思考-行动」节奏（一问一答）和真人盯终端（要实时、要能 Ctrl-C、要能答 y）对照，说说各自为什么需要不同的执行模型。", "en": "The lesson stresses opencode uses two different mechanisms for \"run commands for the model\" (batch spawn) and \"open a terminal for a human\" (PTY streaming, typeable), refusing to force one onto the other interaction. Argue: why are \"real-time interactive\" and \"deterministic batch\" essentially different needs? Contrasting the model's \"think-act\" rhythm (Q&A) with a human watching a terminal (wants real-time, Ctrl-C, typing y), explain why each needs a different execution model."},
+        ],
+    },
     "38-file-tools.html": {
         "mcq": [
             {

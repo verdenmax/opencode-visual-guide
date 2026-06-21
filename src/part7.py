@@ -636,7 +636,211 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
 </div>
 """,
 }
-LESSON_39 = wip('搜索与执行工具', 'Search & exec tools')
+LESSON_39 = {
+    "zh": r"""
+<p class="lead">上一课讲了 agent 改文件的四把手。但改之前，得先<strong>找到</strong>该改的地方；很多任务还得<strong>跑一下命令</strong>看结果（装依赖、跑测试、git status）。这一课的三个工具，正是 coding agent 另外两项基本功：<strong>搜索</strong>与<strong>执行</strong>。<span class="mono">glob</span>（按文件名找）、<span class="mono">grep</span>（按文件内容搜）、<span class="mono">bash</span>（跑 shell 命令）。前两个是「<strong>眼睛</strong>」——快速在代码库里定位；后一个是「<strong>万能之手</strong>」——能干前面所有专用工具干不了的杂活，但也因此<strong>权力最大、护栏最多</strong>。</p>
+<p>这一课你会看到一个有趣的对照：<strong>专用 vs 通用</strong>。glob/grep 是<strong>专用</strong>工具——把「搜索」这件高频事做成快、稳、有界的两个窄接口（底层都是 ripgrep）；bash 则是<strong>通用</strong>逃生舱——它拥有「宿主用户的文件系统、进程、网络权限」，几乎无所不能，于是 opencode 给它套上一整圈安全带：<strong>限时、限量、双重许可、可强制终止</strong>。我还会顺手澄清一个常见误解——<strong>bash 工具并不是经「PTY（伪终端）」运行的</strong>；PTY 是另一套给「交互式终端」用的基础设施，和「跑一条命令拿结果」的 bash 工具是两回事。把这条厘清，你对「批处理执行」与「交互式终端」的边界就清楚了。</p>
+
+<div class="card analogy">
+  <div class="tag">🔦 生活类比</div>
+  想象 agent 在一座巨大的代码图书馆里工作。<strong>glob</strong> 是「<strong>按书名查找</strong>」——「给我所有 <span class="mono">*.test.ts</span>」，唰地列出书名清单。<strong>grep</strong> 是「<strong>按书里的一句话查找</strong>」——「哪些书里出现过 <span class="mono">TODO: fix</span>」，翻遍内容把命中处揪出来。两者都靠图书馆那台<strong>极快的检索机</strong>（ripgrep），还自动跳过你让它忽略的架子（gitignore）。而 <strong>bash</strong>，则是直接把<strong>整间工坊的钥匙</strong>交到 agent 手里——它能开机床、能搬运、能对外打电话（文件、进程、网络全权限）。正因为这把钥匙太重，工坊门口立了几条铁律：<strong>每次作业有时限（超时强制收工）、产出的废料有上限（输出超量就截断）、动工前要登记（权限许可）、还配了总闸（能强制断电终止）</strong>。专用工具像贴了标签的精巧仪器，通用的 bash 像一间需要安全规程的车间——<strong>能力越大，护栏越严</strong>。
+</div>
+
+<h2>glob 与 grep：两种「找」</h2>
+<p>先把三个工具并排，一张表看清它们的分工与各自的「边界」——它们也都在填第 36 课那张 <span class="mono">Config</span> 表：</p>
+<table class="t">
+  <tr><th>工具</th><th>干什么</th><th>底层</th><th>关键边界</th></tr>
+  <tr><td>glob</td><td>按文件名 pattern 找文件</td><td>Ripgrep</td><td>limit 结果上限</td></tr>
+  <tr><td>grep</td><td>按内容正则搜（+include 文件 glob）</td><td>Ripgrep</td><td>limit 命中上限</td></tr>
+  <tr><td>bash</td><td>跑一条 shell 命令（全权限）</td><td>AppProcess/spawn</td><td>超时 + 1MB 字节 + 双许可</td></tr>
+</table>
+<p>先看两个搜索工具。它们解决的是同一个大问题——「<strong>在代码库里定位</strong>」——但切口不同：</p>
+<div class="cols">
+  <div class="col"><h4>glob · 按名字找</h4><p>input <span class="mono">{pattern, path?, limit?}</span>，output 文件清单。「给我匹配 <span class="mono">src/**/*.ts</span> 的文件」。问的是<strong>「哪些文件叫这个名」</strong>。</p></div>
+  <div class="col"><h4>grep · 按内容搜</h4><p>input <span class="mono">{pattern(正则), path?, include?, limit?}</span>，output 命中清单。「哪些文件里有 <span class="mono">useEffect</span>」。问的是<strong>「哪些文件里写了这个」</strong>。</p></div>
+</div>
+<p>两者的实现都<strong>架在 <span class="mono">Ripgrep</span> 服务之上</strong>——这是个聪明的选择。ripgrep（rg）是业界公认最快的代码搜索工具之一，且<strong>默认尊重 <span class="mono">.gitignore</span></strong>：它不会把 <span class="mono">node_modules</span>、<span class="mono">dist</span> 这些一并搜进来污染结果。opencode 没有自己手写遍历文件系统、再实现正则匹配（又慢又容易错），而是<strong>站在 ripgrep 这个巨人的肩膀上</strong>，只把它包装成两个窄窄的工具接口。这又是第 35 课「不重复造轮子、复用权威上游」的同一种智慧——搜索这种「别人已经做到极致」的事，借力即可。</p>
+<p>还有一个共性是<strong>都带 <span class="mono">limit</span>（结果上限）</strong>。为什么搜索也要限量？因为一个宽泛的 pattern（比如 grep <span class="mono">import</span>）可能命中成千上万处，全塞回对话会<strong>瞬间撑爆模型的上下文窗口</strong>。<span class="mono">limit</span> 把结果框在一个合理范围，逼模型<strong>用更精确的 pattern 或更窄的 path 去缩小范围</strong>，而不是一次捞一海。这和上一课文件工具的 offset/limit 翻页、和第 42 课的有界输出，是同一条贯穿 M7 的红线：<strong>凡是可能「量很大」的地方，都要有界</strong>——因为对面那个消费结果的模型，上下文窗口是有限且昂贵的。</p>
+
+<h2>bash：万能之手，与它的一圈安全带</h2>
+<p>接着是重头戏 <span class="mono">bash</span>。它的描述里有一句很重的话——执行命令时用的是「<strong>宿主用户的文件系统、进程、网络权限</strong>」。换句话说，<strong>bash 能干的事，几乎等于你本人在终端能干的事</strong>。这是它的威力（前面所有专用工具够不着的杂活，它都能凑合），也是它的危险（一条 <span class="mono">rm -rf</span> 也照跑）。所以 opencode 给 bash 套了一整圈安全带：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">限时</div><div class="c-txt">默认 2 分钟、最长 10 分钟（schema 层就 ≤ MAX_TIMEOUT_MS）；超时→明确报「超时，请加大 timeout 重试」</div></div>
+  <div class="cell"><div class="c-tag">限量</div><div class="c-txt">stdout/stderr 各 1 MB 内存上限（MAX_CAPTURE_BYTES）；超量→截断 + 加一条 truncated 提示</div></div>
+  <div class="cell"><div class="c-tag">双重许可</div><div class="c-txt">workdir 一道（外部目录需 external_directory 批准）+ 命令本身一道 permission.assert</div></div>
+  <div class="cell"><div class="c-tag">可强制终止</div><div class="c-txt">detached 启动（非 Windows）便于整组收尾；forceKillAfter 3 秒宽限后强制结束</div></div>
+  <div class="cell"><div class="c-tag">无交互</div><div class="c-txt">stdin 设为 ignore——命令不能反过来问模型要输入（模型答不了）</div></div>
+</div>
+<p>把这几条连起来看，会发现一个清晰的设计意图：<strong>给最强的能力，配最严的约束</strong>。glob/grep 这种专用工具，能造成的破坏有限，护栏也轻；bash 这种「什么都能干」的逃生舱，则被<strong>限时、限量、限地、可中断</strong>地团团围住。其中<strong>限时</strong>尤其关键——一条 <span class="mono">npm install</span> 可能要几十秒，但一个写错的死循环会永远跑下去；超时（默认 2 分钟）把每条命令都拴上一根<strong>时间皮带</strong>，跑过头就强制收工，绝不让一条命令把整个 agent 挂死。而超时后的处理也很体贴：不是干巴巴报错，而是回一句「<strong>超时了，如果这命令本就该跑久点，请加大 timeout 重试</strong>」——又是一条写给模型看的、可操作的指引（呼应第 38 课）。</p>
+<p>执行的主干流程，是一条「解析→许可→启动→限时跑→收果」的链：</p>
+<div class="flow">
+  <div class="f-node">解析 workdir<br><small>相对 Location；外部需批准</small></div>
+  <div class="f-arrow">permission.assert →</div>
+  <div class="f-node">spawn 子进程<br><small>detached + 配置的 shell</small></div>
+  <div class="f-arrow">run(timeout, maxBytes) →</div>
+  <div class="f-node">限时+限量地跑<br><small>超时→timedOut；超量→truncated</small></div>
+  <div class="f-arrow">→</div>
+  <div class="f-node">{exitCode, output, truncated…}<br><small>结构化结果回传</small></div>
+</div>
+<p>同一条链，会落到几种不同的结局，<span class="mono">output</span> 把它们都如实编码进结构化结果，让模型一眼看清「<strong>是成了、错了、卡了、还是被截了</strong>」：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">成功</span><span class="t-txt">exitCode=0，output 是命令的完整输出</span></div>
+  <div class="t-row"><span class="t-num">非零退出</span><span class="t-txt">exitCode≠0（命令自己报错），output 含 stderr——模型据此判断失败原因</span></div>
+  <div class="t-row"><span class="t-num">超时</span><span class="t-txt">timedOut=true，output=「超时，请加大 timeout 重试」</span></div>
+  <div class="t-row"><span class="t-num">输出超量</span><span class="t-txt">truncated=true，output 被截 + 附「capture truncated」提示</span></div>
+</div>
+
+<h2>澄清：bash 工具 ≠ PTY 终端</h2>
+<p>这里要破除一个常见的混淆。你可能听过 opencode 有「PTY / 伪终端」，于是猜 bash 工具是经 PTY 跑的。<strong>其实不是。</strong>看源码：bash 工具通过 <span class="mono">AppProcess.run</span> 执行命令，而 <span class="mono">AppProcess</span> 底层是 <span class="mono">ChildProcessSpawner</span>（基于 <span class="mono">child_process</span>/spawn 的跨平台封装）——<strong>它是「启动一个子进程、跑完、把 stdout/stderr 收回来」的批处理模型</strong>，不是伪终端。那 <span class="mono">pty/*</span> 模块是干嘛的？它是<strong>另一套东西</strong>：给「<strong>交互式终端</strong>」用的伪终端基础设施（还记得第 10 课的 <span class="mono">pty</span>/<span class="mono">pty-connect</span> 路由组、第 33 课提到的 WebSocketTracker 跟踪的就是 pty 终端吗？那是让你在界面里开一个<strong>实时、可输入</strong>的 shell 会话用的）。两者的区别很本质：</p>
+<div class="cols">
+  <div class="col"><h4>bash 工具（批处理）</h4><p><span class="mono">spawn</span> 一个子进程 → 跑一条命令 → 收 stdout/stderr → 结束。<strong>一来一回</strong>，无交互，给模型用。</p></div>
+  <div class="col"><h4>pty 模块（交互式）</h4><p>一个<strong>持久的伪终端</strong>：<span class="mono">onData</span> 流式输出、<span class="mono">write</span> 喂输入、<span class="mono">resize</span> 调大小。给<strong>真人</strong>开实时 shell 用。</p></div>
+</div>
+<p>为什么 bash 工具<strong>不</strong>用 PTY？因为模型需要的是「跑一条命令、拿到完整结果」的<strong>确定性批处理</strong>，而不是一个会不断吐字符、还可能等你输入的<strong>实时流</strong>。PTY 那套「流式 + 可输入」对一个不能被即时追问的模型反而是负担（stdin 干脆设成 ignore 就是这个道理）。<strong>把「给模型跑命令」和「给真人开终端」用两套不同的机制分开，各自服务各自的交互模型</strong>——这是个清醒的切分。下次再看到 opencode 里的 pty，你就知道：那是终端功能，不是 bash 工具。</p>
+<p>顺着这条「为不同交互模型选不同机制」的思路再想一层：批处理之所以适合模型，是因为模型的「思考—行动」节奏本就是<strong>一问一答</strong>的——它发一条命令、等一个完整结果、再决定下一步，正好对上「spawn 跑完收果」的形态。而 PTY 的价值在于<strong>实时性与交互性</strong>：真人盯着终端，要看到字符一个个吐出来、要能随时按 Ctrl-C、要能在程序问「确认吗？」时敲 y。这两种需求是<strong>本质不同的</strong>，硬用一套机制去满足另一种，只会两头别扭。opencode 没有图省事地「让模型也走 PTY」，而是<strong>诚实地为两种交互各配一套</strong>——这种「不强求统一」的克制，和第 34 课「各家缓存机制不同就别假装统一」是同一种成熟。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>搜索与执行，补齐了 coding agent 在「改」之外的两项基本功：</p>
+  <ul>
+    <li><strong>glob / grep = 两种「找」</strong>：glob 按文件名、grep 按内容（正则）；都架在 <span class="mono">Ripgrep</span> 上（快、默认尊重 .gitignore），都带 <span class="mono">limit</span> 防止结果撑爆上下文。复用权威上游（第 35 课同理）。</li>
+    <li><strong>bash = 通用逃生舱</strong>：拥有宿主用户的文件/进程/网络权限，能干专用工具够不着的杂活，因而护栏最严——<strong>限时</strong>（默认 2 分/最长 10 分）、<strong>限量</strong>（stdout/stderr 各 1 MB）、<strong>双重许可</strong>（workdir + 命令）、<strong>可强制终止</strong>（detached + forceKillAfter 3 秒）、<strong>无交互 stdin</strong>。</li>
+    <li><strong>能力越大、护栏越严</strong>：专用工具破坏有限、护栏轻；通用 bash 被限时/限量/限地/可中断地团团围住。超时回的是「请加大 timeout 重试」这类<strong>可操作指引</strong>（写给模型看）。</li>
+    <li><strong>bash 工具 ≠ PTY</strong>：bash 经 <span class="mono">AppProcess.run</span>（spawn/child_process 批处理）跑命令；<span class="mono">pty/*</span> 是<strong>另一套</strong>给交互式终端（实时流 + 可输入）用的基础设施。两种交互模型、两套机制。</li>
+  </ul>
+  <p>到这里，coding agent 的三大基本功——改（第 38 课）、找（glob/grep）、跑（bash）——已成体系。下一课（第 40 课）收尾其余内置工具：<span class="mono">webfetch</span>（抓网页）、<span class="mono">websearch</span>（搜网络）、<span class="mono">question</span>（反问用户）、<span class="mono">todowrite</span>（写待办）——它们把 agent 的「手」从本地代码库，伸向了网络与人。而本课反复出现的「限量、限时、有界」，会在第 42 课「有界工具输出」被推到极致。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>bash 的「限时跑 + 超时处理」是它最核心的护栏（简化自 bash.ts）：</p>
+  <pre class="code"><span class="cm">// spawn 选项：detached 便于整组收尾，超时后给 3 秒宽限再强制结束</span>
+spawn(command, { cwd, shell, stdin: <span class="st">"ignore"</span>,
+  detached: process.platform !== <span class="st">"win32"</span>, forceKillAfter: Duration.<span class="fn">seconds</span>(3) })
+
+<span class="kw">const</span> result = <span class="kw">yield*</span> appProcess.<span class="fn">run</span>(command, {
+  timeout: Duration.<span class="fn">millis</span>(timeout),       <span class="cm">// 默认 2 分，最长 10 分</span>
+  maxOutputBytes: MAX_CAPTURE_BYTES,         <span class="cm">// stdout 上限 1 MB</span>
+  maxErrorBytes: MAX_CAPTURE_BYTES,          <span class="cm">// stderr 上限 1 MB</span>
+}).pipe(Effect.<span class="fn">catchTag</span>(<span class="st">"AppProcessError"</span>,
+  e =&gt; isTimeout(e) ? Effect.<span class="fn">succeed</span>(undefined) : Effect.<span class="fn">fail</span>(e)))
+<span class="kw">if</span> (!result) <span class="kw">return</span> { ..., output: <span class="st">"Command exceeded timeout ... Retry with a larger timeout"</span>, timedOut: <span class="kw">true</span> }</pre>
+  <p>三处细节见功力。其一，<strong>超时被「降格」成一个正常结果而非异常</strong>：<span class="mono">catchTag</span> 把「超时」这一种 <span class="mono">AppProcessError</span> 转成 <span class="mono">undefined</span>（再变成一个带 <span class="mono">timedOut:true</span> 的结构化结果），其余错误才真正失败——超时是<strong>预期内</strong>的事，不该当崩溃处理。其二，<strong>限量是「内存安全上限」</strong>：1 MB 的 <span class="mono">maxOutputBytes</span> 防的是一条 <span class="mono">cat 大文件</span> 把内存撑爆，截断后明确标 <span class="mono">truncated</span> 并附一句说明。其三，<span class="mono">timeout</span> 在 <strong>schema 层</strong>就被 <span class="mono">isLessThanOrEqualTo(MAX_TIMEOUT_MS)</span> 卡住——模型就算想传个 24 小时的超时，<strong>在参数校验关（第 36 课）就被挡下</strong>，根本进不到执行。<strong>护栏不只在运行时，也在类型/schema 层；越早拦截越好。</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>glob / grep（<span class="mono">tool/{glob,grep}.ts</span>）= 两种「找」</strong>：glob 按文件名 pattern、grep 按内容正则（+include 文件 glob）；output 文件/命中清单。<strong>都架在 <span class="mono">Ripgrep</span> 服务上</strong>（快、默认尊重 .gitignore），都带 <span class="mono">limit</span> 防结果撑爆上下文。复用权威上游而非自己手写遍历。</li>
+    <li><strong>bash（<span class="mono">tool/bash.ts</span>）= 通用逃生舱</strong>：input <span class="mono">{command, workdir?, timeout?, description?}</span>，拥有宿主用户的文件/进程/网络权限。护栏：<strong>限时</strong>（DEFAULT 2 分 / MAX 10 分，schema 卡上限）、<strong>限量</strong>（stdout/stderr 各 <span class="mono">MAX_CAPTURE_BYTES</span>=1 MB）、<strong>双重 permission.assert</strong>（workdir + 命令）、<strong>detached + forceKillAfter 3 秒</strong>、<strong>stdin ignore</strong>。</li>
+    <li><strong>能力越大护栏越严</strong>：专用工具护栏轻，通用 bash 被限时/限量/限地/可中断围住。超时被降格成带 <span class="mono">timedOut:true</span> 的正常结果（catchTag），回一句「加大 timeout 重试」的可操作指引。</li>
+    <li><strong>bash ≠ PTY</strong>：bash 经 <span class="mono">AppProcess.run</span> → <span class="mono">ChildProcessSpawner</span>（spawn/child_process 批处理）跑命令；<span class="mono">pty/*</span>（<span class="mono">Proc.onData/write/resize</span>）是<strong>另一套</strong>给交互式终端（实时流 + 可输入、第 10 课 pty 路由、第 33 课 WebSocketTracker）用的。批处理 vs 交互，两套机制。</li>
+    <li><strong>贯穿 M7 的红线</strong>：凡可能「量大」处皆有界——搜索的 limit、文件读的 offset/limit、bash 的 timeout/字节上限，都为第 42 课「有界工具输出」埋线。护栏在 schema 层就开始（越早拦越好）。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Last lesson covered the agent's four hands for changing files. But before changing, you must <strong>find</strong> what to change; many tasks also need to <strong>run a command</strong> and see results (install deps, run tests, git status). This lesson's three tools are a coding agent's other two basic skills: <strong>search</strong> and <strong>execute</strong>. <span class="mono">glob</span> (find by filename), <span class="mono">grep</span> (search by file content), <span class="mono">bash</span> (run shell commands). The first two are "<strong>eyes</strong>"—quickly locating in the codebase; the last is the "<strong>universal hand</strong>"—it can do the odd jobs the specialized tools above can't, but for that very reason has <strong>the most power and the most guardrails</strong>.</p>
+<p>This lesson shows an interesting contrast: <strong>specialized vs general</strong>. glob/grep are <strong>specialized</strong> tools—making the high-frequency "search" into two fast, stable, bounded narrow interfaces (both backed by ripgrep); bash is the <strong>general escape hatch</strong>—it has "the host user's filesystem, process, and network authority," near-omnipotent, so opencode wraps it in a whole ring of seatbelts: <strong>time-limited, volume-limited, doubly-permissioned, force-terminable</strong>. I'll also clear up a common misconception—<strong>the bash tool does NOT run via "PTY (pseudo-terminal)"</strong>; PTY is separate infrastructure for "interactive terminals," a different thing from the "run a command, get results" bash tool. Clearing this up sharpens your boundary between "batch execution" and "interactive terminal."</p>
+
+<div class="card analogy">
+  <div class="tag">🔦 Analogy</div>
+  Imagine the agent working in a vast code library. <strong>glob</strong> is "<strong>search by title</strong>"—"give me all <span class="mono">*.test.ts</span>," and whoosh, a list of titles. <strong>grep</strong> is "<strong>search by a phrase inside the books</strong>"—"which books contain <span class="mono">TODO: fix</span>," flipping through contents to pull out the hits. Both rely on the library's <strong>blazing-fast search machine</strong> (ripgrep), auto-skipping the shelves you said to ignore (gitignore). And <strong>bash</strong> hands the agent the <strong>keys to the whole workshop</strong>—it can run the machines, haul things, make outside calls (full filesystem, process, network authority). Precisely because this key is so heavy, the workshop door posts iron rules: <strong>each job has a time limit (force-stop on overtime), the waste it produces has a cap (truncate on overflow), you must register before starting (permission), and there's a master switch (force-cut power to terminate)</strong>. Specialized tools are like labeled precision instruments; the general bash is like a workshop needing safety protocols—<strong>the greater the power, the stricter the guardrails</strong>.
+</div>
+
+<h2>glob and grep: two ways to "find"</h2>
+<p>First lay the three tools side by side, one table for their division of labor and each one's "boundary"—they all fill lesson 36's <span class="mono">Config</span> form too:</p>
+<table class="t">
+  <tr><th>Tool</th><th>Does what</th><th>Backed by</th><th>Key boundary</th></tr>
+  <tr><td>glob</td><td>find files by filename pattern</td><td>Ripgrep</td><td>limit result cap</td></tr>
+  <tr><td>grep</td><td>search by content regex (+include file glob)</td><td>Ripgrep</td><td>limit hit cap</td></tr>
+  <tr><td>bash</td><td>run a shell command (full authority)</td><td>AppProcess/spawn</td><td>timeout + 1MB bytes + dual permission</td></tr>
+</table>
+<p>First the two search tools. They solve the same big problem—"<strong>locate in the codebase</strong>"—but with different cuts:</p>
+<div class="cols">
+  <div class="col"><h4>glob · find by name</h4><p>input <span class="mono">{pattern, path?, limit?}</span>, output file list. "Give me files matching <span class="mono">src/**/*.ts</span>." Asks <strong>"which files are named this."</strong></p></div>
+  <div class="col"><h4>grep · search by content</h4><p>input <span class="mono">{pattern(regex), path?, include?, limit?}</span>, output hit list. "Which files have <span class="mono">useEffect</span>." Asks <strong>"which files wrote this."</strong></p></div>
+</div>
+<p>Both implementations are <strong>built on the <span class="mono">Ripgrep</span> service</strong>—a smart choice. ripgrep (rg) is one of the industry's acknowledged fastest code-search tools, and <strong>respects <span class="mono">.gitignore</span> by default</strong>: it won't search <span class="mono">node_modules</span>, <span class="mono">dist</span> into the results to pollute them. opencode didn't hand-write filesystem traversal then implement regex matching (slow and error-prone), but <strong>stands on ripgrep's giant shoulders</strong>, wrapping it into just two narrow tool interfaces. This is the same wisdom as lesson 35's "don't reinvent the wheel, reuse the authoritative upstream"—for "search," something others have perfected, just borrow it.</p>
+<p>Another commonality is <strong>both carry <span class="mono">limit</span> (result cap)</strong>. Why does search need a cap too? Because a broad pattern (e.g. grep <span class="mono">import</span>) may hit thousands, and stuffing them all back into the conversation would <strong>instantly blow the model's context window</strong>. <span class="mono">limit</span> bounds results to a reasonable range, forcing the model to <strong>narrow with a more precise pattern or narrower path</strong> rather than scooping a whole sea at once. This, lesson 38's file-tool offset/limit paging, and lesson 42's bounded output are the same red thread running through M7: <strong>anywhere "volume could be large" must be bounded</strong>—because the model consuming the results has a limited and expensive context window.</p>
+
+<h2>bash: the universal hand, and its ring of seatbelts</h2>
+<p>Now the centerpiece <span class="mono">bash</span>. Its description has a heavy line—commands run with "<strong>the host user's filesystem, process, and network authority</strong>." In other words, <strong>what bash can do nearly equals what you yourself can do in a terminal</strong>. That's its power (the odd jobs the specialized tools can't reach, it can manage) and its danger (an <span class="mono">rm -rf</span> runs just the same). So opencode wraps bash in a whole ring of seatbelts:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">time-limited</div><div class="c-txt">default 2 min, max 10 min (≤ MAX_TIMEOUT_MS at the schema layer); timeout→clear "timed out, retry with a larger timeout"</div></div>
+  <div class="cell"><div class="c-tag">volume-limited</div><div class="c-txt">stdout/stderr each 1 MB in-memory cap (MAX_CAPTURE_BYTES); overflow→truncate + a truncated notice</div></div>
+  <div class="cell"><div class="c-tag">dual permission</div><div class="c-txt">one for workdir (external dir needs external_directory approval) + one for the command itself, permission.assert</div></div>
+  <div class="cell"><div class="c-tag">force-terminable</div><div class="c-txt">detached launch (non-Windows) for group cleanup; forceKillAfter 3s grace then force-end</div></div>
+  <div class="cell"><div class="c-tag">non-interactive</div><div class="c-txt">stdin set to ignore—the command can't turn around and ask the model for input (the model can't answer)</div></div>
+</div>
+<p>Connect these and a clear design intent emerges: <strong>give the strongest capability the strictest constraints</strong>. Specialized tools like glob/grep can do limited damage, with light guardrails; the "do-anything" escape hatch bash is hemmed in <strong>time-limited, volume-limited, place-limited, interruptible</strong>. Among these, <strong>the time limit</strong> is especially crucial—an <span class="mono">npm install</span> may take tens of seconds, but a mistakenly-written infinite loop runs forever; the timeout (default 2 min) leashes every command with a <strong>time belt</strong>, force-stopping on overrun, never letting one command hang the whole agent. The post-timeout handling is thoughtful too: not a dry error but "<strong>timed out; if this command was meant to run longer, retry with a larger timeout</strong>"—again an actionable guide written for the model (echoing lesson 38). The main execution flow is a chain of "resolve→permit→launch→run-with-limit→collect":</p>
+<div class="flow">
+  <div class="f-node">resolve workdir<br><small>relative to Location; external needs approval</small></div>
+  <div class="f-arrow">permission.assert →</div>
+  <div class="f-node">spawn child process<br><small>detached + configured shell</small></div>
+  <div class="f-arrow">run(timeout, maxBytes) →</div>
+  <div class="f-node">run time+volume bounded<br><small>timeout→timedOut; overflow→truncated</small></div>
+  <div class="f-arrow">→</div>
+  <div class="f-node">{exitCode, output, truncated…}<br><small>structured result back</small></div>
+</div>
+<p>The same chain lands in several different outcomes, and <span class="mono">output</span> faithfully encodes them all into the structured result, so the model sees at a glance "<strong>did it succeed, err, hang, or get truncated</strong>":</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">success</span><span class="t-txt">exitCode=0, output is the command's full output</span></div>
+  <div class="t-row"><span class="t-num">nonzero exit</span><span class="t-txt">exitCode≠0 (the command errored), output includes stderr—the model judges the cause</span></div>
+  <div class="t-row"><span class="t-num">timeout</span><span class="t-txt">timedOut=true, output="timed out, retry with a larger timeout"</span></div>
+  <div class="t-row"><span class="t-num">output overflow</span><span class="t-txt">truncated=true, output truncated + a "capture truncated" notice</span></div>
+</div>
+
+<h2>Clarification: the bash tool ≠ a PTY terminal</h2>
+<p>Here we must dispel a common confusion. You may have heard opencode has "PTY / pseudo-terminal," and guessed the bash tool runs via PTY. <strong>Actually it doesn't.</strong> Look at the source: the bash tool executes commands via <span class="mono">AppProcess.run</span>, and <span class="mono">AppProcess</span> underneath is <span class="mono">ChildProcessSpawner</span> (a cross-platform wrapper over <span class="mono">child_process</span>/spawn)—<strong>it's a batch model of "launch a child process, run to completion, collect stdout/stderr,"</strong> not a pseudo-terminal. So what's the <span class="mono">pty/*</span> module for? It's <strong>a different thing</strong>: pseudo-terminal infrastructure for "<strong>interactive terminals</strong>" (remember lesson 10's <span class="mono">pty</span>/<span class="mono">pty-connect</span> route groups, lesson 33's mention that WebSocketTracker tracks pty terminals? That's for opening a <strong>live, typeable</strong> shell session in the UI). The difference is essential:</p>
+<div class="cols">
+  <div class="col"><h4>bash tool (batch)</h4><p><span class="mono">spawn</span> a child process → run one command → collect stdout/stderr → done. <strong>One round trip</strong>, non-interactive, for the model.</p></div>
+  <div class="col"><h4>pty module (interactive)</h4><p>A <strong>persistent pseudo-terminal</strong>: <span class="mono">onData</span> streams output, <span class="mono">write</span> feeds input, <span class="mono">resize</span> adjusts size. For a <strong>human</strong> opening a live shell.</p></div>
+</div>
+<p>Why does the bash tool <strong>not</strong> use PTY? Because the model needs the <strong>deterministic batch</strong> of "run one command, get the complete result," not a <strong>live stream</strong> that keeps spitting characters and may wait for your input. PTY's "streaming + typeable" is actually a burden for a model that can't be interactively prompted (which is exactly why stdin is set to ignore). <strong>Splitting "run commands for the model" and "open a terminal for a human" into two different mechanisms, each serving its own interaction model</strong>—a clear-headed division. Next time you see pty in opencode, you'll know: that's the terminal feature, not the bash tool.</p>
+<p>Following this "different mechanism for different interaction model" one layer further: batch suits the model because the model's "think—act" rhythm is itself <strong>question-and-answer</strong>—it sends one command, awaits one complete result, then decides the next, exactly matching "spawn, run, collect." PTY's value is <strong>real-time and interactivity</strong>: a human watching the terminal wants to see characters spat out one by one, to press Ctrl-C anytime, to type y when the program asks "confirm?". These two needs are <strong>essentially different</strong>; forcing one mechanism to serve the other only awkwards both. opencode didn't lazily "make the model go through PTY too," but <strong>honestly fits a mechanism to each interaction</strong>—this "don't force unification" restraint is the same maturity as lesson 34's "different vendors' cache mechanisms, don't pretend they're the same."</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>Search and execute round out a coding agent's two basic skills beyond "change":</p>
+  <ul>
+    <li><strong>glob / grep = two ways to "find"</strong>: glob by filename, grep by content (regex); both built on <span class="mono">Ripgrep</span> (fast, respects .gitignore by default), both carry <span class="mono">limit</span> to keep results from blowing the context. Reuse the authoritative upstream (like lesson 35).</li>
+    <li><strong>bash = the general escape hatch</strong>: holds the host user's file/process/network authority, does the odd jobs specialized tools can't reach, hence the strictest guardrails—<strong>time-limited</strong> (default 2 min/max 10 min), <strong>volume-limited</strong> (stdout/stderr each 1 MB), <strong>dual permission</strong> (workdir + command), <strong>force-terminable</strong> (detached + forceKillAfter 3s), <strong>non-interactive stdin</strong>.</li>
+    <li><strong>Greater power, stricter guardrails</strong>: specialized tools do limited damage, light guardrails; general bash is hemmed in time/volume/place-limited and interruptible. Timeout returns an <strong>actionable guide</strong> like "retry with a larger timeout" (written for the model).</li>
+    <li><strong>bash tool ≠ PTY</strong>: bash runs commands via <span class="mono">AppProcess.run</span> (spawn/child_process batch); <span class="mono">pty/*</span> is <strong>separate</strong> infrastructure for interactive terminals (live stream + typeable). Two interaction models, two mechanisms.</li>
+  </ul>
+  <p>By here, the coding agent's three basic skills—change (lesson 38), find (glob/grep), run (bash)—form a system. The next lesson (40) wraps up the remaining built-in tools: <span class="mono">webfetch</span> (fetch web pages), <span class="mono">websearch</span> (web search), <span class="mono">question</span> (ask the user back), <span class="mono">todowrite</span> (write todos)—extending the agent's "hands" from the local codebase to the network and people. And this lesson's recurring "bound volume, bound time" is pushed to its extreme in lesson 42's "bounded tool output."</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>bash's "bounded run + timeout handling" is its core guardrail (simplified from bash.ts):</p>
+  <pre class="code"><span class="cm">// spawn opts: detached for group cleanup; 3s grace before force-end on timeout</span>
+spawn(command, { cwd, shell, stdin: <span class="st">"ignore"</span>,
+  detached: process.platform !== <span class="st">"win32"</span>, forceKillAfter: Duration.<span class="fn">seconds</span>(3) })
+
+<span class="kw">const</span> result = <span class="kw">yield*</span> appProcess.<span class="fn">run</span>(command, {
+  timeout: Duration.<span class="fn">millis</span>(timeout),       <span class="cm">// default 2 min, max 10 min</span>
+  maxOutputBytes: MAX_CAPTURE_BYTES,         <span class="cm">// stdout cap 1 MB</span>
+  maxErrorBytes: MAX_CAPTURE_BYTES,          <span class="cm">// stderr cap 1 MB</span>
+}).pipe(Effect.<span class="fn">catchTag</span>(<span class="st">"AppProcessError"</span>,
+  e =&gt; isTimeout(e) ? Effect.<span class="fn">succeed</span>(undefined) : Effect.<span class="fn">fail</span>(e)))
+<span class="kw">if</span> (!result) <span class="kw">return</span> { ..., output: <span class="st">"Command exceeded timeout ... Retry with a larger timeout"</span>, timedOut: <span class="kw">true</span> }</pre>
+  <p>Three details show craft. One, <strong>timeout is "demoted" to a normal result, not an exception</strong>: <span class="mono">catchTag</span> turns "timeout," one kind of <span class="mono">AppProcessError</span>, into <span class="mono">undefined</span> (then a structured result with <span class="mono">timedOut:true</span>), while other errors truly fail—timeout is an <strong>expected</strong> thing, not to be treated as a crash. Two, <strong>the volume cap is an "in-memory safety limit"</strong>: the 1 MB <span class="mono">maxOutputBytes</span> guards against a <span class="mono">cat huge-file</span> blowing memory; after truncation it clearly marks <span class="mono">truncated</span> with a note. Three, <span class="mono">timeout</span> is capped at the <strong>schema layer</strong> by <span class="mono">isLessThanOrEqualTo(MAX_TIMEOUT_MS)</span>—even if the model tries to pass a 24-hour timeout, it's <strong>stopped at the param-validation gate (lesson 36)</strong>, never reaching execution. <strong>Guardrails aren't only at runtime but at the type/schema layer too; the earlier the interception, the better.</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>glob / grep (<span class="mono">tool/{glob,grep}.ts</span>) = two ways to "find"</strong>: glob by filename pattern, grep by content regex (+include file glob); output file/hit lists. <strong>Both built on the <span class="mono">Ripgrep</span> service</strong> (fast, respects .gitignore by default), both carry <span class="mono">limit</span> to keep results from blowing the context. Reuse the authoritative upstream rather than hand-writing traversal.</li>
+    <li><strong>bash (<span class="mono">tool/bash.ts</span>) = the general escape hatch</strong>: input <span class="mono">{command, workdir?, timeout?, description?}</span>, holds host user's file/process/network authority. Guardrails: <strong>time-limited</strong> (DEFAULT 2 min / MAX 10 min, schema-capped), <strong>volume-limited</strong> (stdout/stderr each <span class="mono">MAX_CAPTURE_BYTES</span>=1 MB), <strong>dual permission.assert</strong> (workdir + command), <strong>detached + forceKillAfter 3s</strong>, <strong>stdin ignore</strong>.</li>
+    <li><strong>Greater power, stricter guardrails</strong>: specialized tools light, general bash hemmed in time/volume/place-limited and interruptible. Timeout demoted to a normal result with <span class="mono">timedOut:true</span> (catchTag), returning an actionable "retry with a larger timeout" guide.</li>
+    <li><strong>bash ≠ PTY</strong>: bash runs commands via <span class="mono">AppProcess.run</span> → <span class="mono">ChildProcessSpawner</span> (spawn/child_process batch); <span class="mono">pty/*</span> (<span class="mono">Proc.onData/write/resize</span>) is <strong>separate</strong> infrastructure for interactive terminals (live stream + typeable, lesson 10's pty routes, lesson 33's WebSocketTracker). Batch vs interactive, two mechanisms.</li>
+    <li><strong>The red thread through M7</strong>: anywhere "volume could be large" is bounded—search's limit, file-read's offset/limit, bash's timeout/byte cap, all foreshadowing lesson 42's "bounded tool output." Guardrails start at the schema layer (the earlier the interception, the better).</li>
+  </ul>
+</div>
+""",
+}
 LESSON_40 = wip('其他内置工具', 'Other built-in tools')
 LESSON_41 = wip('权限系统', 'Permissions')
 LESSON_42 = wip('有界工具输出', 'Bounded tool output')
