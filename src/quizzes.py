@@ -749,6 +749,47 @@ QUIZZES = {
             {"zh": "协调器把「纯调度」（按 key 串行/合并/起停）和「具体排空时跑什么」（SessionRunner.run）彻底解耦，drain 只是个传进来的回调。这种解耦对「单独测试调度逻辑」有什么好处？", "en": "The coordinator fully decouples “pure scheduling” (serial/coalesce/start-stop by key) from “what to run on drain” (SessionRunner.run), with drain just a passed-in callback. What does this decoupling buy for “testing the scheduling logic in isolation”?"},
         ],
     },
+    "17-agent-loop.html": {
+        "mcq": [
+            {
+                "q": {"zh": "agent 循环和聊天机器人的根本区别是？", "en": "What fundamentally separates the agent loop from a chatbot?"},
+                "opts": [
+                    {"zh": "agent 是「一个目标、多轮自驱」：反复想一步→调工具→看结果→再想，直到完成或撞边界", "en": "An agent is \"one goal, many self-driven rounds\": repeatedly think→call tool→see result→think again, until done or it hits a boundary"},
+                    {"zh": "agent 用的模型更大", "en": "An agent uses a bigger model"},
+                    {"zh": "agent 不需要联网", "en": "An agent needs no network"},
+                    {"zh": "没有区别", "en": "There is no difference"},
+                ],
+                "answer": 0,
+                "why": {"zh": "聊天机器人一问一答；agent 给个目标就自驱迭代：while(activity){ for(step<25){ runTurn } }。每轮 runTurn 想一步、可能调工具，看结果再想下一步——这台有界自驱循环正是 agent 的心脏。", "en": "A chatbot is one ask, one answer; an agent self-drives on a goal: while(activity){ for(step<25){ runTurn } }. Each runTurn thinks, maybe calls tools, sees results, thinks next — this bounded self-driving loop is the agent's heart."},
+            },
+            {
+                "q": {"zh": "循环对工具调用的第一条纪律是什么？", "en": "What's the loop's first discipline for tool calls?"},
+                "opts": [
+                    {"zh": "先把调用 durably 记成 tool part(pending)，再开始任何副作用", "en": "Durably record the call as a tool part(pending) first, before any side effect"},
+                    {"zh": "先执行，成功了再记录", "en": "Execute first, record only on success"},
+                    {"zh": "不记录，直接执行", "en": "Don't record, just execute"},
+                    {"zh": "串行执行所有工具", "en": "Execute all tools serially"},
+                ],
+                "answer": 0,
+                "why": {"zh": "读文件/跑命令有副作用、可能崩。先落库「我要调这个」再动手：万一执行中崩了，至少发起记录还在，重启能据此收拾（run 开头的 failInterruptedTools 就专清这些）。是第 15 课「先记意图、再兑现」在工具层的复刻。", "en": "Reading files/running commands has side effects and may crash. Record \"I'm calling this\" before acting: if it crashes mid-run, at least the initiation record remains, so restart can clean up (failInterruptedTools at run's start does exactly this). Lesson 15's \"record intent first\" at the tool layer."},
+            },
+            {
+                "q": {"zh": "为什么循环每一轮都要重新加载「投影历史」，而不在内存里攒状态？", "en": "Why does the loop reload \"projected history\" every round instead of hoarding state in memory?"},
+                "opts": [
+                    {"zh": "持久层是唯一真相：这让 steer 即时并入、崩溃能恢复、多端能一致", "en": "The durable layer is the sole truth: this lets steer merge instantly, crashes recover, clients stay consistent"},
+                    {"zh": "因为内存太贵", "en": "Because memory is expensive"},
+                    {"zh": "因为模型要求这样", "en": "Because the model requires it"},
+                    {"zh": "纯粹是性能优化", "en": "Purely a performance optimization"},
+                ],
+                "answer": 0,
+                "why": {"zh": "每轮回持久层取最新真相，你在模型忙时插的话（admit→提单成消息）下一轮重读就在里面、当轮就能被消化（循环里 hasPending(steer) 那句）。看似笨，实则是 agent 可实时引导、可崩溃恢复、可多端一致的总开关。", "en": "Each round fetches the latest truth from the durable layer, so a line you insert while busy (admit→promoted to a message) is there on the next reread, digestible that round (the hasPending(steer) line). Seemingly dumb, it's the master switch for live-steerable, crash-recoverable, multi-client-consistent agents."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说「等齐再走」——一轮里并发起的多个工具，必须全部 settle 才进下一轮。如果改成「回来一个就喂模型一个」，会出什么问题？为什么模型的下一步推理需要一份完整一致的世界状态？", "en": "The lesson says \"await all before moving on\" — multiple tools started concurrently in a round must all settle before the next round. What breaks if you instead \"feed the model each result as it returns\"? Why does the model's next reasoning need a complete, consistent world state?"},
+            {"zh": "MAX_STEPS=25 给内层循环套了个硬环，而不是 while(true)。结合「模型并不总知道自己该停」，说说这个上限在「自由迭代」和「绝不失控」之间扮演的角色。", "en": "MAX_STEPS=25 puts a hard ring on the inner loop instead of while(true). Given \"the model doesn't always know to stop,\" discuss the role this ceiling plays between \"free iteration\" and \"never run wild.\""},
+        ],
+    },
 }
 
 def render(fname, lang):

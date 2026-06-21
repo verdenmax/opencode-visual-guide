@@ -667,7 +667,230 @@ LESSON_16 = {
 </div>
 """,
 }
-LESSON_17 = wip('V2 agent 循环', 'The V2 agent loop')
+LESSON_17 = {
+    "zh": r"""
+<p class="lead">前面三课像在搭舞台：第 14 课认了演员（Session/Message/Part），第 15 课把剧本稳稳收进收件箱，第 16 课的协调器安排了谁先上、谁串行。现在<strong>大幕拉开</strong>——协调器一声 <span class="mono">drain</span>，调用的 <span class="mono">SessionRunner.run</span>，就是 opencode 这颗大脑<strong>真正「思考」的地方</strong>。这一课讲那个让 agent 之所以是 agent 的核心：<strong>「想 → 调工具 → 看结果 → 再想」反复推进的循环</strong>。它不是一次问答，而是一台会自己迭代、自己取数据、自己决定何时收手的引擎。读懂这一课，你就摸到了 opencode 智能的心脏。</p>
+<p>为什么这个循环值得一整课？因为「agent」和「聊天机器人」的全部分野，就在这个循环里。聊天机器人是<strong>一问一答</strong>：你说一句，它回一句，完。agent 是<strong>一个目标、多轮自驱</strong>：你给个任务，它自己<strong>反复</strong>地想一步、动一下手（读文件、跑命令）、看看结果、再想下一步——直到任务完成或撞上边界。这一课就拆开这台「自驱循环」：它每一轮干什么、靠什么保证不失控、又怎么把第 15、16 课的 steer/queue 接进来。这是整个第四部分的<strong>引擎舱</strong>。</p>
+
+<div class="card analogy">
+  <div class="tag">🔬 生活类比</div>
+  把 agent 循环想成一位<strong>查案的研究助理</strong>。你交给他一桩案子，他<strong>不会</strong>当场拍脑袋给结论，而是进入一个节奏：<strong>读一遍当前的案卷</strong>（加载历史）→ <strong>想一想，要么写下结论、要么开几张「调档单」</strong>（模型这一轮的输出：文字 + 工具调用）→ <strong>等档案室把材料送回来、归档</strong>（执行工具、记录结果）→ <strong>把更新后的案卷再从头读一遍</strong>，接着想下一步。如此一轮轮推进，直到案子破了，或者——这点很关键——<strong>轮数撞上了上限（25 轮）</strong>，他就停下来跟你汇报，绝不无休止地查下去。最讲究的一条铁律是：他<strong>每一轮都重新通读整份案卷</strong>，从不凭脑子里那份可能过时的记忆办案。看懂这位一丝不苟的助理，你就看懂了 agent 循环。
+</div>
+
+<h2>循环的形状：有界的「想—动」往复</h2>
+<p>剥开 <span class="mono">runner/llm.ts</span>，循环的骨架其实异常清晰——两层嵌套，外加一个硬上限：</p>
+<pre class="code"><span class="cm">// 简化自 session/runner/llm.ts</span>
+<span class="kw">while</span> (openActivity) {                       <span class="cm">// 外层：一个个「活动」</span>
+  <span class="kw">for</span> (<span class="kw">let</span> step = 0; step &lt; MAX_STEPS; step++) {  <span class="cm">// 内层：有界的轮次（≤25）</span>
+    needsContinuation = <span class="kw">yield</span>* <span class="fn">runTurn</span>(sessionID, promotion)  <span class="cm">// 跑一轮 provider turn</span>
+    <span class="kw">if</span> (!needsContinuation) needsContinuation = <span class="kw">yield</span>* <span class="fn">hasPending</span>(<span class="st">"steer"</span>)  <span class="cm">// 有插话→继续</span>
+    <span class="kw">if</span> (!needsContinuation) <span class="kw">break</span>             <span class="cm">// 没活了→收手</span>
+  }
+  <span class="kw">if</span> (needsContinuation) <span class="kw">return</span> <span class="kw">new</span> <span class="fn">StepLimitExceededError</span>({ limit: MAX_STEPS })  <span class="cm">// 撞上限</span>
+  openActivity = <span class="kw">yield</span>* <span class="fn">hasPending</span>(<span class="st">"queue"</span>)  <span class="cm">// 还有排队的活动？开下一个</span>
+}</pre>
+<p>三个层次，各管一摊。<strong>内层 <span class="mono">for</span></strong> 是核心：每转一圈就是一轮 <span class="mono">runTurn</span>——模型「想一步、可能动一次手」。<span class="mono">runTurn</span> 返回一个 <span class="mono">needsContinuation</span>：如果这一轮调了工具、需要看着结果再想，就回 <span class="mono">true</span>，循环继续；如果模型给出了最终答复、无事可做，就回 <span class="mono">false</span>，<span class="mono">break</span> 收手。<strong>外层 <span class="mono">while</span></strong> 管「活动」：当前这摊忙完，看看有没有排队（queue）的新活动要开（呼应第 15 课的 queue 投递）。而那个 <span class="mono">MAX_STEPS = 25</span>，是钉死的<strong>硬上限</strong>：无论模型多想继续，单个活动最多迭代 25 轮，超了就抛 <span class="mono">StepLimitExceededError</span>——这是 agent「绝不无限空转」的安全绳（细节留到第 20 课）。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">外层 while(openActivity)</div><div class="v">一个个「活动」：当前忙完，看有没有排队的 queue 活动要开</div></div>
+  <div class="cell"><div class="k">内层 for(step&lt;25)</div><div class="v">有界轮次：每圈一轮 runTurn，最多 25 轮</div></div>
+  <div class="cell"><div class="k">runTurn → needsContinuation</div><div class="v">true=调了工具要再想；false=给出最终答复、可收手</div></div>
+</div>
+<div class="flow">
+  <div class="node">读案卷<span class="sub">加载投影历史</span></div>
+  <div class="arrow">→</div>
+  <div class="node">想 + 开调档单<span class="sub">llm.stream 一轮</span></div>
+  <div class="arrow">→</div>
+  <div class="node">取材料·归档<span class="sub">执行工具·记结果</span></div>
+  <div class="arrow">↺ 再读案卷</div>
+  <div class="node">下一轮<span class="sub">≤25 轮·或收手</span></div>
+</div>
+<p>停下来体会这个「双层 + 上限」的结构有多克制。内层那个 <span class="mono">for</span> 之所以用计数器而非 <span class="mono">while(true)</span>，是因为<strong>模型并不总知道自己该停</strong>——它可能陷进「再查一个文件、再查一个文件」的兔子洞。给它套一个 25 的硬环，等于在「让它自由迭代」和「绝不失控空转」之间，划了一道不容商量的红线。而外层 <span class="mono">while</span> 与内层 <span class="mono">for</span> 的分工也很讲究：一次「活动」是一段完整的自驱任务，里面可以有至多 25 轮往复；活动之间则靠 queue 排队、一个个来。<strong>有界的轮、排队的活动</strong>——两层结构把「单个任务别失控」和「多个任务有秩序」这两件事，干净地分到了两层去管。</p>
+
+<h2>一轮 = 恰好一次 llm.stream</h2>
+<p>每一轮 <span class="mono">runTurn</span> 的核心，是源码反复强调的一句话：<strong>「每个 provider turn 恰好一次 <span class="mono">llm.stream(request)</span>」</strong>。模型不是被一口气问完，而是<strong>一轮一次</strong>地被请教。而 <span class="mono">stream</span> 这个词是字面意思——模型的输出是<strong>流式</strong>到达的：先冒出几个思考片段（reasoning），再吐文字（text），中途可能抛出一个工具调用（tool-call）……这些事件<strong>一边到达、一边被增量地存进数据模型</strong>。</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">reasoning</span><span class="tl-desc">"我得先看看这个函数怎么写的…" → 即时存为 reasoning part</span></div>
+  <div class="tl-item"><span class="tl-time">text</span><span class="tl-desc">"我来帮你重构它。" → 即时存为 text part</span></div>
+  <div class="tl-item"><span class="tl-time">tool-call</span><span class="tl-desc">read(file.ts) → 即时存为 tool part（状态 pending）</span></div>
+  <div class="tl-item"><span class="tl-time">…</span><span class="tl-desc">流结束 → 这一轮模型「说完」了</span></div>
+</div>
+<p>还记得第 14 课那个「content 是 part 数组、还能逐 part 增量更新」的设计吗？这里就是它发光的时刻：模型每吐出一个片段，循环就把它<strong>当场塞进当前 Assistant 消息的 content 数组、并发一个事件</strong>。于是第 11 课那条 SSE 河立刻把它推给所有客户端——你在 TUI 里看到的「AI 一个字一个字往外蹦、思考实时展开」，根就在这一轮 stream 的逐事件落盘与推送。<strong>L14 的数据形状、L11 的事件流、L17 的循环</strong>，在这一刻严丝合缝地咬在一起。</p>
+
+<h2>工具：先记账，再动手，并发跑，全等齐</h2>
+<p>当这一轮的流里冒出 <span class="mono">tool-call</span>，循环对它的处理藏着几条深思熟虑的纪律。第一条最关键：<strong>先把这次工具调用「durably 记录」下来，再开始任何副作用</strong>。也就是说，「我要调 read(file.ts)」这件事，<strong>先落库</strong>成一个 tool part（状态 pending），<strong>然后</strong>才真去读文件。为什么？因为读文件、跑命令是<strong>有副作用、可能崩、可能被中断</strong>的——万一执行到一半进程挂了，至少「我发起过这个调用」这件事铁证还在，重启后能据此收拾残局（还记得 <span class="mono">run</span> 开头那句 <span class="mono">failInterruptedTools</span> 吗？专门清理上次被打断、卡在 pending/running 的工具）。<strong>这又是第 15 课「先记录意图、再兑现」那条脊梁，在工具层的复刻。</strong></p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">流里来了 tool-call：read(file.ts)</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">先 durably 记成 tool part（pending）—— 副作用还没开始</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">settle：真去执行；作为一个 fiber 丢进 FiberSet 并发跑</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">多个工具调用 → 多个 fiber 同时跑（第 7 课的结构化并发）</span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">await 全部 fiber 结束 → 才进入下一轮</span></div>
+</div>
+<p>第二条纪律：<strong>并发执行、但等齐再走</strong>。一轮里模型可能一口气要调三个工具（比如同时读三个文件）。循环把每个调用<strong>作为一个 fiber 丢进 <span class="mono">FiberSet</span> 并发地跑</strong>——这正是第 7 课结构化并发的用武之地：三个工具同时跑，省时间；但循环<strong>会等这一批全部 settle（成功/失败都算）之后，才进入下一轮</strong>。绝不会「工具还没回来就急着问模型下一步」。<strong>并发求快、等齐求稳</strong>，FiberSet 把这两件事一手包办。每个工具的结果——成功的 result、失败的 error——也都<strong>按类型存回那个 tool part 的 state</strong>（pending → running → completed/error，正是第 14 课那台状态机）。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">① 先记账</div><div class="v">durably 记成 tool part(pending)，再开始任何副作用</div></div>
+  <div class="cell"><div class="k">② 并发起</div><div class="v">每个调用一个 fiber，丢进 FiberSet 同时跑</div></div>
+  <div class="cell"><div class="k">③ 等齐</div><div class="v">await 这批全部 settle（成败都算）才进下一轮</div></div>
+  <div class="cell"><div class="k">④ 按类型存</div><div class="v">result/error 存回 state：pending→running→completed/error</div></div>
+</div>
+<p>为什么非要「等齐再走」？因为模型下一轮的思考，<strong>必须建立在这一轮所有工具结果都到位的前提上</strong>。设想只回来两个工具结果就急着问模型「接下来怎么办」——它会基于残缺的信息做判断，等第三个结果姗姗来迟，模型早已拐到错误的岔路上。「等齐」保证了每一轮 provider turn 看到的，都是一份<strong>完整、一致的世界状态</strong>，而不是东一块西一块的半成品。这条纪律看似拖慢了节奏，实则是 agent 推理质量的保险：宁可多等那最慢的一个工具，也不让模型在残缺的事实上瞎猜。</p>
+
+<h2>每一轮，都重读案卷</h2>
+<p>最后这条纪律，最不起眼，却最能体现 V2 的设计哲学：<strong>每开始新一轮 provider turn 之前，重新加载「投影历史」</strong>。循环<strong>不</strong>把会话状态攒在内存里一路带着跑；它每一轮都<strong>从持久层重新读出</strong>当前完整的历史，据此重新拼出喂给模型的请求。就像那位研究助理，每轮都把案卷从头通读一遍，绝不靠脑子里那份可能过时的记忆。</p>
+<div class="cols">
+  <div class="col"><h4>❌ 内存里攒状态</h4><p>把历史攒在内存变量里一路带。快，但：崩了就丢、别处改了不知道、用户中途插的话进不来。状态成了一份脆弱的私货。</p></div>
+  <div class="col"><h4>✅ 每轮重读投影历史</h4><p>每轮从持久层重新读。慢一点点，但：崩了能接着跑、永远是最新真相、用户的 steer 下一轮自动并入。持久层是唯一权威。</p></div>
+</div>
+<p>这条「每轮重读」看着笨，实则是 agent 一切高级能力的<strong>地基</strong>。正因为每轮都回持久层取最新真相，第 15 课那个 <span class="mono">steer</span>（插话）才能生效：你在模型忙活时补的一句话，被 admit 进收件箱、提单成一条新消息——<strong>下一轮重读案卷时，它自然就在里面了</strong>，模型当轮就能看到、就能顺着改。循环里那句 <span class="mono">if (!needsContinuation) needsContinuation = hasPending("steer")</span> 正是这个意思：哪怕模型本想收手，只要收件箱里还有你刚插的话，循环就再转一圈去消化它。<strong>「每轮重读」不是性能负担，而是 agent 能被实时引导、能从崩溃中恢复、能多端一致的总开关。</strong>它也正是第 19 课「投影历史」要专门展开的主题。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这一课是第四部分的<strong>引擎舱</strong>，把前几课的零件全点着了：</p>
+  <ul>
+    <li><strong>循环形状</strong>：<span class="mono">while(activity) { for(step&lt;25) { runTurn } }</span>——「想→动→看→再想」的有界往复，超 25 轮抛 <span class="mono">StepLimitExceededError</span>。</li>
+    <li><strong>一轮 = 一次 <span class="mono">llm.stream</span></strong>：模型流式输出 reasoning/text/tool-call，逐事件增量落盘（喂活第 14 课的 part 数组、第 11 课的 SSE）。</li>
+    <li><strong>工具</strong>：先 durably 记账、再动手；用 FiberSet 并发跑、await 全部 settle 才继续（第 7 课结构化并发）。</li>
+    <li><strong>每轮重读投影历史</strong>：持久层是唯一真相——这让 steer 能即时并入、崩溃能恢复、多端能一致。</li>
+  </ul>
+  <p>循环里被一笔带过的两件事，各自还要展开成一整课：工具调用具体怎么被 FiberSet 并发驱动、怎么把权限和结果安顿好——是第 18 课；而那个被反复重读的「投影历史」到底是什么、怎么从一堆事件投影出来——是第 19 课。这一课先建立总图：<strong>agent 之所以会「自己干活」，靠的就是这台有界、流式、先记账、每轮重读的循环。</strong></p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>源码顶部有一段长长的「契约清单」注释，几乎是这台循环的<strong>设计说明书</strong>。摘几条已落实（<span class="mono">[x]</span>）的，正好对上本课四节：</p>
+  <pre class="code"><span class="cm">// 摘自 session/runner/llm.ts 顶部契约注释</span>
+[x] Bound model steps.                               <span class="cm">// 有界：MAX_STEPS=25</span>
+[x] Stream exactly one llm.stream(request) per turn. <span class="cm">// 一轮一次 stream</span>
+[x] Persist reasoning/text/tool-call incrementally.  <span class="cm">// 逐事件增量落盘</span>
+[x] Durably record each tool call before side effects begin.  <span class="cm">// 先记账再动手</span>
+[x] Start each call eagerly and await all settlements.        <span class="cm">// 并发起、等齐</span>
+[x] Reload projected history before the next provider turn.   <span class="cm">// 每轮重读</span>
+[x] Continue for durable user steering accepted mid-turn.     <span class="cm">// steer 即时并入</span></pre>
+  <p>把代码当文档来写，是这套代码库的一个习惯：用一张带 <span class="mono">[x]</span>/<span class="mono">[ ]</span> 的清单，把「这台循环已经做到了什么、还差什么」一目了然地钉在文件最显眼处。你读这段注释，等于读到了作者亲手画的循环边界——本课讲的每一条，都能在这张清单上找到对应的那一行。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li>agent 循环是 opencode 真正「思考」的地方：<strong>「想→调工具→看结果→再想」的有界往复</strong>，这正是 agent 区别于一问一答聊天机器人的根本。</li>
+    <li><strong>形状</strong>：<span class="mono">while(activity){ for(step&lt;MAX_STEPS=25){ runTurn } }</span>；超 25 轮抛 <span class="mono">StepLimitExceededError</span>（第 20 课）。</li>
+    <li><strong>一轮 = 恰好一次 <span class="mono">llm.stream(request)</span></strong>：reasoning/text/tool-call 流式到达、<strong>逐事件增量落盘</strong>，喂活第 14 课的 part 数组与第 11 课的 SSE 实时推送。</li>
+    <li><strong>工具纪律</strong>：先 durably 记账、再动副作用（崩溃可收拾）；用 <strong>FiberSet 并发</strong>跑、<strong>await 全部 settle</strong> 才进下一轮（第 7 课）。</li>
+    <li><strong>每轮重读投影历史</strong>（不在内存攒状态）：持久层即唯一真相——这是 steer 即时并入、崩溃恢复、多端一致的总开关（第 19 课展开）。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">The past three lessons were like setting a stage: Lesson 14 met the actors (Session/Message/Part), Lesson 15 steadily filed the script into the inbox, Lesson 16's coordinator arranged who goes first and runs serially. Now <strong>the curtain rises</strong> — the coordinator calls <span class="mono">drain</span>, invoking <span class="mono">SessionRunner.run</span>, which is where opencode's brain <strong>truly "thinks."</strong> This lesson is about the core that makes an agent an agent: <strong>the loop that repeatedly advances "think → call tool → see result → think again."</strong> It's not one Q&A but an engine that iterates itself, fetches its own data, and decides on its own when to stop. Understand this lesson and you've touched the heart of opencode's intelligence.</p>
+<p>Why does this loop deserve a whole lesson? Because the entire divide between an "agent" and a "chatbot" lives in it. A chatbot is <strong>one ask, one answer</strong>: you say a line, it replies, done. An agent is <strong>one goal, many self-driven rounds</strong>: you give a task and it <strong>repeatedly</strong> thinks a step, acts (reads a file, runs a command), checks the result, thinks the next step — until the task is done or it hits a boundary. This lesson unpacks that "self-driving loop": what it does each round, what keeps it from running wild, and how it wires in Lessons 15-16's steer/queue. This is Part 4's <strong>engine room</strong>.</p>
+
+<div class="card analogy">
+  <div class="tag">🔬 Analogy</div>
+  Think of the agent loop as a <strong>research assistant working a case</strong>. You hand him a case, and he <strong>doesn't</strong> blurt a conclusion on the spot; he enters a rhythm: <strong>read the current case file once</strong> (load history) → <strong>think, then either write conclusions or file a few "records requests"</strong> (this round's model output: text + tool calls) → <strong>wait for the archive to send materials back, file them</strong> (execute tools, record results) → <strong>read the updated case file from the top again</strong>, then think the next step. Round after round, until the case is cracked, or — crucially — <strong>the round count hits its ceiling (25 rounds)</strong>, at which he stops and reports to you, never investigating endlessly. His strictest iron rule: he <strong>rereads the whole case file every round</strong>, never working from a possibly-stale memory in his head. See this meticulous assistant and you've seen the agent loop.
+</div>
+
+<h2>The loop's shape: a bounded "think–act" back-and-forth</h2>
+<p>Peel open <span class="mono">runner/llm.ts</span> and the loop's skeleton is remarkably clear — two nested levels plus a hard ceiling:</p>
+<pre class="code"><span class="cm">// simplified from session/runner/llm.ts</span>
+<span class="kw">while</span> (openActivity) {                       <span class="cm">// outer: one "activity" at a time</span>
+  <span class="kw">for</span> (<span class="kw">let</span> step = 0; step &lt; MAX_STEPS; step++) {  <span class="cm">// inner: bounded rounds (&le;25)</span>
+    needsContinuation = <span class="kw">yield</span>* <span class="fn">runTurn</span>(sessionID, promotion)  <span class="cm">// run one provider turn</span>
+    <span class="kw">if</span> (!needsContinuation) needsContinuation = <span class="kw">yield</span>* <span class="fn">hasPending</span>(<span class="st">"steer"</span>)  <span class="cm">// steering → continue</span>
+    <span class="kw">if</span> (!needsContinuation) <span class="kw">break</span>             <span class="cm">// nothing left → stop</span>
+  }
+  <span class="kw">if</span> (needsContinuation) <span class="kw">return</span> <span class="kw">new</span> <span class="fn">StepLimitExceededError</span>({ limit: MAX_STEPS })  <span class="cm">// hit ceiling</span>
+  openActivity = <span class="kw">yield</span>* <span class="fn">hasPending</span>(<span class="st">"queue"</span>)  <span class="cm">// a queued activity left? open the next</span>
+}</pre>
+<p>Three levels, each minding its own. <strong>The inner <span class="mono">for</span></strong> is the core: each turn is one <span class="mono">runTurn</span> — the model "thinks a step, maybe acts once." <span class="mono">runTurn</span> returns a <span class="mono">needsContinuation</span>: if this round called a tool and needs to see results then think more, it returns <span class="mono">true</span> and the loop continues; if the model gave its final reply with nothing to do, it returns <span class="mono">false</span> and <span class="mono">break</span>s. <strong>The outer <span class="mono">while</span></strong> minds "activities": when the current one's done, check whether there's a queued (queue) new activity to open (echoing Lesson 15's queue delivery). And that <span class="mono">MAX_STEPS = 25</span> is a nailed-down <strong>hard ceiling</strong>: however much the model wants to continue, a single activity iterates at most 25 rounds; exceed it and it throws <span class="mono">StepLimitExceededError</span> — the agent's "never spin forever" safety rope (details in Lesson 20).</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">outer while(openActivity)</div><div class="v">one "activity" at a time: when done, check for a queued activity to open</div></div>
+  <div class="cell"><div class="k">inner for(step&lt;25)</div><div class="v">bounded rounds: one runTurn per loop, at most 25</div></div>
+  <div class="cell"><div class="k">runTurn → needsContinuation</div><div class="v">true=called tools, think more; false=final reply, may stop</div></div>
+</div>
+<div class="flow">
+  <div class="node">read the file<span class="sub">load projected history</span></div>
+  <div class="arrow">→</div>
+  <div class="node">think + file requests<span class="sub">one llm.stream</span></div>
+  <div class="arrow">→</div>
+  <div class="node">fetch · file results<span class="sub">execute tools · record</span></div>
+  <div class="arrow">↺ reread file</div>
+  <div class="node">next round<span class="sub">&le;25 rounds · or stop</span></div>
+</div>
+<p>Pause to feel how restrained this "two levels + ceiling" structure is. The inner <span class="mono">for</span> uses a counter rather than <span class="mono">while(true)</span> because <strong>the model doesn't always know to stop</strong> — it can fall down a "check one more file, one more file" rabbit hole. Putting a hard ring of 25 around it draws a non-negotiable red line between "let it iterate freely" and "never spin out of control." The split between outer <span class="mono">while</span> and inner <span class="mono">for</span> is also deliberate: one "activity" is a complete self-driven task, within which there can be up to 25 rounds of back-and-forth; between activities, queue lines them up one at a time. <strong>Bounded rounds, queued activities</strong> — the two levels cleanly split "don't let one task run wild" from "keep multiple tasks orderly."</p>
+
+<h2>One round = exactly one llm.stream</h2>
+<p>The core of each <span class="mono">runTurn</span> is a line the source stresses repeatedly: <strong>"exactly one <span class="mono">llm.stream(request)</span> per provider turn."</strong> The model isn't asked all at once but consulted <strong>once per round</strong>. And <span class="mono">stream</span> is literal — the model's output arrives <strong>streaming</strong>: first a few thinking fragments (reasoning), then text, possibly throwing a tool-call mid-way… these events <strong>are persisted incrementally into the data model as they arrive</strong>.</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">reasoning</span><span class="tl-desc">"Let me first see how this function is written…" → instantly stored as a reasoning part</span></div>
+  <div class="tl-item"><span class="tl-time">text</span><span class="tl-desc">"I'll help you refactor it." → instantly stored as a text part</span></div>
+  <div class="tl-item"><span class="tl-time">tool-call</span><span class="tl-desc">read(file.ts) → instantly stored as a tool part (state pending)</span></div>
+  <div class="tl-item"><span class="tl-time">…</span><span class="tl-desc">stream ends → this round the model has "finished speaking"</span></div>
+</div>
+<p>Remember Lesson 14's design of "content is a part array, updatable incrementally part by part"? This is its moment to shine: every fragment the model emits, the loop <strong>slots straight into the current Assistant message's content array and emits an event</strong>. So Lesson 11's SSE river immediately pushes it to all clients — the "AI spitting one character at a time, thinking unfolding live" you see in the TUI is rooted in this round's per-event landing and pushing. <strong>L14's data shape, L11's event stream, L17's loop</strong> mesh seamlessly at this moment.</p>
+
+<h2>Tools: record first, then act, run concurrently, await all</h2>
+<p>When a <span class="mono">tool-call</span> emerges in this round's stream, the loop's handling hides several deliberate disciplines. The first is most crucial: <strong>durably record this tool call first, before any side effect begins</strong>. That is, "I'm going to call read(file.ts)" <strong>lands first</strong> as a tool part (state pending), and <strong>only then</strong> does it actually read the file. Why? Because reading files and running commands have <strong>side effects, can crash, can be interrupted</strong> — if the process dies mid-execution, at least the ironclad record "I initiated this call" remains, so a restart can clean up the aftermath (remember that <span class="mono">failInterruptedTools</span> line at the start of <span class="mono">run</span>? it specifically clears tools left pending/running by a prior interruption). <strong>This is Lesson 15's backbone of "record intent first, fulfil later," replicated at the tool layer.</strong></p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">a tool-call arrives in the stream: read(file.ts)</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">durably record as a tool part (pending) first — side effects not yet begun</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">settle: actually execute; tossed as a fiber into a FiberSet, run concurrently</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">multiple tool calls → multiple fibers running at once (Lesson 7's structured concurrency)</span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">await all fibers to finish → only then enter the next round</span></div>
+</div>
+<p>The second discipline: <strong>execute concurrently, but await all before moving on</strong>. In one round the model may call three tools at once (e.g. read three files). The loop tosses each call <strong>as a fiber into a <span class="mono">FiberSet</span> to run concurrently</strong> — exactly Lesson 7's structured concurrency at work: three tools run at once, saving time; but the loop <strong>waits for the whole batch to settle (success or failure) before entering the next round</strong>. It never "rushes to ask the model the next step before the tools are back." <strong>Concurrent for speed, await-all for stability</strong>, FiberSet handles both. Each tool's result — a success's result, a failure's error — is also <strong>stored by type back into that tool part's state</strong> (pending → running → completed/error, exactly Lesson 14's state machine).</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">① record first</div><div class="v">durably store as a tool part(pending) before any side effect</div></div>
+  <div class="cell"><div class="k">② start concurrently</div><div class="v">one fiber per call, tossed into a FiberSet to run at once</div></div>
+  <div class="cell"><div class="k">③ await all</div><div class="v">await the whole batch to settle (success or fail) before the next round</div></div>
+  <div class="cell"><div class="k">④ store by type</div><div class="v">result/error back into state: pending→running→completed/error</div></div>
+</div>
+<p>Why insist on "await all before moving on"? Because the model's next round of thinking <strong>must rest on the premise that all of this round's tool results are in</strong>. Imagine rushing to ask the model "what next" with only two of three results back — it would judge on incomplete information, and by the time the third result trickles in, the model has long taken a wrong fork. "Await all" guarantees that each provider turn sees a <strong>complete, consistent world state</strong>, not a half-built patchwork. This discipline seems to slow the pace but is actually insurance for the agent's reasoning quality: better to wait for the slowest tool than let the model guess on incomplete facts.</p>
+
+<h2>Every round, reread the case file</h2>
+<p>This last discipline is the least conspicuous yet most telling of V2's design philosophy: <strong>before starting each new provider turn, reload the "projected history."</strong> The loop does <strong>not</strong> hoard session state in memory and carry it along; it <strong>rereads the full current history from the durable layer</strong> each round, and rebuilds from it the request fed to the model. Just like that research assistant, rereading the whole case file every round, never relying on a possibly-stale memory in his head.</p>
+<div class="cols">
+  <div class="col"><h4>❌ hoard state in memory</h4><p>Keep history in a memory variable and carry it. Fast, but: a crash loses it, changes elsewhere go unseen, the user's mid-flight steering can't get in. State becomes fragile private cargo.</p></div>
+  <div class="col"><h4>✅ reread projected history each round</h4><p>Reread from the durable layer each round. A touch slower, but: a crash can resume, it's always the latest truth, the user's steer auto-merges next round. The durable layer is the sole authority.</p></div>
+</div>
+<p>This "reread each round" looks dumb but is actually the <strong>foundation</strong> of all the agent's advanced abilities. Precisely because each round goes back to the durable layer for the latest truth, Lesson 15's <span class="mono">steer</span> (cut-in) can take effect: a line you add while the model is busy gets admitted into the inbox, promoted into a new message — and <strong>when the next round rereads the case file, it's naturally in there</strong>, visible and followable that very round. The loop's line <span class="mono">if (!needsContinuation) needsContinuation = hasPending("steer")</span> means exactly this: even if the model meant to stop, as long as there's a steer you just inserted in the inbox, the loop runs one more round to digest it. <strong>"Reread each round" isn't a performance burden but the master switch for an agent being live-steerable, crash-recoverable, and multi-client consistent.</strong> It's also exactly the theme Lesson 19's "projected history" will unfold.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture</div>
+  <p>This lesson is Part 4's <strong>engine room</strong>, igniting all the parts from prior lessons:</p>
+  <ul>
+    <li><strong>Loop shape</strong>: <span class="mono">while(activity) { for(step&lt;25) { runTurn } }</span> — a bounded "think→act→see→think again" back-and-forth, over 25 rounds throws <span class="mono">StepLimitExceededError</span>.</li>
+    <li><strong>One round = one <span class="mono">llm.stream</span></strong>: the model streams reasoning/text/tool-call, persisted per-event incrementally (feeding Lesson 14's part array, Lesson 11's SSE).</li>
+    <li><strong>Tools</strong>: durably record first, then act; run concurrently via FiberSet, await all settlements before continuing (Lesson 7's structured concurrency).</li>
+    <li><strong>Reread projected history each round</strong>: the durable layer is the sole truth — this lets steer merge instantly, crashes recover, clients stay consistent.</li>
+  </ul>
+  <p>The two things the loop glosses over each unfold into a whole lesson: how tool calls are concurrently driven by FiberSet and how permissions and results are settled — that's Lesson 18; and what that repeatedly-reread "projected history" actually is and how it's projected from a pile of events — that's Lesson 19. This lesson builds the master diagram first: <strong>the reason the agent "works on its own" is this bounded, streaming, record-first, reread-each-round loop.</strong></p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p>At the top of the source is a long "contract checklist" comment, almost the loop's <strong>design spec</strong>. A few done (<span class="mono">[x]</span>) items map right onto this lesson's four sections:</p>
+  <pre class="code"><span class="cm">// from the contract comment atop session/runner/llm.ts</span>
+[x] Bound model steps.                               <span class="cm">// bounded: MAX_STEPS=25</span>
+[x] Stream exactly one llm.stream(request) per turn. <span class="cm">// one stream per round</span>
+[x] Persist reasoning/text/tool-call incrementally.  <span class="cm">// per-event incremental landing</span>
+[x] Durably record each tool call before side effects begin.  <span class="cm">// record first, act later</span>
+[x] Start each call eagerly and await all settlements.        <span class="cm">// concurrent start, await all</span>
+[x] Reload projected history before the next provider turn.   <span class="cm">// reread each round</span>
+[x] Continue for durable user steering accepted mid-turn.     <span class="cm">// steer merges instantly</span></pre>
+  <p>Writing code as documentation is a habit of this codebase: a checklist with <span class="mono">[x]</span>/<span class="mono">[ ]</span> nails "what this loop already does, what's still missing" right at the file's most visible spot. Reading this comment is reading the author's own hand-drawn loop boundary — every point this lesson makes has a corresponding line on that checklist.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li>The agent loop is where opencode truly "thinks": <strong>a bounded "think→call tool→see result→think again" back-and-forth</strong> — exactly what separates an agent from a one-ask-one-answer chatbot.</li>
+    <li><strong>Shape</strong>: <span class="mono">while(activity){ for(step&lt;MAX_STEPS=25){ runTurn } }</span>; over 25 rounds throws <span class="mono">StepLimitExceededError</span> (Lesson 20).</li>
+    <li><strong>One round = exactly one <span class="mono">llm.stream(request)</span></strong>: reasoning/text/tool-call arrive streaming, <strong>persisted per-event incrementally</strong>, feeding Lesson 14's part array and Lesson 11's live SSE push.</li>
+    <li><strong>Tool discipline</strong>: durably record first, then side-effect (crash-cleanable); run <strong>concurrently via FiberSet</strong>, <strong>await all settlements</strong> before the next round (Lesson 7).</li>
+    <li><strong>Reread projected history each round</strong> (no in-memory state hoarding): the durable layer is the sole truth — the master switch for instant steer-merge, crash recovery, and multi-client consistency (unfolded in Lesson 19).</li>
+  </ul>
+</div>
+""",
+}
 LESSON_18 = wip('工具调用与 FiberSet', 'Tool calls & FiberSet')
 LESSON_19 = wip('投影历史', 'Projected history')
 LESSON_20 = wip('有界步数与错误处理', 'Bounded steps & errors')
