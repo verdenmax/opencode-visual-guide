@@ -216,6 +216,47 @@ QUIZZES = {
             {"zh": "富 TUI 用进程内 RPC worker 换来了什么好处？如果改用真正的网络 server（serve 模式），哪些地方会不一样、又有哪些代价？", "en": "What does the in-process RPC worker buy the rich TUI? If you switched to a real network server (serve mode), what would differ, and at what cost?"},
         ],
     },
+    "04-v1-vs-v2.html": {
+        "mcq": [
+            {
+                "q": {"zh": "怎么一眼判断一段 session 代码属于 V1 还是 V2？", "en": "How do you tell at a glance whether a piece of session code is V1 or V2?"},
+                "opts": [
+                    {"zh": "看文件路径：opencode/src/session 是 V1，core/src/session 是 V2", "en": "By path: opencode/src/session is V1, core/src/session is V2"},
+                    {"zh": "看文件有多少行", "en": "By how many lines the file has"},
+                    {"zh": "看文件头部的注释声明", "en": "By a comment banner at the top of the file"},
+                    {"zh": "看 git 提交时间", "en": "By the git commit date"},
+                ],
+                "answer": 0,
+                "why": {"zh": "最省事的判断法就是看路径：opencode/src/session=V1（旧），core/src/session=V2（新）。", "en": "The easiest test is the path: opencode/src/session = V1 (old), core/src/session = V2 (new)."},
+            },
+            {
+                "q": {"zh": "V2 相比 V1，在持久化上的根本变化是什么？", "en": "What is V2's fundamental change in persistence versus V1?"},
+                "opts": [
+                    {"zh": "从磁盘 JSON 文件，换成 Drizzle + SQLite", "en": "From on-disk JSON files to Drizzle + SQLite"},
+                    {"zh": "从 SQLite 换回 JSON 文件", "en": "From SQLite back to JSON files"},
+                    {"zh": "完全不持久化，只放内存", "en": "No persistence at all, memory only"},
+                    {"zh": "改用 Redis", "en": "Switched to Redis"},
+                ],
+                "answer": 0,
+                "why": {"zh": "V1 把会话存成磁盘 JSON 文件；V2 用 Drizzle ORM + SQLite（还带 bun/node 双后端），配合事件溯源做到崩溃可恢复。", "en": "V1 stores sessions as on-disk JSON; V2 uses Drizzle ORM + SQLite (dual bun/node backends), paired with event sourcing for crash recovery."},
+            },
+            {
+                "q": {"zh": "下面哪项能力是 V2 独有、V1 架构撑不起来的？", "en": "Which capability is V2-only, unsupported by V1's architecture?"},
+                "opts": [
+                    {"zh": "System Context / Context Epoch（上下文纪元）", "en": "System Context / Context Epoch"},
+                    {"zh": "调用大模型", "en": "Calling the LLM"},
+                    {"zh": "执行 edit/bash 等工具", "en": "Running tools like edit/bash"},
+                    {"zh": "读写项目里的文件", "en": "Reading and writing project files"},
+                ],
+                "answer": 0,
+                "why": {"zh": "调模型、跑工具、读写文件 V1 也能做；但 Context Epoch 这套独特的上下文设计只存在于 V2，是迁移要长出的新能力（第五部分）。", "en": "Calling the model, running tools, file I/O all exist in V1; but the Context Epoch design is V2-only — a new capability the migration grows (Part 5)."},
+            },
+        ],
+        "open": [
+            {"zh": "V2 把 V1 的千行巨石拆成一堆小协作者。结合你自己的开发经验，说一个这种拆分在“改代码、加测试”时带来的具体好处。", "en": "V2 splits V1's thousand-line monoliths into small collaborators. From your own experience, name one concrete benefit of that split when changing code or adding tests."},
+            {"zh": "迁移是渐进的、两套并存。如果你要给 opencode 修一个 bug，你会怎么先判断这个 bug 该在 V1 还是 V2 里改？", "en": "The migration is gradual and both coexist. If you had to fix a bug in opencode, how would you first decide whether to fix it in V1 or V2?"},
+        ],
+    },
 }
 
 def render(fname, lang):

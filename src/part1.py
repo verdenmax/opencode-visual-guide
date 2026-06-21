@@ -833,4 +833,218 @@ LESSON_03 = {
 </div>
 """,
 }
-LESSON_04 = wip('V1 与 V2：架构迁移', 'V1 vs V2: the migration')
+LESSON_04 = {
+    "zh": r"""
+<p class="lead">如果你 clone 下 opencode、开始翻源码，很快会撞上一件怪事：好像有<strong>两套</strong>会话引擎。一套在 <span class="mono">packages/opencode/src/session</span>，又大又老；另一套在 <span class="mono">packages/core</span>，又新又碎。这不是谁写重复了——opencode 正处在一场<strong>从 V1 到 V2 的架构迁移</strong>中，两套代码<strong>并存</strong>。读不懂这条迁移线，你会在源码里反复迷路；读懂了，整个仓库豁然开朗。这一课就把这条线讲透，它是读懂后面所有课的<strong>钥匙</strong>。</p>
+<p>这条迁移线之所以值得单独花一课讲，是因为它是新读者最容易栽跟头的地方。你照着一篇教程去读那个上千行的会话文件，读到一半却发现它和另一处的写法完全对不上号，于是开始怀疑是不是自己理解错了——其实你没错，你只是<strong>同时撞上了新旧两套实现</strong>，还把它们当成了一套。很多人卡在 opencode 源码门口，不是因为某段逻辑太难，而是因为没人先告诉他们："你看到的是一座正在翻修的房子，墙里有两套线。"先认清这个事实再去读，前面种种对不上号的矛盾，才会忽然变得顺理成章。</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 生活类比</div>
+  把这场迁移想成<strong>一边住人、一边翻修的老房子</strong>。<strong>V1 是老电路</strong>：还在给全屋供电，灯照亮、插座照用，你不能拔——一拔整个家就黑了。<strong>V2 是新电路</strong>：电工正一个房间一个房间地重新布线，布好一间就切一间过去。于是某段时间里，墙里<strong>新旧两套线并存</strong>，有的房间走新线、有的还靠老线。你读 opencode 源码时撞见的"两套 session"，正是这堵墙里并排的新旧线缆——知道哪根是哪根，你才不会误把老线当新线读。翻修的智慧也在这里：你不必为了装一个新插座就把全屋停电——老线先扛着照明，新线在墙里慢慢铺，等某个房间的新线测稳了，再优雅地把这一间切过去。opencode 的迁移，走的正是这条"不停机、逐间换"的稳妥路子。
+</div>
+
+<h2>源码里的两块门牌</h2>
+<p>先认门牌。最省事的判断法：<strong>看路径</strong>。凡是 <span class="mono">packages/opencode/src/session/*</span>，是 V1；凡是 <span class="mono">packages/core/src/session/*</span>，是 V2。它俩干的是同一件事——把你的话变成一轮轮"调模型、跑工具"，但内部气质截然不同。</p>
+<div class="cols">
+  <div class="col"><h4>V1 · packages/opencode</h4><p>老牌主力：基于 Vercel <span class="mono">AI-SDK</span>，会话存成<strong>磁盘 JSON 文件</strong>，命令式写法。<strong>至今仍是默认跑的路径</strong>。</p></div>
+  <div class="col"><h4>V2 · packages/core</h4><p>新生内核（"Session Core"）：纯 <strong>Effect</strong>，会话进 <strong>Drizzle + SQLite</strong>，自研 LLM 协议层。<strong>正在成形的未来</strong>。</p></div>
+</div>
+<p>注意一个反直觉点：名字叫 <span class="mono">core</span> 的那个包，反而是<strong>更新</strong>的 V2；而叫 <span class="mono">opencode</span> 的主二进制里，装着<strong>更老</strong>的 V1。所以"想读最核心的逻辑就去 core"这句话，今天才成立——半年前可不是。</p>
+<p>为什么会有这种错位——最新的内核，偏偏藏在一个叫"核心"的包里，而最老的逻辑，留在那个就叫 opencode 的主包里？因为后者是项目<strong>最早</strong>的主二进制，命令行、服务器、第一代会话引擎，全都先长在了它身上；后来团队决定重写内核，便另起一个干净的新包，把第二代一点点养在里面，<strong>暂不惊动</strong>还在服役的老引擎。于是包名记录的是<strong>诞生的先后</strong>，而不是新旧的高下。读资历深的开源项目常要这样"考古"——名字往往滞后于架构好几个版本，别被它带偏了方向。</p>
+
+<h2>体量与气质：巨石 vs 协作者</h2>
+<p>翻开两边的文件，第一眼的差别就是<strong>体量</strong>。V1 是几块"巨石"，单文件动辄上千行；V2 是一堆小而专的"协作者"，每个只管一件事。</p>
+<table class="t">
+  <tr><th>V1（巨石）</th><th>行数</th><th>V2（协作者）</th><th>行数</th></tr>
+  <tr><td><span class="mono">session/prompt.ts</span>（V1 循环）</td><td>~1704</td><td><span class="mono">session/runner/llm.ts</span>（V2 循环）</td><td>~404</td></tr>
+  <tr><td><span class="mono">session/session.ts</span></td><td>~1119</td><td><span class="mono">session/run-coordinator.ts</span></td><td>~284</td></tr>
+  <tr><td><span class="mono">session/processor.ts</span></td><td>~1084</td><td><span class="mono">session/input.ts</span></td><td>~353</td></tr>
+</table>
+<p>别小看这组数字背后的差别。V1 的 <span class="mono">prompt.ts</span> 一个文件把"调模型、处理流、跑工具、生成标题、压缩历史"全揽了，读起来要在脑子里同时装下一千多行；V2 把这些<strong>拆成各自独立、可单独测试</strong>的小件，<span class="mono">runner/llm.ts</span> 只管编排那条循环，把工具、协调、投影历史交给别的协作者。"<strong>一个文件只干一件事</strong>"，正是 V2 在可维护性上的核心赌注。</p>
+<p>巨石文件的麻烦，远不只是"读起来累"。当调模型、处理流、跑工具、生成标题、压缩历史全挤在一千七百行的函数群里，任何一处改动都可能<strong>牵一发而动全身</strong>，想单独测试其中一小块几乎不可能——它们的状态盘根错节地缠在一起，你拎不出任何一段干净地验。V2 把每件事拆成独立小协作者后，你可以<strong>单独喂输入、单独验输出</strong>，改一处不必提心吊胆怕震动全局。这就是"拆分"换来的最实在的红利：<strong>可测试、可替换、可独立演进</strong>。代码越关键，这种可控性越值钱——而会话引擎，恰恰是 opencode 最关键的那块。</p>
+<p>这种"巨石 vs 小件"的差别，你甚至不用读懂逻辑，光从<strong>目录结构</strong>就能看出来：V1 的 session 目录下，躺着十来个动辄上千行的大文件，平铺在一起；而 V2 的 session 目录被进一步切成了 <span class="mono">runner/</span>、<span class="mono">execution/</span> 这样的子目录，每个文件都短小、名字直白地写着自己只负责的那一件事。<strong>目录的形状，往往就是架构的形状</strong>——以后判断一个陌生模块有没有被精心拆分过，先扫一眼它的目录树，常常就有答案了。</p>
+
+<h2>四条分界线</h2>
+<p>体量之外，V1 和 V2 在四件根本的事上做了不同选择。这张表是本课最该记牢的：</p>
+<table class="t">
+  <tr><th>维度</th><th>V1</th><th>V2</th></tr>
+  <tr><td>模型接入</td><td>Vercel <span class="mono">AI-SDK</span>（<span class="mono">import { tool } from "ai"</span>）</td><td>自研 <span class="mono">@opencode-ai/llm</span> 多协议层</td></tr>
+  <tr><td>持久化</td><td>磁盘 <strong>JSON 文件</strong>（key-value）</td><td><strong>Drizzle + SQLite</strong>（双后端 bun/node）</td></tr>
+  <tr><td>输入模型</td><td>函数参数，临时态</td><td><strong>事件溯源收件箱</strong>，持久化为准</td></tr>
+  <tr><td>编程范式</td><td>命令式 async/await</td><td>函数式 <strong>Effect</strong>（Service/Layer/Fiber）</td></tr>
+</table>
+<p>这四条不是孤立的偏好，而是层层相扣：选了 Effect，就能用它的 <span class="mono">FiberSet</span> 优雅地并发跑工具；选了 SQLite + 事件溯源，崩溃重启后就能从持久化里<strong>重建</strong>状态；自研 LLM 层，才能精确控制每家 provider 的协议细节与缓存。<strong>范式、存储、接入，是一整套相互成全的选择</strong>。</p>
+<p>顺便点破一个容易误会的点：V2 用 Effect、用 SQLite，<strong>不是为了赶时髦</strong>。Effect 让"反复调模型、并发跑工具、随时可能失败或被打断"这种天然混乱的逻辑变得<strong>可推理、可组合</strong>；SQLite 让会话有了一个零配置、可查询、可随版本迁移的家。每个选择都对着 V1 的一个具体痛点而来。等你后面读到 Effect 的 Service 与 Layer（第二部分）、读到 Drizzle 的 schema（第九部分），不妨回想这一课：它们不是装饰，而是 V2 之所以成为 V2 的<strong>地基</strong>。</p>
+
+<h2>为什么要费劲迁移</h2>
+<p>把一个还能跑的引擎推倒重来，代价不小。V2 图的是 V1 难以补上的几样东西：</p>
+<div class="vflow">
+  <div class="step"><b>可测试</b>　小协作者 + Effect，把副作用关进类型，单测不再要起半个世界</div>
+  <div class="step"><b>可恢复</b>　事件溯源 + SQLite，进程崩了能从持久化重建会话</div>
+  <div class="step"><b>可并发</b>　FiberSet 并发跑工具、协调多个 session，不靠脆弱的手写锁</div>
+  <div class="step"><b>可扩展</b>　为将来的多节点/集群留出 Location、ownership 等接缝</div>
+  <div class="step"><b>新能力</b>　System Context / Context Epoch 这套独特设计，只在 V2 里有</div>
+</div>
+<p>最后一条尤其关键：第五部分要讲的 <strong>Context Epoch</strong>（会话上下文的不可变纪元）是 opencode 最独特的设计，它<strong>只存在于 V2</strong>。换句话说，V2 不只是"把 V1 重写得更干净"，而是要长出 V1 架构撑不起来的<strong>新能力</strong>。这也是为什么这份指南把 V2 当主线。</p>
+<p>但要强调：迁移是<strong>渐进而务实</strong>的，不是某天"啪"地一声整体切换。两套引擎会并存相当长一段时间，功能一块块从 V1 挪到 V2，挪一块、稳一块。对团队，这意味着随时能回退、用户几乎无感；对你这个读者，这意味着<strong>两边的代码都还活着、都值得读</strong>——读 V2 看清"它想去哪"，读 V1 理解"当下到底在跑什么"。把"正在迁移中"这个状态本身，当成 opencode 现阶段的一个<strong>基本事实</strong>记下来，很多源码里"为什么这里有两份"的困惑，就都迎刃而解了。</p>
+<p>举个最能体现差别的场景：假设 agent 正跑到一半，机器突然断电。老引擎把会话状态摊在内存和零散的文件里，重启之后"刚才跑到哪、做了什么"很可能对不齐、只能从头再来；新引擎因为每一步都先落成事件、写进数据库，重启后能从持久化里把整段会话<strong>重新投影出来</strong>，清楚知道自己上一刻进行到哪。这种"经得起崩"的底气，是老架构很难补上的，也正是新引擎把"一切以持久化为准"刻进骨子里换来的回报——你会在第四、第九部分反复看到这条原则发力。</p>
+
+<h2>读者该怎么自处</h2>
+<p>面对两套并存的代码，普通读者最容易犯的错是"分不清自己在读哪套、把两边的概念串在一起"。给你三条实用守则：</p>
+<div class="cols">
+  <div class="col"><h4>① 先看路径</h4><p><span class="mono">opencode/src/session</span> = V1；<span class="mono">core/src/session</span> = V2。一眼定身份。</p></div>
+  <div class="col"><h4>② 以 V2 为主</h4><p>想懂"opencode 想成为什么"，读 V2；本指南正文也以 V2 为主线。</p></div>
+  <div class="col"><h4>③ 遇到 V1 别慌</h4><p>它仍是默认运行路径，关键处本指南会对照它，知道"老线长这样"即可。</p></div>
+</div>
+<p>把这条迁移线画成一张图，也许最能帮你随时定位"我读到了哪一段"：</p>
+<div class="flow">
+  <div class="node"><div class="nt">V1 全量在跑</div><div class="nd">opencode/src/session</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">V2 内核成形</div><div class="nd">core 逐块接管</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">两套并存</div><div class="nd">看路径定身份</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">V2 为主</div><div class="nd">未来方向</div></div>
+</div>
+<p>opencode 此刻正站在"<strong>两套并存</strong>"这一格——这也是你打开源码时会看到的真实样子。读这份指南时，每翻到一个模块，先在心里问一句：这是老线还是新线？答案，往往就写在它的路径里。</p>
+<p>读到这儿，你其实已经握住了贯穿全书的那把钥匙。下一部分，我们就去补 V2 的地基——也就是那个名字听起来有点唬人、却在 <span class="mono">packages/core</span> 里处处都在的函数式框架 Effect。因为不先弄懂它的几个核心概念，你看新引擎里那些满屏的函数式写法时会处处卡壳；而一旦把地基打牢，再回头看 V2 的会话引擎、上下文系统、模型协议层，就会有种"原来如此、本该如此"的顺畅。架构迁移的故事讲到这里告一段落，真正的深水区，从下一课开始。</p>
+
+<div class="card macro">
+  <div class="tag">🌍 宏观理解</div>
+  opencode 同时活着<strong>两套</strong>会话引擎：<strong>V1</strong>（<span class="mono">packages/opencode/src/session</span>，AI-SDK + JSON 文件 + 命令式巨石，仍是默认）和 <strong>V2</strong>（<span class="mono">packages/core</span>，Effect + SQLite + 事件溯源的小协作者，正在成形）。迁移是渐进的、两套并存。读源码先看路径定身份，以 V2 为主线、遇 V1 不慌——这是读懂整个仓库的钥匙。说到底，opencode 不是一份写完就定型的代码，而是一个<strong>正在生长</strong>的活项目；这一课教你的，与其说是 V1 和 V2 的区别，不如说是一种读"演进中的大型代码库"的眼光——先分清新旧、再以新为主、对旧存敬。这种眼光，会一直陪你走完后面六十课。
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 细节 / 源码对应</div>
+  把"AI-SDK vs 自研 Effect"这条最大的分界，落到两段对照代码上（都大幅简化）：
+<pre class="code"><span class="cm">// V1：packages/opencode/src/session/prompt.ts —— 用 Vercel AI-SDK</span>
+<span class="kw">import</span> { tool, streamText } <span class="kw">from</span> <span class="st">"ai"</span>
+<span class="kw">const</span> result = <span class="fn">streamText</span>({ model, messages, tools: { edit: <span class="fn">tool</span>({ <span class="cm">/* … */</span> }) } })
+
+<span class="cm">// V2：packages/core/src/session/runner/llm.ts —— 纯 Effect + 自研 llm</span>
+<span class="kw">import</span> { Effect, FiberSet, Stream } <span class="kw">from</span> <span class="st">"effect"</span>
+Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
+  <span class="kw">const</span> events = llm.<span class="fn">stream</span>(request)        <span class="cm">// 一轮一次，拿回 LLMEvent 流</span>
+  <span class="cm">// tool-call → FiberSet 并发结算 → reload 投影历史 → 续下一轮</span>
+})</pre>
+  同一件事——"调模型、跑工具"——V1 交给 AI-SDK 的 <span class="mono">streamText</span>，V2 自己用 Effect 编排，从而掌控并发、持久化与协议细节。
+</div>
+
+<div class="card key">
+  <div class="tag">✅ 本课要点</div>
+  <ul>
+    <li>opencode 并存<strong>两套</strong>会话引擎，正从 V1 迁向 V2。</li>
+    <li>看路径定身份：<span class="mono">opencode/src/session</span>=V1，<span class="mono">core/src/session</span>=V2。</li>
+    <li>V1 = AI-SDK + JSON 文件 + 命令式巨石（仍默认）；V2 = Effect + SQLite + 事件溯源小协作者。</li>
+    <li>迁移图的是<strong>可测试、可恢复、可并发、可扩展</strong>，以及 V2 独有的 Context Epoch。</li>
+    <li>本指南以 <strong>V2 为主线</strong>，关键处对照 V1。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Clone opencode, start digging through the source, and you'll soon hit something strange: there seem to be <strong>two</strong> session engines. One lives in <span class="mono">packages/opencode/src/session</span>, big and old; the other in <span class="mono">packages/core</span>, new and granular. Nobody duplicated work — opencode is mid <strong>migration from V1 to V2</strong>, and the two codebases <strong>coexist</strong>. Miss this migration line and you'll get lost in the source again and again; grasp it and the whole repo snaps into focus. This lesson makes that line clear — it's the <strong>key</strong> to reading every lesson ahead.</p>
+<p>Why a whole lesson on the migration line? Because it's where new readers stumble most. You follow a tutorial to read that thousand-line session file, and halfway through it doesn't match the style of another file at all, so you start doubting your own understanding — but you're not wrong; you simply <strong>hit two implementations at once</strong> and treated them as one. Many stall at opencode's doorstep not because some logic is hard, but because no one told them first: "you're looking at a house mid-renovation, with two sets of wiring in the walls." Accept that fact first, and the contradictions ahead suddenly make sense.</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 Analogy</div>
+  Picture the migration as an <strong>old house being renovated while people still live in it</strong>. <strong>V1 is the old wiring</strong>: still powering the whole place, lights on, outlets working — you can't yank it, or the house goes dark. <strong>V2 is the new wiring</strong>: an electrician is rewiring room by room, switching each over once it's run. So for a while, <strong>old and new wires coexist</strong> in the walls — some rooms on the new line, some still on the old. The "two sessions" you meet in opencode's source are exactly those parallel old/new cables — know which is which and you won't misread the old line as the new. The wisdom of renovation is here too: you don't black out the whole house to add one outlet — the old line keeps the lights on while the new line is run, and once a room's new line tests stable, you switch that room over gracefully. opencode's migration takes exactly this "no-downtime, room-by-room" path.
+</div>
+
+<h2>Two addresses in the source</h2>
+<p>First learn the addresses. The easiest test: <strong>look at the path</strong>. Anything under <span class="mono">packages/opencode/src/session/*</span> is V1; anything under <span class="mono">packages/core/src/session/*</span> is V2. They do the same job — turn your words into rounds of "call the model, run tools" — but their internal temperament is utterly different.</p>
+<div class="cols">
+  <div class="col"><h4>V1 · packages/opencode</h4><p>The old workhorse: built on Vercel <span class="mono">AI-SDK</span>, sessions stored as <strong>JSON files on disk</strong>, imperative style. <strong>Still the default runtime path today.</strong></p></div>
+  <div class="col"><h4>V2 · packages/core</h4><p>The new kernel ("Session Core"): pure <strong>Effect</strong>, sessions into <strong>Drizzle + SQLite</strong>, an in-house LLM protocol layer. <strong>The future taking shape.</strong></p></div>
+</div>
+<p>Note a counterintuitive point: the package named <span class="mono">core</span> is actually the <strong>newer</strong> V2; while the main binary named <span class="mono">opencode</span> holds the <strong>older</strong> V1. So "to read the core logic, go to core" only holds true today — it wasn't half a year ago.</p>
+<p>Why the mismatch — the newest kernel hiding in a package called "core," the oldest logic staying in the main package called opencode? Because the latter was the project's <strong>earliest</strong> main binary; the CLI, the server, the first-generation session engine all grew on it first. Later the team decided to rewrite the kernel, started a clean new package, and raised V2 inside it bit by bit, <strong>without disturbing</strong> the old engine still in service. So package names record <strong>birth order</strong>, not new-vs-old. Reading a long-lived open-source project often takes this kind of "archaeology" — names lag the architecture by several versions; don't let them mislead you.</p>
+
+<h2>Size and temperament: monoliths vs collaborators</h2>
+<p>Open the files on each side and the first difference is <strong>size</strong>. V1 is a few "boulders," single files routinely over a thousand lines; V2 is a pile of small, focused "collaborators," each minding one thing.</p>
+<table class="t">
+  <tr><th>V1 (boulders)</th><th>LOC</th><th>V2 (collaborators)</th><th>LOC</th></tr>
+  <tr><td><span class="mono">session/prompt.ts</span> (V1 loop)</td><td>~1704</td><td><span class="mono">session/runner/llm.ts</span> (V2 loop)</td><td>~404</td></tr>
+  <tr><td><span class="mono">session/session.ts</span></td><td>~1119</td><td><span class="mono">session/run-coordinator.ts</span></td><td>~284</td></tr>
+  <tr><td><span class="mono">session/processor.ts</span></td><td>~1084</td><td><span class="mono">session/input.ts</span></td><td>~353</td></tr>
+</table>
+<p>Don't underestimate the difference behind these numbers. V1's <span class="mono">prompt.ts</span> packs "call the model, process the stream, run tools, generate titles, compact history" into one file — reading it means holding 1700+ lines in your head at once; V2 splits these into <strong>independent, separately testable</strong> small pieces, with <span class="mono">runner/llm.ts</span> only orchestrating that loop and handing tools, coordination, and history projection to other collaborators. "<strong>One file does one thing</strong>" is V2's core maintainability bet.</p>
+<p>This "boulders vs pieces" difference shows even from the <strong>directory shape</strong>, without reading any logic: V1's session dir holds a dozen big files routinely over a thousand lines, laid flat; V2's session dir is further cut into subdirectories like <span class="mono">runner/</span> and <span class="mono">execution/</span>, each file short, its name plainly stating the one thing it owns. <strong>The shape of the directory is often the shape of the architecture</strong> — to judge whether an unfamiliar module was carefully split, scan its directory tree first; the answer is often right there.</p>
+
+<h2>Four dividing lines</h2>
+<p>Beyond size, V1 and V2 chose differently on four fundamental things. This table is the one to memorize:</p>
+<table class="t">
+  <tr><th>Dimension</th><th>V1</th><th>V2</th></tr>
+  <tr><td>Model access</td><td>Vercel <span class="mono">AI-SDK</span> (<span class="mono">import { tool } from "ai"</span>)</td><td>in-house <span class="mono">@opencode-ai/llm</span> multi-protocol layer</td></tr>
+  <tr><td>Persistence</td><td>on-disk <strong>JSON files</strong> (key-value)</td><td><strong>Drizzle + SQLite</strong> (dual bun/node backend)</td></tr>
+  <tr><td>Input model</td><td>function args, transient</td><td><strong>event-sourced inbox</strong>, persistence-as-truth</td></tr>
+  <tr><td>Paradigm</td><td>imperative async/await</td><td>functional <strong>Effect</strong> (Service/Layer/Fiber)</td></tr>
+</table>
+<p>These four aren't isolated preferences; they interlock. Choose Effect and you can elegantly run tools concurrently with its <span class="mono">FiberSet</span>; choose SQLite + event sourcing and you can <strong>rebuild</strong> state from persistence after a crash; build your own LLM layer and you can precisely control each provider's protocol details and caching. <strong>Paradigm, storage, and access are one set of mutually-reinforcing choices.</strong></p>
+<p>And to clear up a common misread: V2 uses Effect and SQLite <strong>not to be trendy</strong>. Effect makes inherently messy logic — calling the model repeatedly, running tools concurrently, failing or being interrupted at any moment — <strong>reasoned-about and composable</strong>; SQLite gives sessions a zero-config, queryable, version-migratable home. Each choice targets a concrete V1 pain point. When you later read Effect's Service and Layer (Part 2) or Drizzle's schema (Part 9), recall this lesson: they aren't decoration, they're the <strong>foundation</strong> that makes V2 V2.</p>
+
+<h2>Why bother migrating</h2>
+<p>Tearing down a working engine to start over isn't cheap. V2 is after several things V1 can't easily gain:</p>
+<div class="vflow">
+  <div class="step"><b>Testable</b>　small collaborators + Effect put side effects in the types; unit tests no longer need half the world running</div>
+  <div class="step"><b>Recoverable</b>　event sourcing + SQLite rebuild a session from persistence after a crash</div>
+  <div class="step"><b>Concurrent</b>　FiberSet runs tools concurrently and coordinates multiple sessions, no fragile hand-written locks</div>
+  <div class="step"><b>Scalable</b>　leaves seams (Location, ownership) for future multi-node / clustering</div>
+  <div class="step"><b>New power</b>　the System Context / Context Epoch design exists only in V2</div>
+</div>
+<p>The last point is key: the <strong>Context Epoch</strong> (the immutable epoch of a session's context), covered in Part 5, is opencode's most distinctive design, and it <strong>only exists in V2</strong>. In other words, V2 isn't just "V1 rewritten cleaner" — it grows <strong>new capabilities</strong> V1's architecture can't support. That's why this guide treats V2 as the main line.</p>
+<p>But stress this: the migration is <strong>gradual and pragmatic</strong>, not a sudden flip one day. The two engines coexist for a good while, features moving from V1 to V2 piece by piece, each settling before the next. For the team that means easy rollback and near-invisible-to-users change; for you the reader it means <strong>both codebases are alive and worth reading</strong> — read V2 to see where it's heading, read V1 to understand what actually runs today. Hold "mid-migration" itself as a <strong>basic fact</strong> of opencode's current stage, and many "why are there two of these here" puzzles in the source resolve themselves.</p>
+<p>A scenario that captures the difference: suppose the agent is mid-run and the machine loses power. The old engine spreads session state across memory and scattered files, so after restart "where it was, what it did" may not line up and it likely starts over; the new engine, because every step first becomes an event written to the database, can <strong>re-project the whole session</strong> from persistence on restart, knowing exactly where it left off. That "survives a crash" confidence is hard to retrofit into the old architecture, and is precisely the payoff of the new engine carving "persistence-as-truth" into its bones — you'll see this principle pay off again in Parts 4 and 9.</p>
+
+<h2>How a reader should cope</h2>
+<p>Facing two coexisting codebases, the easiest mistake is "not knowing which one you're reading and tangling the two sides' concepts together." Three practical rules:</p>
+<div class="cols">
+  <div class="col"><h4>① Path first</h4><p><span class="mono">opencode/src/session</span> = V1; <span class="mono">core/src/session</span> = V2. Identity at a glance.</p></div>
+  <div class="col"><h4>② V2 as main</h4><p>To grasp "what opencode wants to be," read V2; this guide's main line is V2 too.</p></div>
+  <div class="col"><h4>③ Don't panic at V1</h4><p>It's still the default runtime path; this guide contrasts it at key points — knowing "the old line looks like this" is enough.</p></div>
+</div>
+<p>Draw the migration line as a picture and it may best help you locate "which stretch am I reading":</p>
+<div class="flow">
+  <div class="node"><div class="nt">V1 fully running</div><div class="nd">opencode/src/session</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">V2 kernel forms</div><div class="nd">core takes over piece by piece</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">both coexist</div><div class="nd">path tells identity</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">V2 as main</div><div class="nd">the direction</div></div>
+</div>
+<p>opencode stands right now on the "<strong>both coexist</strong>" square — exactly what you'll see opening the source. Reading this guide, each time you reach a module, ask yourself first: is this the old line or the new? The answer is often written right in its path.</p>
+<p>By now you hold the key that runs through the whole book. Next, Part 2 lays V2's foundation — the functional framework whose name sounds a bit intimidating yet is everywhere in <span class="mono">packages/core</span>: Effect. Without first grasping its core concepts, the functional style filling the new engine will trip you up everywhere; once the foundation is solid, looking back at V2's session engine, context system, and protocol layer brings a smooth "ah, of course." The migration story pauses here; the real deep water starts next lesson.</p>
+
+<div class="card macro">
+  <div class="tag">🌍 Big picture</div>
+  opencode runs <strong>two</strong> session engines at once: <strong>V1</strong> (<span class="mono">packages/opencode/src/session</span>, AI-SDK + JSON files + imperative monoliths, still default) and <strong>V2</strong> (<span class="mono">packages/core</span>, Effect + SQLite + event-sourced small collaborators, taking shape). The migration is gradual; both coexist. Read source by path-first identity, with V2 as the main line and no panic at V1 — that's the key to reading the whole repo. Ultimately opencode isn't code frozen at completion but a <strong>living, growing</strong> project; this lesson teaches less the V1/V2 difference than a way of reading "a large codebase mid-evolution": tell new from old, favor the new, respect the old. That lens stays with you for the next sixty lessons.
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  Drop the biggest dividing line — "AI-SDK vs in-house Effect" — onto two contrasting snippets (both heavily simplified):
+<pre class="code"><span class="cm">// V1: packages/opencode/src/session/prompt.ts — uses Vercel AI-SDK</span>
+<span class="kw">import</span> { tool, streamText } <span class="kw">from</span> <span class="st">"ai"</span>
+<span class="kw">const</span> result = <span class="fn">streamText</span>({ model, messages, tools: { edit: <span class="fn">tool</span>({ <span class="cm">/* … */</span> }) } })
+
+<span class="cm">// V2: packages/core/src/session/runner/llm.ts — pure Effect + in-house llm</span>
+<span class="kw">import</span> { Effect, FiberSet, Stream } <span class="kw">from</span> <span class="st">"effect"</span>
+Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
+  <span class="kw">const</span> events = llm.<span class="fn">stream</span>(request)        <span class="cm">// one round, returns an LLMEvent stream</span>
+  <span class="cm">// tool-call → settle concurrently on a FiberSet → reload projected history → continue</span>
+})</pre>
+  Same job — "call the model, run tools" — V1 hands it to AI-SDK's <span class="mono">streamText</span>; V2 orchestrates it itself with Effect, taking control of concurrency, persistence, and protocol detail.
+</div>
+
+<div class="card key">
+  <div class="tag">✅ Key points</div>
+  <ul>
+    <li>opencode runs <strong>two</strong> session engines, migrating from V1 to V2.</li>
+    <li>Identity by path: <span class="mono">opencode/src/session</span>=V1, <span class="mono">core/src/session</span>=V2.</li>
+    <li>V1 = AI-SDK + JSON files + imperative monoliths (still default); V2 = Effect + SQLite + event-sourced small collaborators.</li>
+    <li>The migration is after <strong>testability, recoverability, concurrency, scalability</strong>, plus V2-only Context Epoch.</li>
+    <li>This guide's main line is <strong>V2</strong>, contrasting V1 at key points.</li>
+  </ul>
+</div>
+""",
+}
