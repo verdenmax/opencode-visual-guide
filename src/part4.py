@@ -1293,4 +1293,211 @@ LESSON_19 = {
 </div>
 """,
 }
-LESSON_20 = wip('有界步数与错误处理', 'Bounded steps & errors')
+LESSON_20 = {
+    "zh": r"""
+<p class="lead">第 17 课那台 agent 循环很强大——它能自驱地想、自驱地动手。但强大的另一面是<strong>危险</strong>：它要听一个<strong>不完全可信的模型</strong>的话，要跑<strong>有副作用的工具</strong>，随时可能被用户喊停、可能撞上模型报错、可能进程崩溃。一台能自己改你代码、自己跑你命令的循环，如果没有刹车、没有护栏，是会闯祸的。这一课，也是第四部分的收官，讲的就是 opencode 给这台危险引擎装的<strong>三道安全护栏</strong>：它<strong>不能无限空转</strong>（有界步数）、<strong>不能悄无声息地失败</strong>（类型化错误）、<strong>不能被中断成一个烂摊子</strong>（干净喊停）。把循环讲完整，必须把它的「安全系统」也讲透。</p>
+<p>为什么安全护栏值得单开一课，而不是循环里顺带一提？因为「让一个 agent 安全」远比「让它能跑」难。能跑，是把「想→动→看」串起来；安全，却要回答一连串「万一」：万一模型陷进死循环不肯停？万一某个工具炸了？万一用户中途反悔了？万一刚好崩在工具跑一半？每一个「万一」，都可能把会话留在一个<strong>谁也读不懂的中间态</strong>。这一课就看 opencode 怎么把这些「万一」一个个堵死，让这台循环无论以何种方式结束——正常完成、撞上限、报错、被打断、还是崩溃——都<strong>停在一个干净、自洽、可恢复的状态</strong>。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">护栏一·有界步数</div><div class="v">MAX_STEPS=25 → StepLimitExceededError。绝不无限空转。</div></div>
+  <div class="cell"><div class="k">护栏二·类型化错误</div><div class="v">RunError 联合列尽失败模式，编译器逼你面对。绝不悄无声息。</div></div>
+  <div class="cell"><div class="k">护栏三·干净喊停</div><div class="v">中断时召回工具 + 标记没结清的失败。绝不留烂摊子。</div></div>
+</div>
+
+<div class="card analogy">
+  <div class="tag">🛑 生活类比</div>
+  把 agent 循环想成一台<strong>强力的工业机床</strong>。它能干活，但必须配齐三样安全装置。第一样是<strong>断路器/定时器</strong>：机器最多连转 25 圈就自动停，绝不允许它发了疯似地无限空转下去（有界步数）。第二样是<strong>仪表盘上每一盏带标签的警示灯</strong>：这台机器没有「不明故障」在闪——每一种可能的故障都有一盏<strong>写明名字</strong>的灯，而且设计上<strong>逼你为每一盏灯都接好应对预案</strong>（类型化错误）。第三样最关键，是<strong>急停按钮</strong>：它一按下去，不只是「断电」那么简单，而是把<strong>所有还在挥舞的机械臂都安全地归位、锁定</strong>——绝不会留下一只胳膊僵在半空、一个工件卡在夹具里（干净喊停 + 工具收尾）。一台配齐了这三样的机床，才敢交到人手里用。opencode 给 agent 循环配的，正是这三样。
+</div>
+
+<h2>护栏一：有界步数，绝不无限空转</h2>
+<p>第 17 课已经见过那个 <span class="mono">MAX_STEPS = 25</span>。这一课要补的是：撞上限<strong>不是默默停下，而是抛出一个有名有姓的错误</strong>——<span class="mono">StepLimitExceededError</span>。它是个 <span class="mono">Schema.TaggedErrorClass</span>，还<strong>带着 <span class="mono">sessionID</span> 和 <span class="mono">limit</span> 两个字段</strong>：哪个会话、撞的是多少的上限，一清二楚。</p>
+<pre class="code"><span class="cm">// session/runner/index.ts —— 撞上限抛的不是裸异常，是带信息的类型化错误</span>
+<span class="kw">export class</span> StepLimitExceededError <span class="kw">extends</span> Schema.<span class="fn">TaggedErrorClass</span>()(
+  <span class="st">"SessionRunner.StepLimitExceededError"</span>,
+  { sessionID: SessionSchema.ID, limit: Schema.Int },  <span class="cm">// ← 谁、撞了多少</span>
+) {}</pre>
+<p>为什么非要一个硬上限？因为模型<strong>不总知道自己该停</strong>。它可能陷进「再查一个文件、再改一处、再验证一下」的兔子洞，自以为在勤勤恳恳地推进，实则在原地打转、烧着你的钱。<span class="mono">while(true)</span> 式的「让它自由迭代到满意为止」，对一个会消耗真金白银、还可能动你文件的循环，是不可接受的赌博。25 这道环，是 opencode 替你按下的一道<strong>不容商量的刹车</strong>：迭代可以，但到此为止。而把「到此为止」做成一个<strong>带字段的类型化错误</strong>而非默默 return，意味着上层能<strong>明确地知道「这次是因为撞了上限才停的」</strong>，从而做出恰当反应（比如提示用户「任务太长，要不要分步」），而不是面对一个语焉不详的「就这么结束了」。</p>
+<p>这里有个容易被忽略的分寸：上限是 25，不是 5、也不是 250。太小，复杂任务还没展开就被掐断，agent 显得「不中用」；太大，失控的代价（钱、时间、对你文件的折腾）又太可怕。25 是一个<strong>经验校准过的折中</strong>——它给了模型足够长的自驱空间去完成多数真实任务，又给了一道在它跑偏时及时止损的硬线。安全护栏的艺术，往往不在「有没有」，而在「卡在哪个值」：太松等于没有，太紧等于碍事。把这个数字钉成一个<strong>显式的常量</strong>（<span class="mono">MAX_STEPS</span>）而非散落在代码里的魔法数，也方便它日后被审视、被调整——这又是这套代码「把关键决策摆到明面上」的一贯做派。</p>
+<div class="cols">
+  <div class="col"><h4>❌ while(true) 自由迭代</h4><p>让模型转到自己满意。可它常陷兔子洞原地打转，烧钱、动文件，没人喊停。</p></div>
+  <div class="col"><h4>✅ for(step&lt;25) + 类型化错误</h4><p>硬上限 25 圈，超了抛 StepLimitExceededError（带 sessionID/limit）。上层明确知道"为何而停"。</p></div>
+</div>
+
+<h2>护栏二：类型化错误，绝不悄无声息</h2>
+<p>第二道护栏，是把这台循环<strong>所有可能的失败模式，全列进一个类型</strong>——<span class="mono">RunError</span>（<span class="mono">runner/index.ts</span>）。它是个联合类型，每个成员是一种<strong>有名字的失败</strong>：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">LLMError</div><div class="v">模型/供应商出错</div></div>
+  <div class="cell"><div class="k">StepLimitExceededError</div><div class="v">撞了 25 步上限（护栏一）</div></div>
+  <div class="cell"><div class="k">MessageDecodeError</div><div class="v">存的消息解不出来</div></div>
+  <div class="cell"><div class="k">SessionRunnerModel.Error</div><div class="v">模型解析失败</div></div>
+  <div class="cell"><div class="k">AgentReplacementBlocked</div><div class="v">中途换 agent 被拦（第 27 课）</div></div>
+  <div class="cell"><div class="k">ToolOutputStore.Error</div><div class="v">工具输出落盘出错</div></div>
+</div>
+<p>这正是第 5、8 课那条「<strong>错误是值，写进签名</strong>」的世界观，在整台 runner 上的终极兑现。<span class="mono">run</span> 的返回类型是 <span class="mono">Effect&lt;void, RunError&gt;</span>——那个 <span class="mono">RunError</span> 明明白白挂在签名里，意味着<strong>任何调用这台循环的人，都被编译器逼着去面对「它可能这样失败」</strong>。没有藏在某个 <span class="mono">throw</span> 里、靠运行时炸了才发现的暗雷；每一种失败都是类型里一个<strong>看得见、躲不开</strong>的分支。对一个本质上充满不确定（模型会抽风、网络会断、工具会炸）的系统，把这份不确定<strong>从「运行时的惊吓」抬成「编译期的清单」</strong>，是 opencode 敢让这台循环放手去跑的底气。</p>
+<p>更妙的是，这份「失败清单」本身就是一份<strong>极佳的文档</strong>。一个新人想知道「这台循环到底会怎么坏」，不用翻遍实现、不用问老手——直接看 <span class="mono">RunError</span> 这个联合类型，七八个成员就是七八种会发生的坏事，名字还自带解释（<span class="mono">StepLimitExceededError</span>、<span class="mono">MessageDecodeError</span>……）。<strong>类型化错误不只让编译器替你把关，还让代码自己说清楚「我会以哪些方式失败」</strong>。比起散落在各处、语焉不详的 <span class="mono">throw new Error("something went wrong")</span>，一个收拢齐整的错误联合，是把「失败」这件事当一等公民来认真对待的标志。</p>
+
+<h2>护栏三：干净喊停，绝不留烂摊子</h2>
+<p>第三道护栏最精细，也最能体现功力：当循环被<strong>中断</strong>（用户喊停、或某种失败要求收场）时，怎么保证不留下半拉子的烂摊子？核心难点在<strong>那些还在飞的工具</strong>——一轮里可能有三个工具正并发跑（第 18 课），中断来了，它们怎么办？opencode 的处理是一套层层递进的收尾：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">检测到中断：Cause.hasInterrupts(cause) 为真</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">FiberSet.clear(toolFibers)：把还在飞的工具 fiber 全体召回（第 18 课）</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">failUnsettledTools("interrupted")：把没结清的工具标记为失败</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">于是没有任何 tool 永远卡在 running——每个都落到终态</span></div>
+</div>
+<p>第 3 步的 <span class="mono">failUnsettledTools</span> 是这道护栏的灵魂。回想第 14 课那台 ToolState 状态机：一个工具的 state 是 pending → running → completed/error。万一中断恰好砍在某个工具<strong>还在 running</strong> 的时刻，如果不管它，这个工具就<strong>永远停在 running，再也走不到终态</strong>——历史里留下一个永远「转圈」的幽灵，谁读到都一头雾水。<span class="mono">failUnsettledTools</span> 就是来兜底的：中断时，把所有<strong>还没结清的工具，统统标记为 error（"Tool execution interrupted"）</strong>。这保证了一条铁打的不变量——<strong>无论循环以什么姿势倒下，每一个工具最终都停在一个明确的终态，绝无「永远 running」的残骸</strong>。</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">pending</span><span class="tl-desc">工具已记录，待执行</span></div>
+  <div class="tl-item"><span class="tl-time">running</span><span class="tl-desc">正在跑——此刻若被中断…</span></div>
+  <div class="tl-item"><span class="tl-time">⚠ 中断</span><span class="tl-desc">failUnsettledTools 介入：绝不让它停在 running</span></div>
+  <div class="tl-item"><span class="tl-time">error（终态）</span><span class="tl-desc">标记为 "interrupted" —— 每个工具都有明确归宿</span></div>
+</div>
+<div class="cols">
+  <div class="col"><h4>failInterruptedTools（开跑前）</h4><p>run 一开始就清理：上次被打断、卡在 pending/running 的工具，先标记失败。崩溃恢复的兜底。</p></div>
+  <div class="col"><h4>failUnsettledTools（出错时）</h4><p>这一轮中断/失败时清理：把没结清的工具标记失败。绝不让任何工具卡在中间态。</p></div>
+</div>
+<p>这一前一后两把扫帚，把「工具可能卡在中间态」这个隐患从两头堵死：<span class="mono">failInterruptedTools</span> 在<strong>开跑前</strong>扫一遍（清理上次崩溃/中断的残留），<span class="mono">failUnsettledTools</span> 在<strong>出错时</strong>扫一遍（收拾这一轮的残局）。无论是优雅退出还是粗暴崩溃，下次有人读这段历史，看到的都是一份<strong>每个工具都有明确归宿</strong>的干净账。这，就是「干净喊停」四个字背后真正的重量。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景·第四部分收官</div>
+  <p>这一课给第 17 课那台引擎装齐了安全系统，也让整个第四部分（Session 核心与 agent 循环）<strong>合龙</strong>。回望这条主线：</p>
+  <ul>
+    <li><strong>第 14 课</strong>：数据模型 Session/Message/Part（含 ToolState 状态机）。</li>
+    <li><strong>第 15 课</strong>：事件溯源收件箱——admit 先把输入稳稳入账。</li>
+    <li><strong>第 16 课</strong>：运行协调器——同会话串行、跨会话并发地排空。</li>
+    <li><strong>第 17 课</strong>：agent 循环——有界的「想→动→看→再想」。</li>
+    <li><strong>第 18 课</strong>：工具调用与 FiberSet——按权限亮、并发跑、可召回。</li>
+    <li><strong>第 19 课</strong>：投影历史——事件（底账）投影成消息（报表），每轮重读。</li>
+    <li><strong>第 20 课·本课</strong>：安全护栏——有界步数、类型化错误、干净喊停。</li>
+  </ul>
+  <p>一句话总结第四部分：<strong>opencode 把「让模型自驱地、安全地、可恢复地完成任务」这件极难的事，拆成了入账、调度、循环、工具、投影、护栏六块，每块都用一个朴素而硬核的机制守住一条不变量。</strong>但你注意到没有——这台引擎每轮「重读历史」时，那段历史到底<strong>该包含什么</strong>，我们一直含糊带过。当对话很长、当中途换了 agent、当上下文要重组，模型每一轮究竟该看到怎样一份「世界」？这就是下一部分——<strong>第五部分·上下文纪元（Context Epoch）系统</strong>——要回答的核心问题。引擎已经跑起来了，接下来看那个决定「引擎该读什么世界」的精密大脑。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>循环结尾那段错误处理，是一连串「分情况收尾」。摘其魂：</p>
+  <pre class="code"><span class="cm">// 简化自 session/runner/llm.ts 的错误处理段</span>
+<span class="kw">if</span> (Cause.<span class="fn">hasInterrupts</span>(cause)) {            <span class="cm">// 被中断</span>
+  <span class="kw">yield</span>* FiberSet.<span class="fn">clear</span>(toolFibers)          <span class="cm">// 召回所有工具 fiber</span>
+  <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">"interrupted"</span>)  <span class="cm">// 没结清的标记失败</span>
+}
+<span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> && !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// 工具真炸了</span>
+  <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${'$'}{message}`</span>)
+}
+<span class="kw">if</span> (stream._tag === <span class="st">"Failure"</span>) <span class="kw">return</span> <span class="kw">yield</span>* Effect.<span class="fn">failCause</span>(stream.cause)  <span class="cm">// 错误如实上抛</span></pre>
+  <p>读这段，你会发现它对「失败」分得极细：是被中断、还是工具真炸了、还是模型报错，各有各的收尾话术，但<strong>殊途同归到一件事——<span class="mono">failUnsettledTools</span></strong>：无论哪种倒法，都先把没结清的工具结清。最后那句 <span class="mono">Effect.failCause(stream.cause)</span> 也很关键：错误不是被吞掉，而是<strong>如实地沿 Effect 的错误通道往上抛</strong>，最终汇成签名里那个 <span class="mono">RunError</span>。<strong>先把自己的烂摊子收干净，再把错误诚实地交出去</strong>——这就是一台健壮的循环面对失败时，应有的体面。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li>agent 循环强大但危险（听不可信模型、跑有副作用工具、可被中断/崩溃），所以需要三道安全护栏。</li>
+    <li><strong>有界步数</strong>：<span class="mono">MAX_STEPS=25</span>，撞上限抛带 <span class="mono">sessionID/limit</span> 字段的 <span class="mono">StepLimitExceededError</span>（不是默默停）——绝不无限空转。</li>
+    <li><strong>类型化错误</strong>：<span class="mono">RunError</span> 联合把所有失败模式列进类型，<span class="mono">run</span> 返回 <span class="mono">Effect&lt;void, RunError&gt;</span>，编译器逼调用者面对每一种失败（第 5、8 课原则的终极兑现）——绝不悄无声息。</li>
+    <li><strong>干净喊停</strong>：中断时 <span class="mono">Cause.hasInterrupts</span> → <span class="mono">FiberSet.clear</span>（召回工具）+ <span class="mono">failUnsettledTools</span>（标记没结清的工具失败）——绝不留烂摊子。</li>
+    <li><strong>工具终态不变量</strong>：<span class="mono">failInterruptedTools</span>（开跑前）+ <span class="mono">failUnsettledTools</span>（出错时）两把扫帚，保证<strong>每个工具最终都落到明确终态，绝无「永远 running」的残骸</strong>。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Lesson 17's agent loop is powerful — it thinks and acts on its own drive. But the flip side of powerful is <strong>dangerous</strong>: it obeys a <strong>not-fully-trusted model</strong>, runs <strong>side-effectful tools</strong>, and may at any moment be halted by the user, hit a model error, or have the process crash. A loop that can edit your code and run your commands on its own, without brakes or guardrails, will cause trouble. This lesson, also Part 4's finale, is about the <strong>three safety guardrails</strong> opencode fits on this dangerous engine: it <strong>can't spin forever</strong> (bounded steps), <strong>can't fail silently</strong> (typed errors), and <strong>can't be interrupted into a mess</strong> (clean halt). To cover the loop completely, you must cover its "safety system" thoroughly.</p>
+<p>Why do guardrails deserve their own lesson, not just a mention within the loop? Because "making an agent safe" is far harder than "making it run." Running is stringing "think→act→see" together; safety must answer a string of "what ifs": what if the model loops forever, refusing to stop? what if a tool blows up? what if the user changes their mind mid-way? what if it crashes right when a tool is half-run? Each "what if" could leave the session in <strong>a middle state no one can read</strong>. This lesson sees how opencode plugs these "what ifs" one by one, so that however the loop ends — normal completion, hitting the cap, an error, an interruption, or a crash — it <strong>stops in a clean, self-consistent, recoverable state</strong>.</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">Guardrail 1 · bounded steps</div><div class="v">MAX_STEPS=25 → StepLimitExceededError. Never spin forever.</div></div>
+  <div class="cell"><div class="k">Guardrail 2 · typed errors</div><div class="v">The RunError union lists every failure mode, the compiler forces you to face it. Never silent.</div></div>
+  <div class="cell"><div class="k">Guardrail 3 · clean halt</div><div class="v">On interrupt, recall tools + mark the unsettled failed. Never leave a mess.</div></div>
+</div>
+
+<div class="card analogy">
+  <div class="tag">🛑 Analogy</div>
+  Think of the agent loop as a <strong>powerful industrial machine tool</strong>. It can do work, but must come with three safety devices. The first is a <strong>circuit breaker / timer</strong>: the machine runs at most 25 cycles then auto-stops, never allowed to spin madly forever (bounded steps). The second is <strong>every labeled warning light on the dashboard</strong>: this machine has no "unknown fault" blinking — every possible fault has a <strong>named</strong> light, and by design it <strong>forces you to wire a response plan for each light</strong> (typed errors). The third, most crucial, is the <strong>emergency stop button</strong>: pressing it isn't just "cut power" — it <strong>safely parks and locks every still-swinging robotic arm</strong>, never leaving an arm frozen in mid-air or a workpiece stuck in the jaws (clean halt + tool wind-down). Only a machine with all three dares be handed to people. What opencode fits on the agent loop is exactly these three.
+</div>
+
+<h2>Guardrail 1: bounded steps, never spin forever</h2>
+<p>Lesson 17 already showed that <span class="mono">MAX_STEPS = 25</span>. What this lesson adds: hitting the cap <strong>isn't a silent stop but throwing a named error</strong> — <span class="mono">StepLimitExceededError</span>. It's a <span class="mono">Schema.TaggedErrorClass</span> that even <strong>carries <span class="mono">sessionID</span> and <span class="mono">limit</span> fields</strong>: which session, what cap was hit, crystal clear.</p>
+<pre class="code"><span class="cm">// session/runner/index.ts — hitting the cap throws not a bare exception but an informative typed error</span>
+<span class="kw">export class</span> StepLimitExceededError <span class="kw">extends</span> Schema.<span class="fn">TaggedErrorClass</span>()(
+  <span class="st">"SessionRunner.StepLimitExceededError"</span>,
+  { sessionID: SessionSchema.ID, limit: Schema.Int },  <span class="cm">// ← who, hit what cap</span>
+) {}</pre>
+<p>Why insist on a hard cap? Because the model <strong>doesn't always know to stop</strong>. It can fall into a "check one more file, fix one more spot, verify once more" rabbit hole, thinking it's diligently advancing while actually spinning in place, burning your money. A <span class="mono">while(true)</span>-style "let it iterate freely until satisfied" is an unacceptable gamble for a loop that spends real money and may touch your files. The ring of 25 is a <strong>non-negotiable brake</strong> opencode presses for you: iterate, yes, but this far. And making "this far" a <strong>typed error with fields</strong> rather than a silent return means the upper layer can <strong>know definitively "this stopped because it hit the cap,"</strong> and react appropriately (e.g. prompt the user "task too long, break it into steps?") instead of facing a vague "it just ended."</p>
+<p>There's an easily-missed sense of proportion here: the cap is 25, not 5, not 250. Too small, and complex tasks are cut off before they unfold, making the agent seem "useless"; too large, and the cost of running wild (money, time, churn on your files) becomes too frightening. 25 is an <strong>empirically-calibrated compromise</strong> — long enough self-driving room to finish most real tasks, with a hard line to cut losses when it strays. The art of a guardrail is often not in "whether" but "at what value": too loose is as good as none, too tight gets in the way. Nailing this number as an <strong>explicit constant</strong> (<span class="mono">MAX_STEPS</span>) rather than a magic number scattered in code also keeps it reviewable and adjustable later — again this codebase's habit of "putting key decisions out in the open."</p>
+<div class="cols">
+  <div class="col"><h4>❌ while(true) free iteration</h4><p>Let the model run till satisfied. But it often rabbit-holes in place, burning money, touching files, with no one to halt it.</p></div>
+  <div class="col"><h4>✅ for(step&lt;25) + typed error</h4><p>Hard cap of 25 cycles; exceed it and throw StepLimitExceededError (with sessionID/limit). The upper layer knows exactly "why it stopped."</p></div>
+</div>
+
+<h2>Guardrail 2: typed errors, never silent</h2>
+<p>The second guardrail lists <strong>all of this loop's possible failure modes into one type</strong> — <span class="mono">RunError</span> (<span class="mono">runner/index.ts</span>). It's a union, each member a <strong>named failure</strong>:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">LLMError</div><div class="v">model/provider error</div></div>
+  <div class="cell"><div class="k">StepLimitExceededError</div><div class="v">hit the 25-step cap (guardrail 1)</div></div>
+  <div class="cell"><div class="k">MessageDecodeError</div><div class="v">a stored message can't be decoded</div></div>
+  <div class="cell"><div class="k">SessionRunnerModel.Error</div><div class="v">model resolution failed</div></div>
+  <div class="cell"><div class="k">AgentReplacementBlocked</div><div class="v">a mid-way agent switch was blocked (Lesson 27)</div></div>
+  <div class="cell"><div class="k">ToolOutputStore.Error</div><div class="v">tool-output disk write failed</div></div>
+</div>
+<p>This is Lessons 5 and 8's worldview of "<strong>errors are values, written into the signature</strong>" cashed out at the whole runner. <span class="mono">run</span>'s return type is <span class="mono">Effect&lt;void, RunError&gt;</span> — that <span class="mono">RunError</span> hangs plainly in the signature, meaning <strong>anyone calling this loop is forced by the compiler to face "it can fail this way."</strong> No landmine hidden in some <span class="mono">throw</span>, discovered only when it blows up at runtime; every failure is a <strong>visible, unavoidable</strong> branch in the type. For a system inherently full of uncertainty (models glitch, networks drop, tools blow up), lifting that uncertainty <strong>from "a runtime fright" to "a compile-time checklist"</strong> is what gives opencode the confidence to let this loop run free.</p>
+<p>Better still, this "failure checklist" is itself <strong>excellent documentation</strong>. A newcomer wanting to know "how exactly can this loop break" needn't comb the implementation or ask a veteran — just look at the <span class="mono">RunError</span> union; its seven or eight members are seven or eight bad things that can happen, the names self-explanatory (<span class="mono">StepLimitExceededError</span>, <span class="mono">MessageDecodeError</span>…). <strong>Typed errors not only have the compiler guard for you but make the code state for itself "the ways I can fail."</strong> Compared to vague <span class="mono">throw new Error("something went wrong")</span> scattered everywhere, a tidy error union is the mark of treating "failure" as a first-class citizen.</p>
+
+<h2>Guardrail 3: clean halt, never leave a mess</h2>
+<p>The third guardrail is the finest and most telling: when the loop is <strong>interrupted</strong> (user halts, or some failure forces a wrap-up), how to guarantee no half-built mess is left? The crux is <strong>those still-flying tools</strong> — a round may have three tools running concurrently (Lesson 18); interruption comes, what about them? opencode's handling is a cascade of wind-downs:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">interruption detected: Cause.hasInterrupts(cause) is true</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">FiberSet.clear(toolFibers): recall all still-flying tool fibers (Lesson 18)</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">failUnsettledTools("interrupted"): mark unsettled tools as failed</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">so no tool is ever stuck in running — each lands in a terminal state</span></div>
+</div>
+<p>Step 3's <span class="mono">failUnsettledTools</span> is this guardrail's soul. Recall Lesson 14's ToolState machine: a tool's state is pending → running → completed/error. If an interruption happens to cut exactly when a tool is <strong>still running</strong>, leaving it be means that tool is <strong>stuck in running forever, never reaching a terminal state</strong> — a forever-"spinning" ghost left in the history, baffling anyone who reads it. <span class="mono">failUnsettledTools</span> is the backstop: on interruption, mark all <strong>unsettled tools as error ("Tool execution interrupted")</strong>. This guarantees an ironclad invariant — <strong>however the loop falls, every tool ultimately rests in a definite terminal state, with no "forever running" wreckage</strong>.</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">pending</span><span class="tl-desc">tool recorded, awaiting execution</span></div>
+  <div class="tl-item"><span class="tl-time">running</span><span class="tl-desc">executing — if interrupted at this moment…</span></div>
+  <div class="tl-item"><span class="tl-time">⚠ interrupt</span><span class="tl-desc">failUnsettledTools steps in: never let it stay in running</span></div>
+  <div class="tl-item"><span class="tl-time">error (terminal)</span><span class="tl-desc">marked "interrupted" — every tool has a definite resting place</span></div>
+</div>
+<p>These two brooms, before and after, plug the hazard of "a tool stuck in a middle state" from both ends: <span class="mono">failInterruptedTools</span> sweeps <strong>before the run</strong> (clearing leftovers from last crash/interrupt), <span class="mono">failUnsettledTools</span> sweeps <strong>on error</strong> (cleaning this round's debris). Whether a graceful exit or a brutal crash, the next reader of this history sees a clean ledger where <strong>every tool has a definite fate</strong>. This is the true weight behind the words "clean halt."</p>
+<div class="cols">
+  <div class="col"><h4>failInterruptedTools (before run)</h4><p>Cleanup at run's start: tools left pending/running by a prior interrupt are marked failed first. The crash-recovery backstop.</p></div>
+  <div class="col"><h4>failUnsettledTools (on error)</h4><p>Cleanup on this round's interrupt/failure: mark unsettled tools failed. Never let any tool stay in a middle state.</p></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture · Part 4 finale</div>
+  <p>This lesson fits Lesson 17's engine with a full safety system, and makes all of Part 4 (Session core and the agent loop) <strong>close up</strong>. Look back along the main line:</p>
+  <ul>
+    <li><strong>Lesson 14</strong>: the data model Session/Message/Part (incl. the ToolState machine).</li>
+    <li><strong>Lesson 15</strong>: the event-sourced inbox — admit lands input steadily first.</li>
+    <li><strong>Lesson 16</strong>: the run coordinator — drain serially within a session, concurrently across.</li>
+    <li><strong>Lesson 17</strong>: the agent loop — bounded "think→act→see→think again."</li>
+    <li><strong>Lesson 18</strong>: tool calls & FiberSet — shown by permission, run concurrently, recallable.</li>
+    <li><strong>Lesson 19</strong>: projected history — events (ledger) projected into messages (statement), reread each round.</li>
+    <li><strong>Lesson 20 · this one</strong>: safety guardrails — bounded steps, typed errors, clean halt.</li>
+  </ul>
+  <p>One line for Part 4: <strong>opencode breaks the very hard task of "letting the model finish work self-drivenly, safely, recoverably" into six pieces — admission, scheduling, loop, tools, projection, guardrails — each guarding one invariant with a plain yet hardcore mechanism.</strong> But notice — each round this engine "rereads history," what that history <strong>should contain</strong> we've kept glossing over. When the conversation is long, when the agent switches mid-way, when context needs reassembly, what kind of "world" should the model see each round? That's the core question the next part — <strong>Part 5 · the Context Epoch system</strong> — answers. The engine is running; next we see the precise brain that decides "what world the engine should read."</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p>The error-handling block at the loop's end is a cascade of "wind down by case." Its soul, excerpted:</p>
+  <pre class="code"><span class="cm">// simplified from the error-handling section of session/runner/llm.ts</span>
+<span class="kw">if</span> (Cause.<span class="fn">hasInterrupts</span>(cause)) {            <span class="cm">// interrupted</span>
+  <span class="kw">yield</span>* FiberSet.<span class="fn">clear</span>(toolFibers)          <span class="cm">// recall all tool fibers</span>
+  <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">"interrupted"</span>)  <span class="cm">// mark unsettled as failed</span>
+}
+<span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> && !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// a tool really blew up</span>
+  <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${'$'}{message}`</span>)
+}
+<span class="kw">if</span> (stream._tag === <span class="st">"Failure"</span>) <span class="kw">return</span> <span class="kw">yield</span>* Effect.<span class="fn">failCause</span>(stream.cause)  <span class="cm">// rethrow the error faithfully</span></pre>
+  <p>Read it and you'll find it dissects "failure" finely: interrupted, or a tool really blew up, or a model error — each has its own wind-down wording, but <strong>all converge on one thing — <span class="mono">failUnsettledTools</span></strong>: whichever way it falls, settle the unsettled tools first. The final <span class="mono">Effect.failCause(stream.cause)</span> matters too: the error isn't swallowed but <strong>faithfully rethrown up Effect's error channel</strong>, ultimately joining the <span class="mono">RunError</span> in the signature. <strong>Clean up your own mess first, then hand the error over honestly</strong> — that's the dignity a robust loop owes when facing failure.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li>The agent loop is powerful but dangerous (obeys an untrusted model, runs side-effectful tools, can be interrupted/crash), hence needs three safety guardrails.</li>
+    <li><strong>Bounded steps</strong>: <span class="mono">MAX_STEPS=25</span>; hitting the cap throws <span class="mono">StepLimitExceededError</span> with <span class="mono">sessionID/limit</span> fields (not a silent stop) — never spin forever.</li>
+    <li><strong>Typed errors</strong>: the <span class="mono">RunError</span> union lists all failure modes in the type, <span class="mono">run</span> returns <span class="mono">Effect&lt;void, RunError&gt;</span>, the compiler forces callers to face each failure (the ultimate cash-out of Lessons 5, 8) — never silent.</li>
+    <li><strong>Clean halt</strong>: on interrupt <span class="mono">Cause.hasInterrupts</span> → <span class="mono">FiberSet.clear</span> (recall tools) + <span class="mono">failUnsettledTools</span> (mark unsettled tools failed) — never leave a mess.</li>
+    <li><strong>Tool terminal-state invariant</strong>: <span class="mono">failInterruptedTools</span> (before run) + <span class="mono">failUnsettledTools</span> (on error), two brooms, guarantee <strong>every tool ultimately lands in a definite terminal state, with no "forever running" wreckage</strong>.</li>
+  </ul>
+</div>
+""",
+}

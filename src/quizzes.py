@@ -872,6 +872,47 @@ QUIZZES = {
             {"zh": "投影器有一行注释：「更新的回合取代过时残行，绝不接着投影一条更老的 assistant 记录」。为什么投影不能无脑追加、必须懂得让新回合盖过旧的半截残留？举一个会出问题的场景。", "en": "The projector has a comment: \"a newer turn supersedes stale incomplete rows; never resume an older assistant projection.\" Why can't projection mindlessly append but must let a new turn override stale half-finished leftovers? Give a scenario that would break."},
         ],
     },
+    "20-steps-errors.html": {
+        "mcq": [
+            {
+                "q": {"zh": "撞上 MAX_STEPS=25 上限时，循环怎么处理？", "en": "When hitting the MAX_STEPS=25 cap, how does the loop handle it?"},
+                "opts": [
+                    {"zh": "抛出带 sessionID/limit 字段的类型化错误 StepLimitExceededError，而非默默停下", "en": "Throw a typed StepLimitExceededError carrying sessionID/limit fields, not silently stop"},
+                    {"zh": "默默返回，假装完成了", "en": "Silently return, pretending it finished"},
+                    {"zh": "无限继续，直到模型满意", "en": "Continue forever until the model is satisfied"},
+                    {"zh": "重启整个进程", "en": "Restart the whole process"},
+                ],
+                "answer": 0,
+                "why": {"zh": "模型不总知道该停，可能陷兔子洞烧钱。25 是不容商量的刹车。撞限抛带字段的 StepLimitExceededError（哪个会话、撞多少），上层据此明确知道「为何而停」、可恰当反应，而非面对语焉不详的结束。", "en": "The model doesn't always know to stop and may rabbit-hole, burning money. 25 is a non-negotiable brake. Hitting it throws a field-carrying StepLimitExceededError (which session, what cap), so the upper layer knows exactly why it stopped and can react, not face a vague ending."},
+            },
+            {
+                "q": {"zh": "RunError 联合类型体现了什么设计原则？", "en": "What design principle does the RunError union embody?"},
+                "opts": [
+                    {"zh": "错误是值、写进签名：所有失败模式列进类型，编译器逼调用者面对每一种", "en": "Errors are values, written into the signature: all failure modes in the type, compiler forces callers to face each"},
+                    {"zh": "所有错误都用 throw 抛出", "en": "Throw all errors with throw"},
+                    {"zh": "忽略所有错误", "en": "Ignore all errors"},
+                    {"zh": "把错误记进日志就行", "en": "Just log the errors"},
+                ],
+                "answer": 0,
+                "why": {"zh": "run 返回 Effect<void, RunError>，RunError 挂在签名里。每种失败（LLMError/StepLimit/MessageDecode…）是类型里看得见、躲不开的分支，没有藏在 throw 里的暗雷。把不确定从运行时惊吓抬成编译期清单——这份清单本身还是极佳文档。", "en": "run returns Effect<void, RunError>, with RunError in the signature. Every failure (LLMError/StepLimit/MessageDecode…) is a visible, unavoidable branch, no landmine hidden in a throw. Lifting uncertainty from runtime fright to a compile-time checklist — which is itself excellent documentation."},
+            },
+            {
+                "q": {"zh": "中断时 failUnsettledTools 保证了什么不变量？", "en": "On interrupt, what invariant does failUnsettledTools guarantee?"},
+                "opts": [
+                    {"zh": "每个工具最终都落到明确终态——绝无「永远卡在 running」的残骸", "en": "Every tool ultimately lands in a definite terminal state — no \"forever stuck in running\" wreckage"},
+                    {"zh": "所有工具都成功", "en": "All tools succeed"},
+                    {"zh": "工具不会被中断", "en": "Tools can't be interrupted"},
+                    {"zh": "中断会回滚所有工具", "en": "Interrupt rolls back all tools"},
+                ],
+                "answer": 0,
+                "why": {"zh": "ToolState 是 pending→running→completed/error。若中断砍在工具 running 时不管它，就永远卡在 running，成历史里的幽灵。failUnsettledTools 把没结清的标记 error；配合开跑前的 failInterruptedTools，两把扫帚保证每个工具都有明确归宿。", "en": "ToolState is pending→running→completed/error. If interrupt cuts while a tool is running and it's left alone, it's stuck in running forever, a ghost in history. failUnsettledTools marks unsettled ones error; with failInterruptedTools before the run, two brooms guarantee every tool has a definite fate."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说安全护栏的艺术「不在有没有，而在卡在哪个值」——MAX_STEPS 太小掐断复杂任务、太大失控代价可怕，25 是经验折中。如果让你为一个会动用户文件的 agent 选这个上限，你会考虑哪些因素？", "en": "The lesson says a guardrail's art is \"not whether but at what value\" — too-small MAX_STEPS cuts off complex tasks, too-large makes runaway costs frightening, 25 an empirical compromise. If you set this cap for an agent that touches user files, what factors would you weigh?"},
+            {"zh": "源码错误处理段对「失败」分得极细（被中断/工具炸了/模型报错各有收尾），但都殊途同归到 failUnsettledTools，最后才如实 failCause 上抛。「先收干净自己的烂摊子，再诚实交出错误」——为什么这个顺序很重要？", "en": "The source's error handling dissects \"failure\" finely (interrupted/tool-blew-up/model-error each with its wind-down) but all converge on failUnsettledTools, only then faithfully failCause-rethrowing. \"Clean up your own mess first, then hand the error over honestly\" — why does this order matter?"},
+        ],
+    },
 }
 
 def render(fname, lang):
