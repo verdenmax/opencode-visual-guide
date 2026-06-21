@@ -328,8 +328,352 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第三部分 · 客户端/服务器</span><span class="lang-en">Part 3 · Client/Server</span></div>
     <h1><span class="lang-zh">路由组与 handler</span><span class="lang-en">Route groups &amp; handlers</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《路由组与 handler》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“路由组与 handler”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Route groups & handlers" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Route groups & handlers" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">上一课我们站在门口，看清了 server 这扇门的整体长相：一个 <span class="mono">webHandler</span>、背后挂着 <strong>21 个路由组</strong>。这一课我们<strong>推门进去</strong>，把镜头怼到<strong>其中一个组</strong>身上，看它到底由什么拼成。你会发现 opencode 的每个 API 端点都分成两半：<strong>「组」负责声明契约</strong>（这个端点叫什么、要什么、给什么、可能怎么错），<strong>「handler」负责照约办事</strong>（把校验过的输入翻译成对 core 的调用）。再加上裹在外面的一圈<strong>中间件</strong>，三者合起来，才是一个请求从进门到出门的完整旅程。读懂这一课，你就能拿着任何一个 API 路径，自己摸到它的声明在哪、实现在哪。</p>
+<p>为什么要把「声明」和「实现」拆成两半？这其实是第 5、6 课那套世界观的又一次兑现：<strong>把契约抬到显眼、机器可读的地方，把杂活留在实现里</strong>。组里全是类型，没有一行业务逻辑——正因为它「纯」，机器才能读它、据它生成 SDK（第 12 课）。handler 里全是干活的调用，但它<strong>不必再操心校验</strong>——输入合不合法，组的类型在它跑之前就替它把过关了。两边各司其职，这就是 opencode 路由层的基本骨法。</p>
+
+<div class="card analogy">
+  <div class="tag">🏨 生活类比</div>
+  还记得上一课那家酒店吗？这一课我们走近<strong>服务清单上的某一栏</strong>。每一栏（一个「组」）写明这一类的每项服务：<strong>叫什么名字</strong>（list / get / create）、<strong>要你填哪张表</strong>（params / query / payload）、<strong>会给你什么回执</strong>（success）、<strong>可能怎么被拒</strong>（error）。但清单只是「写明」，真正<strong>照单办事的是柜台后的柜员</strong>（handler）——他拿到你填好的表，转身去后厨/库房（core 服务）取货，再把结果递回给你。而你递表之前，还得先过门口那<strong>一排关卡</strong>（中间件）：安检（鉴权）、翻译（实例路由）、出错时兜底的值班经理（错误中间件）。<strong>清单写契约、柜员干活、关卡把关</strong>——这三层就是这一课的全部。
+</div>
+
+<h2>路由组：每个端点都是一份契约</h2>
+<p>打开 <span class="mono">groups/session.ts</span>，你看不到任何「怎么查数据库」的代码，只看到<strong>一连串端点声明</strong>。每个端点用 <span class="mono">HttpApiEndpoint.get/post(名字, 路径, {…})</span> 写成，大括号里把这个端点的<strong>五个侧面</strong>钉死：路径参数、查询参数、请求体、成功返回、可能的错误。它<strong>只描述形状，不含实现</strong>——这正是「声明式」的精髓。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">name</div><div class="v">"get" —— 端点的标识名，handler 靠它对号入座</div></div>
+  <div class="cell"><div class="k">params</div><div class="v">{ sessionID } —— 路径里的占位，带类型</div></div>
+  <div class="cell"><div class="k">query</div><div class="v">WorkspaceRoutingQuery —— ?后面的查询参数</div></div>
+  <div class="cell"><div class="k">success</div><div class="v">Session.Info —— 成功时返回的形状</div></div>
+  <div class="cell"><div class="k">error</div><div class="v">[BadRequest, ApiNotFoundError] —— 声明在案的失败</div></div>
+</div>
+<p>注意最后那个 <span class="mono">error</span>：失败也是契约的一部分。一个端点<strong>可能怎么错</strong>，被明明白白写进类型，而不是藏在某个 <span class="mono">throw</span> 里靠运气发现。这就是第 8 课「错误是值、写进签名」那条原则，在 API 表面上的体现——客户端拿到 SDK 时，连「这个调用可能返回 404」都是类型已知的。每个端点还跟着一段 <span class="mono">.annotateMerge(OpenApi.annotations({…}))</span>，补上人类可读的 summary/description，这些文字最后会原样流进自动生成的 OpenAPI 文档与 SDK 注释里。</p>
+<p>把这些端点用 <span class="mono">.add(...)</span> 串起来，就组成一个 <span class="mono">HttpApiGroup</span>；再把一个个组 <span class="mono">.add(...)</span> 进 <span class="mono">HttpApi.make(...)</span>，就拼出了整张 API。<strong>端点 → 组 → API</strong>，层层 <span class="mono">.add</span> 累加，整个过程没有一行「运行时逻辑」，纯是在用类型搭一座契约的脚手架。</p>
+<p>这里有个容易被忽略却很关键的好处：因为「声明」先于「实现」，<strong>SDK 可以在任何 handler 写好之前就生成出来</strong>。换句话说，前端团队不必等后端把活干完，只要契约定了，类型化的客户端就有了——大家照着同一份契约并行开工。对一个要同时喂养 TUI、网页、桌面、Slack 的项目，这种「契约先行、各端解耦」的协作方式，几乎是把多端一致性从「靠纪律维持」升级成了「靠类型保证」。这正是声明式那点前期啰嗦真正买到的东西。</p>
+<div class="flow">
+  <div class="node">HttpApiEndpoint<span class="sub">单个端点·五个侧面</span></div>
+  <div class="arrow">.add →</div>
+  <div class="node">HttpApiGroup<span class="sub">一个领域·如 session</span></div>
+  <div class="arrow">.add →</div>
+  <div class="node">HttpApi<span class="sub">整张 API·21 组汇总</span></div>
+</div>
+
+<h2>21 个组，就是一张能力地图</h2>
+<p>这 21 个组的<strong>名字本身</strong>，几乎就是 opencode 全部对外能力的目录。你不用读实现，光看组名就能猜个八九不离十：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">session</div><div class="v">会话：列表/创建/发消息/中止/分享</div></div>
+  <div class="cell"><div class="k">event</div><div class="v">事件流：SSE 实时推送（第 11 课）</div></div>
+  <div class="cell"><div class="k">config</div><div class="v">配置读写</div></div>
+  <div class="cell"><div class="k">file</div><div class="v">文件读写、搜索</div></div>
+  <div class="cell"><div class="k">permission</div><div class="v">工具权限的批准/拒绝</div></div>
+  <div class="cell"><div class="k">provider</div><div class="v">模型供应商与可用模型</div></div>
+  <div class="cell"><div class="k">mcp</div><div class="v">MCP 外部工具服务器</div></div>
+  <div class="cell"><div class="k">tui</div><div class="v">给富 TUI 的专用端点</div></div>
+</div>
+<p>（上面只列了 8 个，其余还有 instance、workspace、project、question、pty、sync、control、global 等，凑满 21 个。）这件事很值得停下来体会：<strong>当 API 是结构化声明时，它的「目录」是天然存在、可枚举的</strong>。你想知道 opencode 能干什么？不用读文档、不用问人，把 <span class="mono">groups/</span> 目录 <span class="mono">ls</span> 一遍，能力清单就在眼前。这是 Hono 那种「路由散落各处」的写法给不了的——在那里，没有人能一眼说清「这个服务总共开了哪些口」。声明式的代价是前期啰嗦，红利是<strong>系统永远能自己回答「我有哪些能力」</strong>。这种「可枚举性」还会一路传导：能力可枚举，文档就能自动生成、SDK 就能自动产出，连测试都能照着清单逐个覆盖——一份结构化的契约，喂饱了下游一整条工具链。</p>
+<div class="cols">
+  <div class="col"><h4>组 = 契约（声明）</h4><p>groups/*.ts，21 个文件，全是类型。回答「有什么端点、各要什么」。机器可读 → 生成 SDK。</p></div>
+  <div class="col"><h4>handler = 实现（干活）</h4><p>handlers/*.ts，20 个文件。回答「这个端点具体怎么办」。调用 core 服务，把活真正干掉。</p></div>
+</div>
+
+<h2>handler：把契约接到 core</h2>
+<p>契约写好了，谁来兑现？这就是 <span class="mono">handlers/session.ts</span> 的活。它用 <span class="mono">HttpApiBuilder.group(InstanceHttpApi, "session", handlers =&gt; …)</span> 认领「session 这个组」，然后<strong>给组里每个端点名字配上一个实现函数</strong>——<span class="mono">.handle("list", list).handle("get", get)…</span>。名字必须和组里声明的对上，少一个、拼错一个，编译器立刻报错。这就是「契约」二字的分量：<strong>声明和实现被类型死死焊在一起</strong>。</p>
+<pre class="code"><span class="cm">// 简化自 handlers/session.ts</span>
+<span class="kw">export const</span> sessionHandlers = HttpApiBuilder.<span class="fn">group</span>(InstanceHttpApi, <span class="st">"session"</span>, (handlers) =&gt;
+  Effect.<span class="fn">gen</span>(<span class="kw">function</span>* () {
+    <span class="kw">const</span> session = <span class="kw">yield</span>* Session
+    <span class="kw">return</span> handlers
+      .<span class="fn">handle</span>(<span class="st">"list"</span>, list)
+      .<span class="fn">handle</span>(<span class="st">"get"</span>, get)
+      .<span class="fn">handleRaw</span>(<span class="st">"create"</span>, createRaw)
+  }))</pre>
+<p>留意一个细节：handler 函数<strong>不用再校验输入</strong>。当 <span class="mono">list</span> 跑起来时，它拿到的 <span class="mono">ctx.params</span>、<span class="mono">ctx.query</span> 都<strong>已经被组里的类型解码、校验过了</strong>——非法请求在到达 handler 之前就被挡下并返回了。所以理想的 handler 应该<strong>很薄</strong>：取出已经干净的输入 → 调一个 core 服务（<span class="mono">yield* session.list(...)</span>）→ 把结果返回。重活全在 core 的 Session/Tool 服务里，handler 只是 <strong>HTTP 世界和 Effect 世界之间一层薄薄的转接</strong>。</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">请求进来：GET /session/abc123</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">组的类型解码 params/query —— 非法即挡，返回声明过的错误</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">派发到 handler 的 get：拿到干净的 ctx.params.sessionID</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">yield* session.get(sessionID) —— 调 core 服务干真正的活</span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">返回 Session.Info —— 框架按 success 契约编码成 Response</span></div>
+</div>
+<p>偶尔你会看到 <span class="mono">.handleRaw(...)</span> 而不是 <span class="mono">.handle(...)</span>，比如上面的 <span class="mono">create</span>。区别在于：<span class="mono">handle</span> 让框架替你把返回值按 success 契约自动编码成 <span class="mono">Response</span>；而 <span class="mono">handleRaw</span> 把 <span class="mono">Response</span> 的控制权交还给你，用于需要手搓响应头、流式输出、自定义状态码的少数场景。<strong>常规走 handle，特殊才 raw</strong>——这是一条很实用的阅读线索：看到 raw，就知道这个端点有点「不走寻常路」。</p>
+<p>「handler 要薄」不只是审美洁癖，它是一条能帮你<strong>嗅出坏味道</strong>的诊断线。如果某个 handler 越长越胖、开始出现成段的业务判断、循环、对数据的拼装，那几乎可以断定：<strong>有本该住在 core 里的逻辑，漏到 HTTP 这一层了</strong>。后果很现实——这段逻辑只有走 HTTP 才能触发，第 13 课那条进程内 RPC、或者将来任何别的入口，都享受不到它。所以「薄」是有意为之的架构纪律：让业务逻辑沉到 core，HTTP 层只做翻译，core 才能被多种传输共享。读 handler 时，不妨拿「它够不够薄」当尺子，量一量这个端点的健康度。</p>
+
+<h2>中间件：handler 跑之前和之后</h2>
+<p>请求到达 handler 之前、离开之后，还要穿过一圈<strong>中间件</strong>（<span class="mono">middleware/</span> 下 9 个文件）。它们是横切关注点——鉴权、压缩、CORS、实例路由、错误兜底——<strong>每个端点都要</strong>，但你不想在每个 handler 里重写一遍，于是抽成一圈「关卡」，套在 handler 外面。</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">外</span><span class="name">authorization</span></div><div class="ld">鉴权：你有没有资格调这个口</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">↓</span><span class="name">workspace-routing / instance-context</span></div><div class="ld">实例路由：这个请求归哪个工作区/实例处理</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">核</span><span class="name">handler</span></div><div class="ld">真正干活的那一层（上一节）</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">↑</span><span class="name">error / compression / cors-vary</span></div><div class="ld">回程：兜底错误、压缩响应、补 CORS 头</div></div>
+</div>
+<p>其中<strong>错误中间件</strong>（<span class="mono">middleware/error.ts</span>）的设计很能体现 opencode 的克制。它<strong>不</strong>粗暴地把所有异常都拦下来变成 500——恰恰相反，它特意放行那些<strong>已经声明在契约里的、有类型的失败</strong>（比如 404、BadRequest），让它们沿着自己声明过的错误路径正常返回。它只管一件事：<strong>兜住那些没人预料到的「裸崩溃」（defect）</strong>，把它们包成一个带 <span class="mono">ref</span> 编号的 500，并把真实堆栈写进服务器日志。</p>
+<pre class="code"><span class="cm">// 简化自 middleware/error.ts —— 只兜底「意料之外」的崩溃</span>
+<span class="kw">const</span> ref = <span class="st">`err_${'$'}{crypto.randomUUID().slice(0, 8)}`</span>
+<span class="kw">yield</span>* Effect.<span class="fn">logError</span>(<span class="st">"failed"</span>, { ref, error })  <span class="cm">// 真相进日志</span>
+<span class="kw">return</span> HttpServerResponse.<span class="fn">jsonUnsafe</span>(
+  { message: <span class="st">"Unexpected server error. Check server logs."</span>, ref },
+  { status: 500 })  <span class="cm">// 客户端只拿到一个编号</span></pre>
+<p>这个设计的妙处在于<strong>「真相进日志、编号给客户端」</strong>：用户/客户端只看到一句「服务器开小差了，编号 err_3f9a1c0b」，不会泄露内部堆栈；而运维拿着这个 ref 去日志里一搜，完整的错误因果链就在眼前。<strong>对外克制、对内详尽</strong>——安全和可调试性两头都顾到了。这也再次呼应第 8 课：有类型的错误走正路，没类型的崩溃才需要这道最后防线。</p>
+<p>还有一点值得专门点出：中间件的<strong>顺序不是随意的</strong>。鉴权必须排在最外层——还没确认你有没有资格，就不该让请求往里走半步；错误兜底则要能<strong>包住它里面的一切</strong>，否则内层任何一处裸崩溃都会漏出去变成一个空白的 500。所以这一圈关卡更像<strong>洋葱</strong>而非流水线：请求一层层往里穿到 handler，响应再一层层往外穿回来，进去和出来经过的是同一批关卡、只是方向相反。理解了这个「洋葱」结构，你就能解释很多看似奇怪的现象——比如为什么压缩、补 CORS 头这类「修饰响应」的活，总是发生在 handler 跑完<strong>之后</strong>的回程上。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>把这一课拼回上一课：上一课的 <span class="mono">webHandler</span> 是「总台」，这一课拆开了总台背后的<strong>三件套</strong>——</p>
+  <ul>
+    <li><strong>组（21 个，groups/）</strong>：声明契约，纯类型，喂养 SDK 生成。</li>
+    <li><strong>handler（20 个，handlers/）</strong>：薄薄一层，把校验过的输入接到 core 服务。</li>
+    <li><strong>中间件（9 个，middleware/）</strong>：套在外圈的横切关卡，鉴权/路由/压缩/错误兜底。</li>
+  </ul>
+  <p>一个请求的完整旅程：<strong>进门 → 穿过中间件外圈 → 组按类型解码校验 → 派发到对应 handler → handler 调 core 干活 → 结果按 success 契约编码 → 穿回中间件 → 出门</strong>。下一课我们专挑 <span class="mono">event</span> 这个特殊的组：它不返回一次性结果，而是开一条<strong>持续推送</strong>的 SSE 长连接。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>声明（组）与实现（handler）如何靠端点名对齐，一图看尽：</p>
+  <pre class="code"><span class="cm">// groups/session.ts —— 端点即契约（只声明形状）</span>
+HttpApiEndpoint.<span class="fn">get</span>(<span class="st">"get"</span>, SessionPaths.get, {
+  params: { sessionID: SessionID },
+  success: <span class="fn">described</span>(Session.Info, <span class="st">"Get session"</span>),
+  error: [HttpApiError.BadRequest, ApiNotFoundError],
+})
+
+<span class="cm">// handlers/session.ts —— 同名实现，编译器强制对齐</span>
+handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
+<span class="cm">// "get" 拼错或漏写 → 编译期报错。声明与实现被类型焊死。</span></pre>
+  <p>这正是「契约」二字落到代码上的样子：<span class="mono">groups/</span> 说「应该有什么」，<span class="mono">handlers/</span> 说「具体怎么做」，而 TypeScript 站在中间，确保两边<strong>一个名字都不许对不上</strong>。下次你想搞清某个 API 路径的来龙去脉，路线图就很清晰了：先去 <span class="mono">groups/</span> 找它的契约（要什么、给什么、会怎么错），再去同名的 <span class="mono">handlers/</span> 看它怎么把活接到 core——两站之间，类型替你保证了它们说的是同一件事。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li>opencode 的每个 API 端点分两半：<strong>组声明契约</strong>（名字/参数/返回/错误，纯类型），<strong>handler 实现</strong>（调 core 干活）。</li>
+    <li>端点的<strong>错误也是契约</strong>：可能返回什么错，写进类型，客户端的 SDK 据此都是类型已知的。</li>
+    <li><strong>21 个组的名字就是 opencode 的能力地图</strong>——结构化声明让系统永远能自己回答「我有哪些能力」。</li>
+    <li>handler 应当<strong>很薄</strong>：输入已被组的类型校验，它只负责「取干净输入 → 调 core → 返回」。<span class="mono">handleRaw</span> 用于需要手控 Response 的少数端点。</li>
+    <li><strong>中间件</strong>是套在外圈的横切关卡；错误中间件「真相进日志、编号给客户端」，有类型的失败照常走正路。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. opencode 里一个 API 端点的「组（group）」负责什么？</div>
+  <ol class="opts">
+    <li>管理 TCP 连接</li>
+    <li>查询数据库</li>
+    <li>渲染前端页面</li>
+    <li>声明契约——端点的名字、参数、返回、可能的错误，纯类型，不含实现</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。组（groups/*.ts）全是类型声明：每个端点要什么、给什么、怎么错。正因为它纯、机器可读，才能据此自动生成 SDK。干活的是 handler。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. 为什么说「理想的 handler 应该很薄」？</div>
+  <ol class="opts">
+    <li>因为薄的代码运行更快</li>
+    <li>因为 TypeScript 要求函数不能超过 10 行</li>
+    <li>因为薄 handler 不需要测试</li>
+    <li>因为输入已被组的类型校验，handler 只需把干净输入接到 core 服务；逻辑沉到 core 才能被多种传输共享</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。handler 胖起来=本该住 core 的逻辑漏到了 HTTP 层，结果只有走 HTTP 才能触发，第 13 课的进程内 RPC 等入口都享受不到。薄是有意的架构纪律。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. 错误中间件（middleware/error.ts）的行为是？</div>
+  <ol class="opts">
+    <li>把所有异常都变成 500</li>
+    <li>忽略所有错误</li>
+    <li>放行有类型、已声明的失败走正路；只兜底意料之外的裸崩溃，包成带 ref 编号的 500，真相进日志</li>
+    <li>把所有错误都返回给客户端的完整堆栈</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。「真相进日志、编号给客户端」：对外不泄露堆栈、只给一个 ref；运维拿 ref 去日志搜出完整因果。有类型的错误照常走声明过的路径。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里把中间件比作「洋葱」而非「流水线」。用这个比喻解释：为什么压缩、补 CORS 头总发生在 handler 跑完之后的回程上，而鉴权却在最外层？</li>
+    <li>课里说 SDK 能在任何 handler 写好之前就生成。结合「契约先行」，说说这对一个同时供养 TUI/网页/桌面/Slack 的项目意味着什么。</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">Last lesson we stood at the door and saw the server's overall shape: one <span class="mono">webHandler</span>, with <strong>21 route groups</strong> behind it. This lesson we <strong>push the door open</strong> and zoom in on <strong>one group</strong> to see what it's made of. You'll find every opencode API endpoint splits in two: <strong>the "group" declares the contract</strong> (what this endpoint is called, what it wants, what it gives back, how it might fail), and <strong>the "handler" fulfils it</strong> (translating validated input into a call on core). Wrap a ring of <strong>middleware</strong> around them, and the three together make a request's full journey in and out. Grasp this lesson and you can take any API path and find, on your own, where it's declared and where it's implemented.</p>
+<p>Why split "declaration" from "implementation"? It's Lessons 5 and 6's worldview cashing out again: <strong>lift the contract to a visible, machine-readable place, and leave the chores in the implementation</strong>. The group is all types, not one line of business logic — because it's "pure," a machine can read it and generate the SDK from it (Lesson 12). The handler is all real calls, but it <strong>needn't worry about validation</strong> — whether input is legal, the group's types settle before the handler ever runs. Each side to its own job — that's the basic skeleton of opencode's routing layer.</p>
+
+<div class="card analogy">
+  <div class="tag">🏨 Analogy</div>
+  Remember last lesson's hotel? This time we walk up to <strong>one column on the service menu</strong>. Each column (a "group") spells out every service in that category: <strong>what it's called</strong> (list / get / create), <strong>which form you fill</strong> (params / query / payload), <strong>what receipt you'll get</strong> (success), <strong>how you might be refused</strong> (error). But the menu only "states" things — the one who <strong>actually does the work is the clerk behind the counter</strong> (handler), who takes your filled form, turns to the kitchen/storeroom (core services) to fetch goods, then hands the result back. And before you submit your form, you pass <strong>a row of checkpoints</strong> at the door (middleware): security (auth), translation (instance routing), the duty manager who catches falls (error middleware). <strong>The menu writes the contract, the clerk does the work, the checkpoints guard</strong> — these three layers are this whole lesson.
+</div>
+
+<h2>Route groups: every endpoint is a contract</h2>
+<p>Open <span class="mono">groups/session.ts</span> and you see no "how to query the database" code at all, only <strong>a chain of endpoint declarations</strong>. Each endpoint is written as <span class="mono">HttpApiEndpoint.get/post(name, path, {…})</span>, and inside the braces it nails down the endpoint's <strong>five facets</strong>: path params, query params, request body, success return, possible errors. It <strong>only describes shape, contains no implementation</strong> — that's the essence of "declarative."</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">name</div><div class="v">"get" — the endpoint's identifier; the handler matches by it</div></div>
+  <div class="cell"><div class="k">params</div><div class="v">{ sessionID } — typed placeholders in the path</div></div>
+  <div class="cell"><div class="k">query</div><div class="v">WorkspaceRoutingQuery — the params after ?</div></div>
+  <div class="cell"><div class="k">success</div><div class="v">Session.Info — the shape returned on success</div></div>
+  <div class="cell"><div class="k">error</div><div class="v">[BadRequest, ApiNotFoundError] — declared failures</div></div>
+</div>
+<p>Notice that last <span class="mono">error</span>: failure is part of the contract too. <strong>How an endpoint might fail</strong> is written plainly into the type, not hidden in some <span class="mono">throw</span> you discover by luck. That's Lesson 8's "errors are values, written into the signature" showing up at the API surface — when a client gets the SDK, even "this call may return 404" is type-known. Each endpoint also trails a <span class="mono">.annotateMerge(OpenApi.annotations({…}))</span> adding human-readable summary/description, and that text flows verbatim into the auto-generated OpenAPI doc and SDK comments.</p>
+<p>String these endpoints together with <span class="mono">.add(...)</span> and you get an <span class="mono">HttpApiGroup</span>; <span class="mono">.add(...)</span> group after group into <span class="mono">HttpApi.make(...)</span> and you've assembled the whole API. <strong>Endpoint → group → API</strong>, layer on layer of <span class="mono">.add</span>, with not one line of "runtime logic" in the whole process — purely scaffolding a contract out of types.</p>
+<p>Here's an easily-missed but crucial payoff: because "declaration" precedes "implementation," <strong>the SDK can be generated before any handler is written</strong>. In other words, the frontend team needn't wait for the backend to finish the work — once the contract is set, the typed client exists, and everyone builds in parallel against the same contract. For a project feeding TUI, web, desktop and Slack at once, this "contract-first, ends decoupled" way of collaborating essentially upgrades multi-client consistency from "kept by discipline" to "guaranteed by types." That's what the declarative style's bit of up-front verbosity really buys.</p>
+<div class="flow">
+  <div class="node">HttpApiEndpoint<span class="sub">one endpoint · five facets</span></div>
+  <div class="arrow">.add →</div>
+  <div class="node">HttpApiGroup<span class="sub">one domain · e.g. session</span></div>
+  <div class="arrow">.add →</div>
+  <div class="node">HttpApi<span class="sub">whole API · 21 groups merged</span></div>
+</div>
+
+<h2>21 groups are a map of capabilities</h2>
+<p>The <strong>names themselves</strong> of these 21 groups are almost a complete table of contents for everything opencode exposes. You needn't read the implementation; the group names alone tell you most of it:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">session</div><div class="v">sessions: list/create/prompt/abort/share</div></div>
+  <div class="cell"><div class="k">event</div><div class="v">event stream: real-time SSE push (Lesson 11)</div></div>
+  <div class="cell"><div class="k">config</div><div class="v">read/write configuration</div></div>
+  <div class="cell"><div class="k">file</div><div class="v">file read/write, search</div></div>
+  <div class="cell"><div class="k">permission</div><div class="v">approve/deny tool permissions</div></div>
+  <div class="cell"><div class="k">provider</div><div class="v">model providers and available models</div></div>
+  <div class="cell"><div class="k">mcp</div><div class="v">MCP external tool servers</div></div>
+  <div class="cell"><div class="k">tui</div><div class="v">endpoints dedicated to the rich TUI</div></div>
+</div>
+<p>(That lists only 8; the rest include instance, workspace, project, question, pty, sync, control, global and more, making 21.) This is worth pausing on: <strong>when the API is a structured declaration, its "directory" naturally exists and is enumerable</strong>. Want to know what opencode can do? No docs to read, no one to ask — <span class="mono">ls</span> the <span class="mono">groups/</span> directory and the capability list is right there. The Hono style of "routes scattered everywhere" can't give you this — there, no one can say at a glance "what ports does this service open in total." The declarative cost is up-front verbosity; the dividend is that <strong>the system can always answer "what capabilities do I have"</strong> by itself. This "enumerability" propagates downstream too: capabilities enumerable, docs auto-generate, SDKs auto-emit, even tests can cover the list one by one — one structured contract feeds a whole downstream toolchain.</p>
+<div class="cols">
+  <div class="col"><h4>group = contract (declaration)</h4><p>groups/*.ts, 21 files, all types. Answers "what endpoints exist, what each wants." Machine-readable → generates SDK.</p></div>
+  <div class="col"><h4>handler = implementation (the work)</h4><p>handlers/*.ts, 20 files. Answers "how this endpoint actually does it." Calls core services, gets the work done.</p></div>
+</div>
+
+<h2>Handlers: wiring the contract to core</h2>
+<p>The contract's written — who honours it? That's <span class="mono">handlers/session.ts</span>'s job. It uses <span class="mono">HttpApiBuilder.group(InstanceHttpApi, "session", handlers =&gt; …)</span> to claim "the session group," then <strong>pairs each endpoint name in the group with an implementation function</strong> — <span class="mono">.handle("list", list).handle("get", get)…</span>. The name must match what the group declared; miss one or misspell one and the compiler complains at once. That's the weight of the word "contract": <strong>declaration and implementation are welded together by types</strong>.</p>
+<pre class="code"><span class="cm">// simplified from handlers/session.ts</span>
+<span class="kw">export const</span> sessionHandlers = HttpApiBuilder.<span class="fn">group</span>(InstanceHttpApi, <span class="st">"session"</span>, (handlers) =&gt;
+  Effect.<span class="fn">gen</span>(<span class="kw">function</span>* () {
+    <span class="kw">const</span> session = <span class="kw">yield</span>* Session
+    <span class="kw">return</span> handlers
+      .<span class="fn">handle</span>(<span class="st">"list"</span>, list)
+      .<span class="fn">handle</span>(<span class="st">"get"</span>, get)
+      .<span class="fn">handleRaw</span>(<span class="st">"create"</span>, createRaw)
+  }))</pre>
+<p>Note one detail: the handler function <strong>needn't validate input again</strong>. When <span class="mono">list</span> runs, the <span class="mono">ctx.params</span> and <span class="mono">ctx.query</span> it receives have <strong>already been decoded and validated by the group's types</strong> — illegal requests were rejected and returned before reaching the handler. So an ideal handler is <strong>thin</strong>: take the already-clean input → call one core service (<span class="mono">yield* session.list(...)</span>) → return the result. The heavy work all lives in core's Session/Tool services; the handler is just a <strong>thin layer of adaptation between the HTTP world and the Effect world</strong>.</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">request arrives: GET /session/abc123</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">group's types decode params/query — illegal = rejected, returns a declared error</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">dispatched to handler's get: receives clean ctx.params.sessionID</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">yield* session.get(sessionID) — call core service for the real work</span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">return Session.Info — framework encodes it to a Response per the success contract</span></div>
+</div>
+<p>Occasionally you'll see <span class="mono">.handleRaw(...)</span> instead of <span class="mono">.handle(...)</span>, like <span class="mono">create</span> above. The difference: <span class="mono">handle</span> lets the framework auto-encode your return value into a <span class="mono">Response</span> per the success contract; <span class="mono">handleRaw</span> hands <span class="mono">Response</span> control back to you, for the few cases needing hand-rolled headers, streaming output, or custom status codes. <strong>Regular goes handle, special goes raw</strong> — a handy reading cue: see raw, and you know this endpoint goes a little "off the beaten path."</p>
+<p>"Handlers should be thin" isn't just aesthetic fussiness; it's a diagnostic line that helps you <strong>smell rot</strong>. If a handler grows long and fat, sprouting paragraphs of business decisions, loops, data assembly, you can almost conclude: <strong>logic that should live in core has leaked into the HTTP layer</strong>. The consequence is real — that logic fires only over HTTP; Lesson 13's in-process RPC, or any other future entry, gets none of it. So "thin" is deliberate architectural discipline: let business logic sink into core, the HTTP layer only translate, so core can be shared by many transports. When reading a handler, use "is it thin enough" as a ruler to gauge that endpoint's health.</p>
+
+<h2>Middleware: before and after the handler runs</h2>
+<p>Before reaching the handler, and after leaving it, a request passes a ring of <strong>middleware</strong> (9 files under <span class="mono">middleware/</span>). They're cross-cutting concerns — auth, compression, CORS, instance routing, error catch-all — that <strong>every endpoint needs</strong> but you don't want to rewrite in each handler, so they're factored into a ring of "checkpoints" wrapped around the handler.</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">out</span><span class="name">authorization</span></div><div class="ld">auth: are you entitled to call this port</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">↓</span><span class="name">workspace-routing / instance-context</span></div><div class="ld">instance routing: which workspace/instance handles this</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">core</span><span class="name">handler</span></div><div class="ld">the layer that does the real work (last section)</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">↑</span><span class="name">error / compression / cors-vary</span></div><div class="ld">return trip: catch errors, compress response, add CORS headers</div></div>
+</div>
+<p>The <strong>error middleware</strong> (<span class="mono">middleware/error.ts</span>) especially shows opencode's restraint. It does <strong>not</strong> crudely catch every exception and turn it into a 500 — quite the opposite, it deliberately lets through those <strong>typed failures already declared in the contract</strong> (like 404, BadRequest), letting them return normally along their own declared error path. It minds only one thing: <strong>catching the unforeseen "bare crashes" (defects)</strong>, wrapping them into a 500 with a <span class="mono">ref</span> id, and writing the real stack into the server log.</p>
+<pre class="code"><span class="cm">// simplified from middleware/error.ts — only catches "unforeseen" crashes</span>
+<span class="kw">const</span> ref = <span class="st">`err_${'$'}{crypto.randomUUID().slice(0, 8)}`</span>
+<span class="kw">yield</span>* Effect.<span class="fn">logError</span>(<span class="st">"failed"</span>, { ref, error })  <span class="cm">// truth into the log</span>
+<span class="kw">return</span> HttpServerResponse.<span class="fn">jsonUnsafe</span>(
+  { message: <span class="st">"Unexpected server error. Check server logs."</span>, ref },
+  { status: 500 })  <span class="cm">// client gets only an id</span></pre>
+<p>The beauty is <strong>"truth into the log, an id to the client"</strong>: the user/client sees only "the server hiccuped, id err_3f9a1c0b," with no internal stack leaked; while ops greps the log for that ref and the full causal chain of the error is right there. <strong>Restrained outward, detailed inward</strong> — both security and debuggability are served. It echoes Lesson 8 again: typed errors take the main road; only untyped crashes need this last line of defense.</p>
+<p>One more thing worth calling out: middleware <strong>order is not arbitrary</strong>. Auth must be outermost — before confirming you're entitled, the request shouldn't step half a pace inward; the error catch-all must be able to <strong>wrap everything inside it</strong>, or any bare crash deeper in leaks out as a blank 500. So this ring of checkpoints is more an <strong>onion</strong> than a pipeline: the request threads inward layer by layer to the handler, the response threads back out layer by layer, going in and coming out through the same checkpoints in opposite directions. Grasp this "onion" structure and you can explain many seemingly odd things — like why "response-decorating" work such as compression and adding CORS headers always happens on the return trip, <strong>after</strong> the handler runs.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture</div>
+  <p>Stitch this lesson back to the last: last lesson's <span class="mono">webHandler</span> is the "front desk," and this lesson opened the <strong>three-piece set</strong> behind it —</p>
+  <ul>
+    <li><strong>groups (21, groups/)</strong>: declare contracts, pure types, feed SDK generation.</li>
+    <li><strong>handlers (20, handlers/)</strong>: a thin layer wiring validated input to core services.</li>
+    <li><strong>middleware (9, middleware/)</strong>: the cross-cutting checkpoints in the outer ring — auth/routing/compression/error catch-all.</li>
+  </ul>
+  <p>A request's full journey: <strong>in the door → through the middleware outer ring → group decodes and validates by type → dispatch to the matching handler → handler calls core for the work → result encoded per the success contract → back out through middleware → out the door</strong>. Next lesson we pick the special <span class="mono">event</span> group: it returns not a one-shot result but opens a continuously-pushing SSE long connection.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p>How declaration (group) and implementation (handler) align by endpoint name, in one view:</p>
+  <pre class="code"><span class="cm">// groups/session.ts — endpoint as contract (declares shape only)</span>
+HttpApiEndpoint.<span class="fn">get</span>(<span class="st">"get"</span>, SessionPaths.get, {
+  params: { sessionID: SessionID },
+  success: <span class="fn">described</span>(Session.Info, <span class="st">"Get session"</span>),
+  error: [HttpApiError.BadRequest, ApiNotFoundError],
+})
+
+<span class="cm">// handlers/session.ts — same-name implementation, alignment enforced</span>
+handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
+<span class="cm">// misspell or omit "get" → compile error. Declaration and impl welded by types.</span></pre>
+  <p>This is what "contract" looks like landed in code: <span class="mono">groups/</span> says "what should exist," <span class="mono">handlers/</span> says "how to do it," and TypeScript stands in the middle ensuring the two sides <strong>can't mismatch on a single name</strong>. Next time you want to trace an API path's full story, the route map is clear: go to <span class="mono">groups/</span> for its contract (what it wants, gives, how it errors), then the same-named <span class="mono">handlers/</span> for how it wires the work to core — and between the two stations, types guarantee they speak of the same thing.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li>Every opencode API endpoint splits in two: <strong>the group declares the contract</strong> (name/params/return/error, pure types), <strong>the handler implements</strong> (calls core for the work).</li>
+    <li>An endpoint's <strong>errors are part of the contract</strong> too: what it might return is in the type, so the client's SDK knows it all by type.</li>
+    <li><strong>The 21 group names are opencode's capability map</strong> — structured declaration lets the system always answer "what capabilities do I have."</li>
+    <li>Handlers should be <strong>thin</strong>: input already validated by the group's types, it only "take clean input → call core → return." <span class="mono">handleRaw</span> is for the few endpoints needing manual Response control.</li>
+    <li><strong>Middleware</strong> is the cross-cutting checkpoint ring; the error middleware does "truth into the log, an id to the client," while typed failures still take the main road.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. What does an API endpoint's "group" handle in opencode?</div>
+  <ol class="opts">
+    <li>Managing TCP connections</li>
+    <li>Querying the database</li>
+    <li>Rendering frontend pages</li>
+    <li>Declares the contract — the endpoint's name, params, return, possible errors; pure types, no implementation</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. Groups (groups/*.ts) are all type declarations: what each endpoint wants, gives, how it errors. Because they're pure and machine-readable, the SDK is auto-generated from them. The handler does the work.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. Why is "an ideal handler should be thin" the goal?</div>
+  <ol class="opts">
+    <li>Because thin code runs faster</li>
+    <li>Because TypeScript caps functions at 10 lines</li>
+    <li>Because thin handlers need no tests</li>
+    <li>Input is already validated by the group's types, so the handler just wires clean input to core; logic sunk into core can be shared by many transports</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. A fat handler means logic that belongs in core leaked into HTTP, so it only fires over HTTP — Lesson 13's in-process RPC and other entries miss it. Thinness is deliberate discipline.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. How does the error middleware (middleware/error.ts) behave?</div>
+  <ol class="opts">
+    <li>Turns every exception into a 500</li>
+    <li>Ignores all errors</li>
+    <li>Lets typed, declared failures take the main road; only catches unforeseen bare crashes, wrapping them into a 500 with a ref id and logging the truth</li>
+    <li>Returns the full stack of every error to the client</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. “Truth into the log, an id to the client”: no stack leaked outward, just a ref; ops greps the ref for the full chain. Typed errors still take their declared path.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson likens middleware to an “onion” not a “pipeline.” Use it to explain why compression and CORS headers happen on the return trip after the handler, while auth is outermost.</li>
+    <li>The lesson says the SDK can be generated before any handler exists. With “contract-first” in mind, what does this mean for a project feeding TUI/web/desktop/Slack at once?</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="09-server-overview.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">server 总览</span><span class="lang-en">The server, overview</span></div></a><a class="next" href="11-event-bus.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">SSE 事件总线</span><span class="lang-en">The SSE event bus</span></div></a></div>
 </div>
 <script>
