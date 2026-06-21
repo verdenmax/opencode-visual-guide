@@ -544,6 +544,47 @@ QUIZZES = {
             {"zh": "课里把 server.connected / heartbeat / instance.disposed 比作河的「开闸、心跳、关闸」，让它们和业务事件走同一条流。说说「把连接管理也做成事件」相比「另开一条控制旁路」好在哪。", "en": "The lesson likens server.connected / heartbeat / instance.disposed to the river's “gates and heartbeat,” flowing in the same stream as business events. Why is “making connection management into events” better than a separate control side-channel?"},
         ],
     },
+    "12-sdk-generation.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode 的客户端 SDK 是怎么来的？", "en": "Where does opencode's client SDK come from?"},
+                "opts": [
+                    {"zh": "OpenApi.fromApi(PublicApi) 把 21 个组的类型读成 OpenAPI 规范，再由 @hey-api 自动生成", "en": "OpenApi.fromApi(PublicApi) reads the 21 groups' types into an OpenAPI spec, then @hey-api auto-generates it"},
+                    {"zh": "由维护者手写并手动维护", "en": "Hand-written and manually maintained by maintainers"},
+                    {"zh": "运行时反射动态构造", "en": "Built dynamically via runtime reflection"},
+                    {"zh": "从数据库 schema 推导", "en": "Derived from the database schema"},
+                ],
+                "answer": 0,
+                "why": {"zh": "核心是一行 OpenApi.fromApi(PublicApi)：把结构化的 API 类型读成标准 OpenAPI 规范；opencode generate 加料+格式化；@hey-api 照规范印出 types/sdk/client 三个文件。全程没有手写。", "en": "The core is one line, OpenApi.fromApi(PublicApi): read the structured API types into a standard OpenAPI spec; generate seasons+formats; @hey-api prints types/sdk/client from the spec. None hand-written."},
+            },
+            {
+                "q": {"zh": "为什么生成 SDK 能根除前后端「类型漂移」？", "en": "Why does a generated SDK eliminate frontend/backend \"type drift\"?"},
+                "opts": [
+                    {"zh": "前后端类型不再是两份副本，而是同一源头（server 类型）的两次投影；源头一动两边一起动，对不上当场编译报错", "en": "The two sides' types are no longer two copies but two projections of one source (server types); move the source and both move, mismatch fails compile on the spot"},
+                    {"zh": "因为生成的代码运行更快", "en": "Because generated code runs faster"},
+                    {"zh": "因为 SDK 不带类型", "en": "Because the SDK has no types"},
+                    {"zh": "因为前端不再调后端", "en": "Because the frontend no longer calls the backend"},
+                ],
+                "answer": 0,
+                "why": {"zh": "手写 SDK 里前后端是两份各自维护的副本，分叉编译期无感、运行时才炸。生成 SDK 让两边成为同一类型源的投影，隐患从「运行时才暴露」变成「编译期必现」。", "en": "With a hand-written SDK the two sides are separately maintained copies; a fork is invisible at compile time and blows up at runtime. Generation makes both projections of one type source, turning a runtime-only hazard into a compile-time-certain one."},
+            },
+            {
+                "q": {"zh": "关于「自动生成」，这一课最想纠正的误解是？", "en": "About \"auto-generation,\" what misconception does this lesson most want to correct?"},
+                "opts": [
+                    {"zh": "自动生成不等于无人值守——输入侧要清洗（stripOptionalNull），输出侧要打补丁修 @hey-api 的已知 bug", "en": "Auto-generation isn't unattended — the input is cleaned (stripOptionalNull) and the output is patched to fix a known @hey-api bug"},
+                    {"zh": "自动生成完全无需任何人工", "en": "Auto-generation needs zero human work at all"},
+                    {"zh": "自动生成只能用于小型 API", "en": "Auto-generation only works for small APIs"},
+                    {"zh": "自动生成会让类型不安全", "en": "Auto-generation makes things type-unsafe"},
+                ],
+                "answer": 0,
+                "why": {"zh": "Effect Schema 翻 OpenAPI 会留「翻译腔」（如 optional 塞进 {type:null} 孤儿），需 stripOptionalNull 清洗；@hey-api 有个 SSE 类型 bug，需生成后精准改一处字符串。机器干 99%，人盯那 1% 毛刺。", "en": "Effect Schema leaves an accent translating to OpenAPI (e.g. optional injects a {type:null} orphan) needing stripOptionalNull; @hey-api has an SSE type bug needing a precise post-gen string edit. Machine does 99%, a human minds the 1% of burrs."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说「类型即数据」是这套机制的支点：API 类型活到运行时、被 fromApi 逐字读出。除了生成 SDK，你还能想到把这份「契约数据」投影成什么有用的东西？", "en": "The lesson says “types as data” is the pivot: API types live to runtime and are read verbatim by fromApi. Besides generating an SDK, what else useful could you project this “contract data” into?"},
+            {"zh": "生成物（openapi.json、SDK 文件）是要提交进仓库的，所以 opencode 执着于「逐字节可复现」（prettier、clean:true）。说说如果产物不可复现，code review 和协作会遇到什么麻烦。", "en": "The artifacts (openapi.json, SDK files) are committed to the repo, so opencode insists on “byte-reproducibility” (prettier, clean:true). What trouble would code review and collaboration hit if the artifact weren't reproducible?"},
+        ],
+    },
 }
 
 def render(fname, lang):

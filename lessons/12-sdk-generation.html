@@ -328,8 +328,332 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第三部分 · 客户端/服务器</span><span class="lang-en">Part 3 · Client/Server</span></div>
     <h1><span class="lang-zh">SDK 生成</span><span class="lang-en">Generating the SDK</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《SDK 生成》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“SDK 生成”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Generating the SDK" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Generating the SDK" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">第 9 课我们立了一个 flag：opencode 的 API「<strong>自己描述自己，进而自动生成 SDK</strong>」。第 10 课我们看清了这个「自己」是什么——21 个组、每个端点都是一份类型化的契约。这一课，我们终于<strong>兑现那个承诺</strong>：把「类型化的契约」真正变成「能 <span class="mono">import</span> 就用的客户端 SDK」，中间那台机器到底是怎么运转的。一句话剧透：核心只有一个函数 <span class="mono">OpenApi.fromApi(PublicApi)</span>——它读一遍整套 API 的类型，吐出一份标准 OpenAPI 规范；剩下的，就是让一台现成的代码生成器照着规范，把各端 SDK 一行行打印出来。</p>
+<p>为什么这件事值得专门花一课？因为它是 opencode「<strong>多端永不漂移</strong>」的终极保证。手写 SDK 的项目，永远在和一个幽灵搏斗：后端改了个字段，前端的类型忘了跟着改，于是某天线上突然 <span class="mono">undefined is not a function</span>。opencode 把这条搏斗线<strong>彻底删除了</strong>——SDK 不是人写的，是从 server 的类型机器生成的。server 一改、SDK 重新生成，类型对不上的地方<strong>编译期当场报错</strong>，根本活不到上线。读懂这一课，你就理解了为什么「契约先行」那点前期繁琐，最后变成了压倒性的工程红利。</p>
+
+<div class="card analogy">
+  <div class="tag">🏭 生活类比</div>
+  把这套机制想成一座<strong>工厂的「蓝图→说明书」流水线</strong>。工程师手里有一张<strong>主蓝图</strong>（21 个组的类型化 API）——它精确、严谨，但满是只有内部人看得懂的专业符号。第一步，一台<strong>制版机</strong>（<span class="mono">OpenApi.fromApi</span>）扫描整张蓝图，把它翻译成一份<strong>行业标准规格书</strong>（OpenAPI JSON）——从此任何懂这套标准的下游机器都能读它。第二步，一条<strong>装订流水线</strong>（@hey-api 生成器）照着规格书，自动印出一本本<strong>即拿即用的工具手册</strong>（各端 SDK），手册里每个零件的名字、要填的参数、会得到的回执，全和主蓝图一字不差。最妙的是：<strong>改了主蓝图，重跑一遍流水线，所有手册自动更新</strong>。没人需要手抄、没人会抄错。流水线上甚至还有道<strong>质检工序</strong>，专门修掉一个已知的印刷瑕疵——因为再好的机器，也总有那么一两个需要人盯着的角落。
+</div>
+
+<h2>第一步：fromApi，把类型读成规范</h2>
+<p>整条流水线的「制版机」，是 <span class="mono">server.ts</span> 里一个朴素到不起眼的函数：</p>
+<pre class="code"><span class="cm">// server.ts —— 一行，把整套 API 变成 OpenAPI 规范</span>
+<span class="kw">export async function</span> <span class="fn">openapi</span>() {
+  <span class="kw">return</span> OpenApi.<span class="fn">fromApi</span>(PublicApi)
+}</pre>
+<p>就这么一行。<span class="mono">PublicApi</span> 是把 21 个组汇总后、再贴上标题/版本/描述注解的那个完整 API 对象（第 10 课的终点）。<span class="mono">OpenApi.fromApi</span> 把它<strong>当数据来读</strong>：遍历每个组、每个端点，把声明里的 params/query/payload/success/error 一一翻译成 OpenAPI 规范里的 paths、schemas、responses。这一步之所以可能，<strong>完全仰仗</strong>前几课那个反复强调的事实——API 是<strong>结构化的类型，而非散落各处的字符串</strong>。机器能遍历类型，却没法遍历你写在 Hono 里的一行行 <span class="mono">app.get("/x", fn)</span>。声明式那点前期繁琐，到这一步连本带利全赚了回来。</p>
+<p>停下来体会一下这件事有多不寻常：<strong>你写的类型，被当成可以遍历、可以转换的「数据」用了</strong>。在很多语言里，类型是编译期一写完就蒸发的影子，运行时啥也不剩。而在这里，整套 API 的类型不仅活到了运行时，还被一个函数<strong>逐字读出来、翻译成另一种格式</strong>。这正是 opencode 选择「声明式 HttpApi」最深的回报：当契约是数据，它就能被无限次地<strong>投影</strong>成别的东西——今天投影成 OpenAPI 规范喂 SDK，明天可以投影成校验器、投影成 mock server、投影成测试桩。一次声明，处处复用，靠的就是「类型即数据」这个支点。</p>
+<div class="flow">
+  <div class="node">PublicApi<span class="sub">21 组·类型化契约</span></div>
+  <div class="arrow">fromApi →</div>
+  <div class="node">OpenAPI 规范<span class="sub">标准 JSON·机器可读</span></div>
+  <div class="arrow">@hey-api →</div>
+  <div class="node">各端 SDK<span class="sub">即拿即用·类型对齐</span></div>
+</div>
+<p>注意源码里有个小细节：<span class="mono">OpenApi.fromApi</span> 被注释为「非平凡（non-trivial）」，所以 <span class="mono">/doc</span> 那个返回规范的端点是<strong>惰性</strong>的——真有人来访问才计算，不白白占启动时间。一个「把整套 API 翻成规范」的操作不便宜，这个惰性处理也再次呼应了 opencode 处处可见的工程克制。</p>
+
+<h2>第二步：generate，给规范加点料</h2>
+<p>有了 <span class="mono">Server.openapi()</span>，<span class="mono">opencode generate</span> 这个 CLI 命令（<span class="mono">cli/cmd/generate.ts</span>）就把规范<strong>打磨成最终交付物</strong>，写到标准输出。它不只是「打印 JSON」，还顺手做了两件贴心事。其一，<strong>给每个端点注入一段示例代码</strong>（<span class="mono">x-codeSamples</span>）：</p>
+<pre class="code"><span class="cm">// cli/cmd/generate.ts —— 给每个 operation 塞一段 JS 用法示例</span>
+operation[<span class="st">"x-codeSamples"</span>] = [{
+  lang: <span class="st">"js"</span>,
+  source: [
+    <span class="st">`import { createOpencodeClient } from "@opencode-ai/sdk"`</span>,
+    <span class="st">`const client = createOpencodeClient()`</span>,
+    <span class="st">`await client.${'$'}{operation.operationId}({ ... })`</span>,
+  ].<span class="fn">join</span>(<span class="st">"\n"</span>),
+}]</pre>
+<p>于是生成出来的 API 文档里，每个端点旁边都自带一段「这样调用我」的复制即用代码——文档不再是干巴巴的字段表，而是<strong>能直接照抄的活例子</strong>。其二，整份 JSON <strong>过一遍 prettier 格式化</strong>，确保无论谁在什么机器上跑，产出的文件都<strong>逐字节一致</strong>。这个「可复现」的执念很关键：因为生成物是<strong>要提交进仓库</strong>的，只有逐字节稳定，代码评审里才不会冒出一堆无意义的格式 diff。</p>
+<p>这两件「顺手事」其实都不小。<span class="mono">x-codeSamples</span> 体现的是一种态度：<strong>文档不该只告诉你「有什么」，还该告诉你「怎么用」</strong>。一个只列字段名的接口文档，读者还得自己拼调用代码；而带了示例的文档，复制粘贴就能跑——而且因为示例也是从 <span class="mono">operationId</span> 自动拼的，它永远和真实接口同步，不会像手写示例那样过几个月就过期。至于 prettier 那道格式化，看似洁癖，背后是对「<strong>生成物入库</strong>」这个决定的认真负责：既然要把机器产物当源码提交，就得让它在任何环境下都稳定复现，否则每次有人重跑生成，diff 里全是空格和换行的噪声，真正的改动反而被淹没。</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">build.ts 跑 `bun dev generate` &gt; openapi.json —— 拿到规范</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">createClient({ input: openapi.json, output: src/v2/gen, plugins: [...] })</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">@hey-api 照规范生成 types.gen / sdk.gen / client.gen 三个文件</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">质检工序：补丁修掉一个已知的 hey-api 代码生成 bug</span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">生成物提交进仓库 —— 客户端 import 即用</span></div>
+</div>
+
+<h2>第三步：@hey-api，规范变 SDK</h2>
+<p>真正把规范「印成」TypeScript SDK 的，是 <span class="mono">packages/sdk/js/script/build.ts</span> 里调用的开源生成器 <span class="mono">@hey-api/openapi-ts</span>。它读入 <span class="mono">openapi.json</span>，按配置里挂的几个插件，分工产出三个文件：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">@hey-api/typescript</div><div class="v">→ types.gen.ts：把规范里的 schema 全变成 TS 类型</div></div>
+  <div class="cell"><div class="k">@hey-api/sdk</div><div class="v">→ sdk.gen.ts：OpencodeClient，每个端点一个方法</div></div>
+  <div class="cell"><div class="k">@hey-api/client-fetch</div><div class="v">→ client.gen.ts：底层 fetch 客户端，默认指向 localhost:4096</div></div>
+</div>
+<p>三者合起来，就是你 <span class="mono">import { createOpencodeClient }</span> 之后拿到的那个对象。<span class="mono">client.session.list()</span> 这样的调用，方法名来自端点的 <span class="mono">operationId</span>，参数和返回类型来自规范里的 schema——<strong>全程没有一行是人手写的</strong>。这也解释了第 10 课那句「端点名错一个、编译期就报错」的下游意义：端点名最终变成了 SDK 的方法名，契约从 server 一路<strong>类型安全地</strong>贯通到了客户端的每一次调用。</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">上</span><span class="name">types.gen.ts</span></div><div class="ld">所有数据形状的 TS 类型，贯穿其余两层</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">中</span><span class="name">sdk.gen.ts · OpencodeClient</span></div><div class="ld">每个端点一个方法，方法名=operationId</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">下</span><span class="name">client.gen.ts · fetch</span></div><div class="ld">底层 HTTP 客户端，真正发请求</div></div>
+</div>
+<p>这三层的分工，本身就是一份很好的「关注点分离」范本：最底层只管<strong>怎么发请求</strong>（fetch、baseUrl），中间层只管<strong>有哪些方法、各对应哪个端点</strong>，最上层的类型则像一条线，把前两层的输入输出全<strong>缝</strong>到一起。你调 <span class="mono">client.session.get(...)</span> 时，编译器顺着这条线，一路替你核对参数对不对、返回能不能那么用——而这一切的源头，仍然是 server 里那份类型声明。</p>
+<div class="cols">
+  <div class="col"><h4>手写 SDK（别的项目）</h4><p>后端改字段 → 得记得手动改前端类型 → 忘了就漂移 → 某天线上炸。人肉维持一致，迟早出错。</p></div>
+  <div class="col"><h4>生成 SDK（opencode）</h4><p>后端改类型 → 重跑生成 → SDK 自动更新 → 对不上当场编译报错。一致性由机器保证。</p></div>
+</div>
+<p>「漂移」这个词值得多说一句，因为它是几乎每个前后端分离项目都踩过的坑。手写 SDK 的世界里，后端和前端的类型是<strong>两份各自维护的副本</strong>：理论上它们该一模一样，实际上只要有人改了一处、忘了同步另一处，两份副本就开始悄悄分叉。可怕的是，这种分叉<strong>编译期毫无察觉</strong>——前端代码自己内部是自洽的，只有真到运行时、真发出那个请求，才发现后端早就不认这个字段了。opencode 用生成 SDK 把这个问题<strong>从根上消灭</strong>：前后端的类型不再是两份副本，而是<strong>同一个源头的两次投影</strong>。源头一动，两边一起动；源头要是和某处用法对不上，TypeScript 编译当场就拦下来。把一个「运行时才暴露、且高度依赖人记性」的隐患，换成了一个「编译期必现、且无需任何人操心」的保证——这就是这套流水线最值钱的地方。</p>
+
+<h2>诚实的角落：清洗与补丁</h2>
+<p>到这里你可能觉得这套流水线完美得像魔法。但真实的工程从不是魔法——它在两个地方留下了<strong>诚实的、需要人盯着的角落</strong>，恰恰是这两处，最能让你看清「自动生成」的真实质地。第一处是<strong>规范清洗</strong>。Effect 的 Schema 翻成 OpenAPI 时，会留下一些「翻译腔」：比如 <span class="mono">Schema.optional</span> 会在联合类型里塞进一个 <span class="mono">{type:"null"}</span> 的孤儿分支。<span class="mono">public.ts</span> 里专门有个 <span class="mono">stripOptionalNull</span> 把这些孤儿一一剥掉，还有一段逻辑处理自引用 schema——这些都是为了让交给下游的规范<strong>干净、标准、无歧义</strong>。</p>
+<p>第二处更耐人寻味：build.ts 末尾有一道<strong>打补丁</strong>工序，专门修 <span class="mono">@hey-api</span> 自己的一个代码生成 bug——它在生成 SSE 相关类型时，错把端点的 <span class="mono">TError</span> 塞进了异步生成器 <span class="mono">TReturn</span> 的位置。opencode 的做法不是 fork 整个生成器，而是<strong>生成完之后，精准地改那一处字符串</strong>。源码里那段补丁注释写得清清楚楚：哪个 bug、为什么错、怎么修。这两个角落传递的信息是一致的：<strong>「自动生成」不等于「无人值守」</strong>。它把 99% 的机械活交给机器，但那剩下 1% 的毛刺，仍需要人用最克制的方式——清洗输入、修补输出——亲手抹平。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">输入侧·清洗</div><div class="v">stripOptionalNull 等：剥掉 Effect→OpenAPI 的翻译腔，给下游干净规范</div></div>
+  <div class="cell"><div class="k">输出侧·补丁</div><div class="v">改掉 @hey-api 一个已知 bug：精准改字符串，而非 fork 生成器</div></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这一课把第 9–12 课串成了一个<strong>闭环</strong>，也是整个第三部分的高潮：</p>
+  <ul>
+    <li><strong>第 10 课</strong>：用类型把 21 个组的契约声明出来（结构化、机器可读）。</li>
+    <li><strong>第 12 课·这一课</strong>：<span class="mono">fromApi</span> 把类型读成 OpenAPI 规范 → generate 加料/格式化 → @hey-api 印成 SDK → 提交入库。</li>
+    <li><strong>结果</strong>：客户端 <span class="mono">import</span> 即用，类型从 server 到调用点全程对齐，<strong>永不漂移</strong>。</li>
+  </ul>
+  <p>「单一事实来源（single source of truth）」这个被说滥的词，在这里有了最具体的样子：<strong>server 的类型，就是唯一的真相</strong>；文档、SDK、示例代码全是它的自动投影。换个角度看，这也是一种「<strong>责任的收口</strong>」：维护一致性的担子，从「每个写客户端的人都得记得跟上后端」，收拢成了「只要后端类型对，下游自动全对」。一个人改对一处，胜过十个人分头记得改十处。下一课我们看这套生成出来的 SDK，怎么被富 TUI 用一种「零网络」的奇特方式调用。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>整条流水线的「装订机」配置，浓缩在 build.ts 这几行里：</p>
+  <pre class="code"><span class="cm">// packages/sdk/js/script/build.ts</span>
+<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${'$'}{dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// 先 dump 规范</span>
+
+<span class="kw">await</span> <span class="fn">createClient</span>({
+  input: <span class="st">"./openapi.json"</span>,
+  output: { path: <span class="st">"./src/v2/gen"</span>, clean: <span class="kw">true</span> },
+  plugins: [
+    { name: <span class="st">"@hey-api/typescript"</span> },               <span class="cm">// → types.gen.ts</span>
+    { name: <span class="st">"@hey-api/sdk"</span>, instance: <span class="st">"OpencodeClient"</span> }, <span class="cm">// → sdk.gen.ts</span>
+    { name: <span class="st">"@hey-api/client-fetch"</span>, baseUrl: <span class="st">"http://localhost:4096"</span> },
+  ],
+})</pre>
+  <p><span class="mono">clean: true</span> 意味着每次生成都把旧目录清空重写——产物是<strong>纯函数式</strong>的：同一份规范，永远生成同一套文件。这就是为什么生成物可以放心提交进仓库：它不是「手工成果」，而是「输入的确定性投影」，谁来跑都一样。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li>SDK 生成的核心是 <span class="mono">OpenApi.fromApi(PublicApi)</span>：把 21 个组的<strong>类型</strong>读成一份标准 OpenAPI 规范——这一步只因 API 是结构化类型才可能。</li>
+    <li><span class="mono">opencode generate</span> 给规范<strong>注入示例代码</strong>（x-codeSamples）并 <strong>prettier 格式化</strong>，保证产出逐字节可复现、可入库。</li>
+    <li><span class="mono">@hey-api/openapi-ts</span> 按三个插件把规范印成 <strong>types.gen / sdk.gen / client.gen</strong>：类型、OpencodeClient 方法、fetch 客户端。</li>
+    <li>端点名 → SDK 方法名，契约从 server <strong>类型安全地</strong>贯通到客户端每次调用；<strong>永不漂移</strong>，对不上当场编译报错。</li>
+    <li>自动生成<strong>不等于无人值守</strong>：输入侧 <span class="mono">stripOptionalNull</span> 清洗翻译腔，输出侧精准打补丁修 @hey-api 的已知 bug。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. opencode 的客户端 SDK 是怎么来的？</div>
+  <ol class="opts">
+    <li>由维护者手写并手动维护</li>
+    <li>运行时反射动态构造</li>
+    <li>从数据库 schema 推导</li>
+    <li>OpenApi.fromApi(PublicApi) 把 21 个组的类型读成 OpenAPI 规范，再由 @hey-api 自动生成</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。核心是一行 OpenApi.fromApi(PublicApi)：把结构化的 API 类型读成标准 OpenAPI 规范；opencode generate 加料+格式化；@hey-api 照规范印出 types/sdk/client 三个文件。全程没有手写。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. 为什么生成 SDK 能根除前后端「类型漂移」？</div>
+  <ol class="opts">
+    <li>因为生成的代码运行更快</li>
+    <li>因为前端不再调后端</li>
+    <li>因为 SDK 不带类型</li>
+    <li>前后端类型不再是两份副本，而是同一源头（server 类型）的两次投影；源头一动两边一起动，对不上当场编译报错</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。手写 SDK 里前后端是两份各自维护的副本，分叉编译期无感、运行时才炸。生成 SDK 让两边成为同一类型源的投影，隐患从「运行时才暴露」变成「编译期必现」。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. 关于「自动生成」，这一课最想纠正的误解是？</div>
+  <ol class="opts">
+    <li>自动生成不等于无人值守——输入侧要清洗（stripOptionalNull），输出侧要打补丁修 @hey-api 的已知 bug</li>
+    <li>自动生成只能用于小型 API</li>
+    <li>自动生成完全无需任何人工</li>
+    <li>自动生成会让类型不安全</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。Effect Schema 翻 OpenAPI 会留「翻译腔」（如 optional 塞进 {type:null} 孤儿），需 stripOptionalNull 清洗；@hey-api 有个 SSE 类型 bug，需生成后精准改一处字符串。机器干 99%，人盯那 1% 毛刺。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里说「类型即数据」是这套机制的支点：API 类型活到运行时、被 fromApi 逐字读出。除了生成 SDK，你还能想到把这份「契约数据」投影成什么有用的东西？</li>
+    <li>生成物（openapi.json、SDK 文件）是要提交进仓库的，所以 opencode 执着于「逐字节可复现」（prettier、clean:true）。说说如果产物不可复现，code review 和协作会遇到什么麻烦。</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">In Lesson 9 we planted a flag: opencode's API "<strong>describes itself, and so auto-generates an SDK</strong>." In Lesson 10 we saw what that "itself" is — 21 groups, each endpoint a typed contract. This lesson finally <strong>cashes that promise</strong>: how the machine that turns "typed contracts" into "an importable client SDK" actually runs. One-line spoiler: the core is a single function <span class="mono">OpenApi.fromApi(PublicApi)</span> — it reads the whole API's types once and emits a standard OpenAPI spec; the rest is letting an off-the-shelf code generator print each client's SDK line by line from that spec.</p>
+<p>Why does this deserve a whole lesson? Because it's the ultimate guarantee of opencode's <strong>never-drifting multi-client consistency</strong>. Projects with a hand-written SDK forever fight a ghost: the backend changes a field, the frontend's type forgets to follow, and one day production throws <span class="mono">undefined is not a function</span>. opencode <strong>deletes this fight entirely</strong> — the SDK isn't written by a person, it's generated from the server's types. Change the server, regenerate the SDK, and any mismatch <strong>fails at compile time on the spot</strong>, never living to reach production. Grasp this lesson and you understand why that bit of "contract-first" up-front tedium turns into an overwhelming engineering dividend.</p>
+
+<div class="card analogy">
+  <div class="tag">🏭 Analogy</div>
+  Think of this as a factory's <strong>"blueprint → manual" assembly line</strong>. The engineer holds a <strong>master blueprint</strong> (the typed API of 21 groups) — precise and rigorous, but full of professional symbols only insiders read. Step one, a <strong>platemaker</strong> (<span class="mono">OpenApi.fromApi</span>) scans the whole blueprint and translates it into an <strong>industry-standard spec sheet</strong> (OpenAPI JSON) — now any downstream machine that knows the standard can read it. Step two, a <strong>binding line</strong> (the @hey-api generator) follows the spec sheet and auto-prints <strong>ready-to-use toolkit manuals</strong> (each client's SDK), where every part's name, the params to fill, the receipt you'll get, all match the master blueprint to the letter. Best of all: <strong>change the master blueprint, rerun the line, and every manual updates automatically</strong>. No one transcribes, no one mistranscribes. The line even has a <strong>QA station</strong> that fixes one known misprint — because even the best machine always has a corner or two needing a human's eye.
+</div>
+
+<h2>Step 1: fromApi, reading types into a spec</h2>
+<p>The whole line's "platemaker" is a function in <span class="mono">server.ts</span> so plain it's unremarkable:</p>
+<pre class="code"><span class="cm">// server.ts — one line turns the whole API into an OpenAPI spec</span>
+<span class="kw">export async function</span> <span class="fn">openapi</span>() {
+  <span class="kw">return</span> OpenApi.<span class="fn">fromApi</span>(PublicApi)
+}</pre>
+<p>Just that one line. <span class="mono">PublicApi</span> is the complete API object after merging the 21 groups and tagging on title/version/description annotations (Lesson 10's endpoint). <span class="mono">OpenApi.fromApi</span> <strong>reads it as data</strong>: it walks each group and endpoint, translating the declared params/query/payload/success/error into the spec's paths, schemas, responses. This step is possible <strong>entirely thanks to</strong> the fact the past lessons kept stressing — the API is <strong>structured types, not strings scattered everywhere</strong>. A machine can walk types; it cannot walk your line-by-line <span class="mono">app.get("/x", fn)</span> in Hono. The declarative style's up-front tedium is repaid here with interest.</p>
+<div class="flow">
+  <div class="node">PublicApi<span class="sub">21 groups · typed contracts</span></div>
+  <div class="arrow">fromApi →</div>
+  <div class="node">OpenAPI spec<span class="sub">standard JSON · machine-readable</span></div>
+  <div class="arrow">@hey-api →</div>
+  <div class="node">each client's SDK<span class="sub">ready-to-use · type-aligned</span></div>
+</div>
+<p>Pause to feel how unusual this is: <strong>the types you wrote are used as "data" that can be walked and transformed</strong>. In many languages, a type is a shadow that evaporates once compilation ends, leaving nothing at runtime. Here, the whole API's types not only live to runtime but are <strong>read out verbatim by a function and translated into another format</strong>. This is the deepest payoff of opencode choosing "declarative HttpApi": when the contract is data, it can be <strong>projected</strong> endlessly into other things — today into an OpenAPI spec to feed the SDK, tomorrow into a validator, a mock server, a test stub. Declare once, reuse everywhere, all pivoting on "types as data."</p>
+<p>Note a small detail in the source: <span class="mono">OpenApi.fromApi</span> is commented as "non-trivial," so the <span class="mono">/doc</span> endpoint that returns the spec is <strong>lazy</strong> — computed only when someone actually hits it, not wasting startup time. An operation that "translates the whole API into a spec" isn't cheap, and this lazy handling echoes the engineering restraint visible all over opencode.</p>
+
+<h2>Step 2: generate, seasoning the spec</h2>
+<p>With <span class="mono">Server.openapi()</span> in hand, the <span class="mono">opencode generate</span> CLI command (<span class="mono">cli/cmd/generate.ts</span>) <strong>polishes the spec into the final deliverable</strong> and writes it to stdout. It doesn't just "print JSON"; it also does two thoughtful things. First, <strong>inject a code sample into each endpoint</strong> (<span class="mono">x-codeSamples</span>):</p>
+<pre class="code"><span class="cm">// cli/cmd/generate.ts — inject a JS usage sample into each operation</span>
+operation[<span class="st">"x-codeSamples"</span>] = [{
+  lang: <span class="st">"js"</span>,
+  source: [
+    <span class="st">`import { createOpencodeClient } from "@opencode-ai/sdk"`</span>,
+    <span class="st">`const client = createOpencodeClient()`</span>,
+    <span class="st">`await client.${'$'}{operation.operationId}({ ... })`</span>,
+  ].<span class="fn">join</span>(<span class="st">"\n"</span>),
+}]</pre>
+<p>So in the generated API docs, each endpoint comes with a copy-and-run snippet of "call me like this" — the docs are no longer a dry field table but <strong>a live example you can copy verbatim</strong>. Second, the whole JSON <strong>passes through prettier formatting</strong>, ensuring that whoever runs it on whatever machine, the output file is <strong>byte-identical</strong>. This "reproducibility" obsession matters: because the artifact is <strong>committed into the repo</strong>, only byte-stability keeps code review free of meaningless formatting diffs.</p>
+<p>Both "side errands" are actually big. <span class="mono">x-codeSamples</span> reflects an attitude: <strong>docs shouldn't only tell you "what exists" but also "how to use it."</strong> An interface doc that only lists field names leaves the reader to assemble the call themselves; a doc with examples runs on copy-paste — and because the example is auto-assembled from <span class="mono">operationId</span>, it's forever in sync with the real interface, never going stale like a hand-written sample after a few months. As for the prettier pass, seemingly fussy, it's a serious commitment to the decision of "committing the artifact": if a machine product is committed as source, it must reproduce stably in any environment, or every regeneration buries the real change under a flood of whitespace-and-newline noise.</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">build.ts runs `bun dev generate` &gt; openapi.json — get the spec</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">createClient({ input: openapi.json, output: src/v2/gen, plugins: [...] })</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">@hey-api generates types.gen / sdk.gen / client.gen from the spec</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">QA station: a patch fixes a known @hey-api codegen bug</span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">artifact committed into the repo — clients import and use it</span></div>
+</div>
+
+<h2>Step 3: @hey-api, spec becomes SDK</h2>
+<p>What actually "prints" the spec into a TypeScript SDK is the open-source generator <span class="mono">@hey-api/openapi-ts</span>, invoked in <span class="mono">packages/sdk/js/script/build.ts</span>. It reads <span class="mono">openapi.json</span> and, per the plugins hung in its config, produces three files by division of labor:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">@hey-api/typescript</div><div class="v">→ types.gen.ts: turns every schema in the spec into TS types</div></div>
+  <div class="cell"><div class="k">@hey-api/sdk</div><div class="v">→ sdk.gen.ts: OpencodeClient, one method per endpoint</div></div>
+  <div class="cell"><div class="k">@hey-api/client-fetch</div><div class="v">→ client.gen.ts: the low-level fetch client, defaulting to localhost:4096</div></div>
+</div>
+<p>The three together are the object you get after <span class="mono">import { createOpencodeClient }</span>. A call like <span class="mono">client.session.list()</span> takes its method name from the endpoint's <span class="mono">operationId</span>, its param and return types from the spec's schemas — <strong>not one line hand-written anywhere</strong>. This also explains the downstream meaning of Lesson 10's "misspell one endpoint name and the compiler complains": endpoint names become SDK method names, and the contract runs <strong>type-safely</strong> all the way from the server to every client call.</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">top</span><span class="name">types.gen.ts</span></div><div class="ld">TS types for all data shapes, threading through the other two</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">mid</span><span class="name">sdk.gen.ts · OpencodeClient</span></div><div class="ld">one method per endpoint, method name = operationId</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">low</span><span class="name">client.gen.ts · fetch</span></div><div class="ld">the low-level HTTP client that actually sends requests</div></div>
+</div>
+<p>This three-layer split is itself a fine model of "separation of concerns": the bottom only cares <strong>how to send the request</strong> (fetch, baseUrl), the middle only cares <strong>what methods exist and which endpoint each maps to</strong>, and the top types are like a thread <strong>stitching</strong> the inputs and outputs of the first two together. When you call <span class="mono">client.session.get(...)</span>, the compiler follows this thread, checking for you whether the params are right and whether the return can be used that way — and the source of it all is still that type declaration in the server.</p>
+<div class="cols">
+  <div class="col"><h4>Hand-written SDK (other projects)</h4><p>backend changes a field → must remember to hand-edit the frontend type → forget and it drifts → one day it blows up in prod. Hand-kept consistency errs sooner or later.</p></div>
+  <div class="col"><h4>Generated SDK (opencode)</h4><p>backend changes types → regenerate → SDK auto-updates → mismatch fails compile on the spot. Consistency guaranteed by machine.</p></div>
+</div>
+<p>"Drift" deserves a few more words, because it's a pit nearly every split frontend/backend project has fallen into. In the hand-written-SDK world, the backend's and frontend's types are <strong>two separately-maintained copies</strong>: in theory identical, in practice the moment someone edits one and forgets to sync the other, the two copies quietly fork. The scary part is this fork is <strong>invisible at compile time</strong> — the frontend code is internally self-consistent; only at runtime, only when that request actually fires, do you discover the backend stopped recognizing the field long ago. opencode's generated SDK <strong>eliminates this at the root</strong>: the two sides' types are no longer two copies but <strong>two projections of the same source</strong>. Move the source and both move; if the source mismatches some usage, TypeScript stops it at compile time on the spot. It swaps a "runtime-only, memory-dependent" hazard for a "compile-time-certain, zero-attention-needed" guarantee — and that's this line's most valuable trait.</p>
+
+<h2>The honest corners: cleaning and patching</h2>
+<p>By now this line may seem flawless, like magic. But real engineering is never magic — it leaves <strong>honest corners that need a human's eye</strong> in two places, and it's precisely these two that show you the true texture of "auto-generation." The first is <strong>spec cleaning</strong>. When Effect's Schema translates to OpenAPI, it leaves a "translation accent": e.g. <span class="mono">Schema.optional</span> stuffs an orphan <span class="mono">{type:"null"}</span> arm into a union type. <span class="mono">public.ts</span> has a dedicated <span class="mono">stripOptionalNull</span> to peel these orphans off one by one, plus logic handling self-referencing schemas — all to make the spec handed downstream <strong>clean, standard, unambiguous</strong>.</p>
+<p>The second is more telling: build.ts ends with a <strong>patching</strong> step that fixes a codegen bug in <span class="mono">@hey-api</span> itself — when generating SSE-related types, it wrongly stuffs the endpoint's <span class="mono">TError</span> into the async generator's <span class="mono">TReturn</span> slot. opencode's approach is not to fork the whole generator but to <strong>precisely edit that one string after generation</strong>. The patch comment in the source spells it out: which bug, why wrong, how fixed. Both corners convey the same message: <strong>"auto-generation" doesn't mean "unattended."</strong> It hands 99% of the mechanical work to the machine, but the remaining 1% of burrs still needs a human to smooth by the most restrained means — clean the input, patch the output — by hand.</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">input side · cleaning</div><div class="v">stripOptionalNull etc.: peel off the Effect→OpenAPI accent, hand downstream a clean spec</div></div>
+  <div class="cell"><div class="k">output side · patching</div><div class="v">fix a known @hey-api bug: precisely edit a string, not fork the generator</div></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture</div>
+  <p>This lesson ties Lessons 9–12 into a <strong>closed loop</strong>, the climax of all of Part 3:</p>
+  <ul>
+    <li><strong>Lesson 10</strong>: declare the 21 groups' contracts in types (structured, machine-readable).</li>
+    <li><strong>Lesson 12 · this one</strong>: <span class="mono">fromApi</span> reads the types into an OpenAPI spec → generate seasons/formats → @hey-api prints the SDK → committed to the repo.</li>
+    <li><strong>Result</strong>: clients <span class="mono">import</span> and use it, types aligned from server to call site, <strong>never drifting</strong>.</li>
+  </ul>
+  <p>"Single source of truth," that over-used phrase, gets its most concrete form here: <strong>the server's types are the only truth</strong>; docs, SDK, code samples are all its automatic projections. Seen another way, it's a "<strong>consolidation of responsibility</strong>": the burden of maintaining consistency shrinks from "every client author must remember to keep up with the backend" to "as long as the backend types are right, downstream is automatically right." One person fixing one place beats ten people each remembering to fix ten places. Next lesson we see how this generated SDK is called by the rich TUI in a peculiar "zero-network" way.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p>The whole line's "binder" config is condensed in these lines of build.ts:</p>
+  <pre class="code"><span class="cm">// packages/sdk/js/script/build.ts</span>
+<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${'$'}{dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// dump the spec first</span>
+
+<span class="kw">await</span> <span class="fn">createClient</span>({
+  input: <span class="st">"./openapi.json"</span>,
+  output: { path: <span class="st">"./src/v2/gen"</span>, clean: <span class="kw">true</span> },
+  plugins: [
+    { name: <span class="st">"@hey-api/typescript"</span> },               <span class="cm">// → types.gen.ts</span>
+    { name: <span class="st">"@hey-api/sdk"</span>, instance: <span class="st">"OpencodeClient"</span> }, <span class="cm">// → sdk.gen.ts</span>
+    { name: <span class="st">"@hey-api/client-fetch"</span>, baseUrl: <span class="st">"http://localhost:4096"</span> },
+  ],
+})</pre>
+  <p><span class="mono">clean: true</span> means every generation wipes and rewrites the old directory — the artifact is <strong>purely functional</strong>: the same spec always generates the same set of files. That's why the artifact can be committed without worry: it isn't "handcraft" but "a deterministic projection of the input," identical no matter who runs it.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li>The core of SDK generation is <span class="mono">OpenApi.fromApi(PublicApi)</span>: it reads the 21 groups' <strong>types</strong> into a standard OpenAPI spec — possible only because the API is structured types.</li>
+    <li><span class="mono">opencode generate</span> <strong>injects code samples</strong> (x-codeSamples) into the spec and <strong>prettier-formats</strong> it, ensuring byte-reproducible, committable output.</li>
+    <li><span class="mono">@hey-api/openapi-ts</span> prints the spec into <strong>types.gen / sdk.gen / client.gen</strong> via three plugins: types, OpencodeClient methods, fetch client.</li>
+    <li>Endpoint name → SDK method name; the contract runs <strong>type-safely</strong> from server to every client call; <strong>never drifts</strong>, mismatch fails compile on the spot.</li>
+    <li>Auto-generation <strong>isn't unattended</strong>: the input side <span class="mono">stripOptionalNull</span> cleans the translation accent, the output side precisely patches a known @hey-api bug.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. Where does opencode's client SDK come from?</div>
+  <ol class="opts">
+    <li>Hand-written and manually maintained by maintainers</li>
+    <li>Built dynamically via runtime reflection</li>
+    <li>Derived from the database schema</li>
+    <li>OpenApi.fromApi(PublicApi) reads the 21 groups' types into an OpenAPI spec, then @hey-api auto-generates it</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. The core is one line, OpenApi.fromApi(PublicApi): read the structured API types into a standard OpenAPI spec; generate seasons+formats; @hey-api prints types/sdk/client from the spec. None hand-written.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. Why does a generated SDK eliminate frontend/backend "type drift"?</div>
+  <ol class="opts">
+    <li>Because generated code runs faster</li>
+    <li>Because the frontend no longer calls the backend</li>
+    <li>Because the SDK has no types</li>
+    <li>The two sides' types are no longer two copies but two projections of one source (server types); move the source and both move, mismatch fails compile on the spot</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. With a hand-written SDK the two sides are separately maintained copies; a fork is invisible at compile time and blows up at runtime. Generation makes both projections of one type source, turning a runtime-only hazard into a compile-time-certain one.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. About "auto-generation," what misconception does this lesson most want to correct?</div>
+  <ol class="opts">
+    <li>Auto-generation isn't unattended — the input is cleaned (stripOptionalNull) and the output is patched to fix a known @hey-api bug</li>
+    <li>Auto-generation only works for small APIs</li>
+    <li>Auto-generation needs zero human work at all</li>
+    <li>Auto-generation makes things type-unsafe</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. Effect Schema leaves an accent translating to OpenAPI (e.g. optional injects a {type:null} orphan) needing stripOptionalNull; @hey-api has an SSE type bug needing a precise post-gen string edit. Machine does 99%, a human minds the 1% of burrs.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson says “types as data” is the pivot: API types live to runtime and are read verbatim by fromApi. Besides generating an SDK, what else useful could you project this “contract data” into?</li>
+    <li>The artifacts (openapi.json, SDK files) are committed to the repo, so opencode insists on “byte-reproducibility” (prettier, clean:true). What trouble would code review and collaboration hit if the artifact weren't reproducible?</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="11-event-bus.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">SSE 事件总线</span><span class="lang-en">The SSE event bus</span></div></a><a class="next" href="13-transports.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">多客户端传输</span><span class="lang-en">Multi-client transports</span></div></a></div>
 </div>
 <script>
