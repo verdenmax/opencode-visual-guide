@@ -12,7 +12,7 @@
 | `part-5.md` | Context Epoch 系统 | L21–27 | 已完成 |
 | `part-6.md` | LLM 协议层 | L28–35 | 已完成 |
 | `part-7.md` | 工具系统 | L36–43 | 已完成 |
-| `part-8.md` | 配置·Agents·Provider | L44–47 | 待填充 |
+| `part-8.md` | 配置·Agents·Provider | L44–47 | 已完成 |
 | `part-9.md` | 持久化 | L48–51 | 待填充 |
 | `part-10.md` | TUI | L52–56 | 待填充 |
 | `part-11.md` | 扩展与集成 | L57–61 | 待填充 |
