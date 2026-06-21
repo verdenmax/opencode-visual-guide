@@ -227,6 +227,232 @@ LESSON_05 = {
 </div>
 """,
 }
-LESSON_06 = wip('Context.Service 与 Layer', 'Services & Layers')
+LESSON_06 = {
+    "zh": r"""
+<p class="lead">上一课我们说：Effect 把"依赖"写进了类型的 <strong>R</strong> 槽。但话只说了一半——光声明"我需要 Config"还不够，总得有人<strong>真的把一个 Config 递进来</strong>。这一课就讲 opencode 里这套"声明依赖、再注入依赖"的机制：<strong>Service</strong> 负责声明一个能力插槽，<strong>Layer</strong> 负责把插槽接上真正的实现。读懂这两个词，<span class="mono">packages/core</span> 里那种"满屏 <span class="mono">yield* XxxService</span>、最后用 <span class="mono">Layer</span> 拼起来"的结构，就全通了。</p>
+<p>这一课会有点"绕"，因为 Service 和 Layer 是一对<strong>互相成全</strong>的概念，单独看哪个都不完整。所以下面我们用"插座与布线"这个比喻贯穿全程：每读到一个新点，你都可以回到这个画面里对一对号。把这一对吃透，你就拿到了读 <span class="mono">packages/core</span> 的<strong>万能钥匙</strong>——因为那里几乎每一个模块，从 Agent、Database 到 LLM、Tool，都是照着 Service + Layer 这同一个模子刻出来的。学会读一个，就等于学会了读全部；反过来，要是这一对没吃透，你看每个模块都会觉得"似曾相识却又说不清"，那种卡顿感正是没认出模子的表现。</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 生活类比</div>
+  把 <strong>Service</strong> 想成墙上的一个<strong>标准插座</strong>：它只规定"这里能插一个提供电力的东西"，定义了形状和接口，却<strong>不关心电从哪来</strong>。把 <strong>Layer</strong> 想成<strong>布线施工</strong>：它真正把一台发电机（或市电、或一节电池）接到这个插座背后。你的电器（业务代码）只管说"我要插在电力插座上"，至于背后接的是发电机还是电池，<strong>由施工方决定、随时可换</strong>。Service 定义"需要什么"，Layer 决定"用什么满足"——两者一拆开，可替换性就来了。施工的好处还在于：你家电器永远不用关心墙后接的是市电还是太阳能，哪天想从市电切到自家光伏，<strong>动布线、不动电器</strong>。软件里这意味着：换实现的成本，被死死摁在了最外层那一处接线上，而不会渗进成百上千个用到它的地方。
+</div>
+
+<h2>Service：声明一个能力插槽</h2>
+<p>在 opencode 里，一个 Service 就是一个<strong>带名字的能力契约</strong>。它用一个固定的写法声明出来：一个接口（这个能力能做什么），加一个全局唯一的<strong>标签</strong>（给它起个名字，让 Effect 能认出它）。</p>
+<pre class="code"><span class="cm">// 简化自 packages/core/src/agent.ts</span>
+<span class="kw">interface</span> Interface { <span class="fn">get</span>(id: string): Effect&lt;Agent&gt; }
+<span class="kw">export class</span> Service <span class="kw">extends</span> Context.<span class="fn">Service</span>&lt;Service, Interface&gt;()(<span class="st">"@opencode/v2/Agent"</span>) {}</pre>
+<p>关键就在那个字符串标签 <span class="mono">"@opencode/v2/Agent"</span>：它是这个插槽的<strong>全局身份证</strong>。当某段代码说"我需要 Agent 服务"时，Effect 就靠这个标签去找谁填了这个槽。注意此刻<strong>还没有任何实现</strong>——Service 只是个<strong>形状</strong>、一个承诺，就像墙上那个还没接线的插座。这一步把"<strong>需要什么</strong>"和"<strong>谁来提供</strong>"干净地分开了。</p>
+<div class="cellgroup">
+  <div class="cg-cap"><b>Context.Service&lt;Service, Interface&gt;()("@opencode/v2/Agent")</b> 三件套</div>
+  <div class="cells"><span class="cell q">Interface</span><span class="lab">这个能力能做什么——方法签名的集合</span></div>
+  <div class="cells"><span class="cell scale">标签字符串</span><span class="lab">全局唯一身份，Effect 靠它在运行时认出这个槽</span></div>
+  <div class="cells"><span class="cell">Service 类</span><span class="lab">既当类型用（写进 R），又是运行时能 yield* 的"钥匙"</span></div>
+</div>
+<p>为什么要写成一个 <span class="mono">class</span>？因为它要<strong>身兼两职</strong>：在类型层面，<span class="mono">Service</span> 是个类型，被记进别人的 R；在运行时层面，它又是一个能 <span class="mono">yield*</span> 出来的值——一把"钥匙"，凭它去运行时的"账本"里取出对应实现。一个名字同时是类型和值，这正是 Effect 把"依赖"做得既类型安全、又能在运行时注入的关键设计。你不必记住它的全部魔法，只需认得这个固定骨架：<strong>一个接口 + 一个标签 + 一个 Service 类</strong>。</p>
+
+<h2>Layer：把插槽接上真正的实现</h2>
+<p>光有插槽不通电。<strong>Layer</strong> 就是那段"布线施工"，它把一个真正的实现<strong>绑定</strong>到 Service 标签上：</p>
+<pre class="code"><span class="cm">// 简化自 packages/core/src/agent.ts</span>
+<span class="kw">export const</span> layer = Layer.<span class="fn">effect</span>(
+  Service,                          <span class="cm">// 填哪个槽</span>
+  Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {        <span class="cm">// 怎么造出实现（本身也是一段 Effect）</span>
+    <span class="kw">const</span> db = <span class="kw">yield</span>* Database     <span class="cm">// Layer 自己也能依赖别的 Service</span>
+    <span class="kw">return</span> { <span class="fn">get</span>: (id) =&gt; <span class="cm">/* …用 db 实现… */</span> }
+  }),
+)</pre>
+<p><span class="mono">Layer.effect(Service, make)</span> 读作："用 <span class="mono">make</span> 这段计算造出实现，把它装进 <span class="mono">Service</span> 这个槽"。妙的是 <span class="mono">make</span> 本身就是一段 Effect，所以<strong>一个 Layer 在构造时还能依赖别的 Service</strong>（上面就 <span class="mono">yield* Database</span>）。于是 Layer 之间能像积木一样<strong>层层堆叠</strong>：Agent 依赖 Database，Database 依赖 Config……每一层只管声明自己要什么、产出什么。</p>
+<table class="t">
+  <tr><th></th><th>Service</th><th>Layer</th></tr>
+  <tr><td>是什么</td><td>能力的<strong>契约</strong>（接口 + 标签）</td><td>契约的<strong>实现 + 接线</strong></td></tr>
+  <tr><td>类比</td><td>墙上的插座（形状）</td><td>把发电机接到插座背后的布线</td></tr>
+  <tr><td>关心</td><td>"能做什么"</td><td>"怎么造出来、依赖谁"</td></tr>
+  <tr><td>可替换性</td><td>消费方只认它</td><td>随时换一套（真/假实现）</td></tr>
+</table>
+<p>把 Service 和 Layer 分成两个东西，而不是揉成一个"类 + new 出实例"，正是整套设计的精髓所在。因为消费方只依赖 <strong>Service（契约）</strong>，谁来当 <strong>Layer（实现）</strong>就成了一个能在最外层自由决定的旋钮。这种"契约与实现分离"在传统 OOP 里要靠接口 + 依赖注入框架费力搭，而 Effect 把它做成了<strong>语言级、类型安全</strong>的一等公民——这也是为什么 opencode 几乎每个模块都严格遵循这个骨架。</p>
+<p>还有一个常被忽略的好处：因为 Layer 的构造本身是一段 Effect，它<strong>也能失败、也能依赖别人</strong>。于是"启动一个服务"这件麻烦事——连数据库、读配置、建连接池、装好后台任务——就被统一纳进了同一套类型化、可组合的框架里，而不是散落在各处、彼此顺序全靠人脑记的初始化代码。整个应用的"开机顺序"，最终化成了一道 Layer 的组合表达式：清晰、可推理、不怕漏，谁依赖谁、谁先起来，编译器和运行时替你保证。把"接线"也变成一等公民，是这套设计常被低估的一笔。</p>
+
+<h2>消费：yield* 一个 Service</h2>
+<p>业务代码怎么用这个能力？在 <span class="mono">Effect.gen</span> 里直接 <span class="mono">yield*</span> 那个 Service 就行：</p>
+<div class="flow">
+  <div class="node"><div class="nt">Service</div><div class="nd">声明插槽（标签）</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">yield* Service</div><div class="nd">取出能力来用</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">R 里多一笔</div><div class="nd">"我需要 Agent"</div></div>
+</div>
+<p>当你写 <span class="mono">const agent = yield* AgentV2.Service</span>，你拿到的就是那个 Interface，可以直接调它的方法。代价是：这段计算的类型 <span class="mono">Effect&lt;A, E, R&gt;</span> 里，<strong>R 会自动多记一笔"我需要 Agent"</strong>。这笔"债"会一直挂在类型上，<strong>直到某个 Layer 来还它</strong>。换句话说，<span class="mono">yield*</span> 一个 Service = 在 R 上欠下一个依赖；提供对应 Layer = 还清这笔债。编译器全程盯着账本，少还一笔都不让你运行。</p>
+
+<h2>组合：用 Layer 搭出整个 app</h2>
+<p>整个 opencode 的运行时，本质就是<strong>把一堆 Layer 拼在一起</strong>，直到所有人的依赖都被满足、R 被还干净。</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">业务</span><span class="name">SessionRunner</span></div><div class="ld">yield* Agent、Database、LLM…</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">Layer</span><span class="name">Agent.layer · LLM.layer</span></div><div class="ld">各自又依赖下层</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">Layer</span><span class="name">Database.layer · Config.layer</span></div><div class="ld">更基础的能力</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">运行时</span><span class="name">makeRuntime（memoMap 去重）</span></div><div class="ld">把组合好的 Layer 变成可运行的运行时</div></div>
+</div>
+<p>opencode 用一个 <span class="mono">makeRuntime</span>（在 <span class="mono">src/effect/run-service.ts</span>）把这堆 Layer 组装成运行时，它背后有个<strong>共享的 memoMap</strong>：同一个 Layer 被多处依赖时，<strong>只构造一次</strong>、大家共享，不会重复建十个 Database。这正是"声明式依赖"的红利——你只管说"我要谁"，至于"谁该先造、谁能共享"，框架替你算清楚。</p>
+<div class="vflow">
+  <div class="step"><b>① 收集债务</b>　每个 yield* 的 Service 在 R 里记一笔"我需要它"</div>
+  <div class="step"><b>② 提供 Layer</b>　把对应的 Layer 一个个交给运行时</div>
+  <div class="step"><b>③ 拓扑排序</b>　按依赖关系算出"谁先造"（Layer 也可能依赖 Layer）</div>
+  <div class="step"><b>④ memoMap 去重</b>　同一个 Layer 多处依赖，只构造一次、共享实例</div>
+  <div class="step"><b>⑤ R 还清 → 可运行</b>　所有依赖都被满足，Effect 才能真正跑起来</div>
+</div>
+<p>这条流水线里最值得记住的是第 ④ 步。设想 <span class="mono">Agent</span>、<span class="mono">Session</span>、<span class="mono">Tool</span> 都依赖 <span class="mono">Database</span>——如果各自 new 一个，就会有三个数据库连接，状态还可能对不上。memoMap 保证<strong>整棵依赖树里 Database 只活一份</strong>，谁要都给同一个。你完全不用手动管这种"单例共享"，只要照常声明依赖，框架就替你把图算对、把实例对齐。这种"声明即正确"的省心，正是依赖注入相对手写 <span class="mono">new</span> 的根本优势。</p>
+
+<p>这套"欠债—还债"的账本机制，带来一个很舒服的性质：<strong>一段代码需要什么，全写在它的类型里，一眼可见。</strong>你不用翻遍函数体去找它偷偷 import 了哪些全局、碰了哪些单例——它的 R 就是一张诚实的依赖清单。读 <span class="mono">packages/core</span> 时这一点尤其省心：看一个 <span class="mono">Effect.fn</span> 的签名，就知道它要动用哪些服务；想复用它，照着把那些 Layer 备齐即可。<strong>依赖显式化</strong>，让大型代码库里"这段逻辑到底牵扯了什么"这个老大难问题，变得可以直接从类型读出来。</p>
+
+<h2>换一层，就换了整个世界</h2>
+<p>这套机制最实在的回报，在测试时显现。因为业务代码只认 Service 这个<strong>插槽</strong>、不认背后的具体实现，你想测它，只要<strong>提供一套不同的 Layer</strong> 就行：</p>
+<div class="cols">
+  <div class="col"><h4>生产环境</h4><p>提供 <span class="mono">Database.layer</span>（真 SQLite）、<span class="mono">LLM.layer</span>（真 provider）。</p></div>
+  <div class="col"><h4>测试环境</h4><p>同一段业务代码，换上<strong>假 Database</strong>、<strong>假 LLM</strong> 的 Layer——不碰真文件、不连真网络，照样跑通。</p></div>
+</div>
+<p>业务代码<strong>一行都不用改</strong>，只是喂给它的 Layer 变了。这就是第 5 课说的"可测试性几乎白送"的真正含义：依赖被显式声明成 Service、由 Layer 在最外层注入，于是"换实现"退化成"换一层 Layer"。V1 那种把依赖写死在 import 里的巨石，永远做不到这一点。</p>
+<p>再往深想一层：能"换一层 Layer 就换掉整个实现"，受益的远不止单元测试。同一套业务代码配上不同的 Layer，就能跑在<strong>不同的环境</strong>里——本地用真 SQLite、CI 里用内存库、将来要上多节点时换一套分布式实现，而业务逻辑<strong>原封不动</strong>。opencode 之所以能为"本地单机"和"未来集群"同时留余地（第十一部分会提到 Location、ownership 这些接缝），底气正来自这套"实现可整体替换"的依赖注入。Service / Layer 不只是测试友好，更是<strong>架构能往前演进</strong>的地基。</p>
+<p>顺带说一句，这也回答了第 4 课埋下的一个伏笔：为什么 V2 是"一堆小协作者"、V1 是"几块巨石"？因为一旦每个能力都被切成 Service + Layer，模块之间就只剩下<strong>契约</strong>这一种耦合，自然会长成一个个小而独立、可单独测试与替换的件；而 V1 把依赖写死、逻辑揉成一团，就只能滚成大石头。<strong>是 Effect 的依赖模型，悄悄塑造了 V2 的模块形状</strong>——一个架构的"气质"，往往是它最底层那几样工具的选择决定的。</p>
+
+<div class="card macro">
+  <div class="tag">🌍 宏观理解</div>
+  <strong>Service</strong> 用一个带全局标签的接口，声明一个"能力插槽"（对应 Effect 的 R）；<strong>Layer</strong>（<span class="mono">Layer.effect(Service, make)</span>）把真正的实现接到这个槽上，而且构造时还能依赖别的 Service。业务代码 <span class="mono">yield* Service</span> 取用能力、在 R 上欠下依赖，由组合好的 Layer 在最外层（<span class="mono">makeRuntime</span>，memoMap 去重）一次性还清。"声明 vs 提供"一拆开，换实现就退化成换一层 Layer——这是 V2 可测试、可组合的根。再往大里说，这套机制把"一个东西依赖什么、由谁满足、何时构造、能否共享"这些原本散落在代码各处、全靠约定维系的事，统统收进了类型与运行时去管。你读 V2 任何一个模块，只要先认出它的 Service 契约、再看它的 Layer 接了什么，就抓住了它的"接口"与"接线"两件大事，剩下的实现细节不过是填空。把这套"契约 + 接线"的读法练成本能，整部 <span class="mono">packages/core</span> 在你眼里就会从一团迷雾，变成一张结构分明、处处可预期、读起来心里踏实的地图。
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 细节 / 源码对应</div>
+  opencode 几乎每个核心模块都长这个样子（简化自 <span class="mono">packages/core/src/agent.ts</span>）；<span class="mono">AGENTS.md</span> 还规定了模块的自重导出写法：
+<pre class="code"><span class="cm">// src/agent.ts —— 一个 Service 模块的标准骨架</span>
+<span class="kw">interface</span> Interface { <span class="cm">/* … */</span> }
+<span class="kw">export class</span> Service <span class="kw">extends</span> Context.<span class="fn">Service</span>&lt;Service, Interface&gt;()(<span class="st">"@opencode/v2/Agent"</span>) {}
+<span class="kw">export const</span> layer = Layer.<span class="fn">effect</span>(Service, make)
+
+<span class="kw">export</span> * <span class="kw">as</span> AgentV2 <span class="kw">from</span> <span class="st">"./agent"</span>   <span class="cm">// 自重导出，消费方 import { AgentV2 }</span></pre>
+  消费方写 <span class="mono">import { AgentV2 } from "@/agent"</span>，再 <span class="mono">yield* AgentV2.Service</span> / 提供 <span class="mono">AgentV2.layer</span>——名字、接口、实现三者由这套固定结构串起来。
+</div>
+
+<div class="card key">
+  <div class="tag">✅ 本课要点</div>
+  <ul>
+    <li><strong>Service</strong> = 带全局标签的接口，声明一个"能力插槽"（对应 R）。</li>
+    <li><strong>Layer</strong> = <span class="mono">Layer.effect(Service, make)</span>，把真实现接到槽上；构造时还能依赖别的 Service。</li>
+    <li>消费：<span class="mono">yield* Service</span> 取能力，R 上自动欠下一笔依赖。</li>
+    <li>组合：把 Layer 拼到一起、用 <span class="mono">makeRuntime</span> 还清 R（memoMap 让同一 Layer 只造一次）。</li>
+    <li>测试 = 换一套假 Layer，业务代码一行不改——可测试性的根。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Last lesson we said Effect puts "dependencies" into the type's <strong>R</strong> slot. But that's only half the story — declaring "I need Config" isn't enough; someone must <strong>actually hand a Config in</strong>. This lesson covers opencode's "declare deps, then inject deps" machinery: <strong>Service</strong> declares a capability slot, <strong>Layer</strong> wires that slot to a real implementation. Grasp these two words and the structure all over <span class="mono">packages/core</span> — "screens of <span class="mono">yield* XxxService</span>, assembled at the end with <span class="mono">Layer</span>" — clicks into place.</p>
+<p>This lesson is a bit "circular," because Service and Layer are a <strong>mutually-completing</strong> pair — neither is whole on its own. So we run the "socket and wiring" metaphor throughout: each new point, return to that picture and match it up. Master this pair and you hold the <strong>master key</strong> to reading <span class="mono">packages/core</span> — because nearly every module there, from Agent and Database to LLM and Tool, is cut from this same Service + Layer mold. Learn to read one and you've learned to read them all; conversely, if this pair isn't solid, every module feels "vaguely familiar yet unclear" — that stutter is the sign you haven't recognized the mold.</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 Analogy</div>
+  Think of <strong>Service</strong> as a <strong>standard wall socket</strong>: it only specifies "something providing power plugs in here," defining shape and interface, while <strong>not caring where the power comes from</strong>. Think of <strong>Layer</strong> as the <strong>wiring work</strong>: it actually connects a generator (or the grid, or a battery) behind that socket. Your appliance (business code) just says "I plug into a power socket"; whether a generator or a battery sits behind it is <strong>decided by the wiring crew, swappable anytime</strong>. Service defines "what's needed," Layer decides "what fulfills it" — split the two and swappability appears. The wiring perk: your appliance never cares whether the grid or solar sits behind the wall; to switch from grid to your own solar, you <strong>change the wiring, not the appliance</strong>. In software that means the cost of swapping an implementation is pinned to one spot at the outermost layer, never seeping into the hundreds of places that use it.
+</div>
+
+<h2>Service: declare a capability slot</h2>
+<p>In opencode, a Service is a <strong>named capability contract</strong>. It's declared with a fixed shape: an interface (what this capability can do) plus a globally-unique <strong>tag</strong> (a name so Effect can recognize it).</p>
+<pre class="code"><span class="cm">// simplified from packages/core/src/agent.ts</span>
+<span class="kw">interface</span> Interface { <span class="fn">get</span>(id: string): Effect&lt;Agent&gt; }
+<span class="kw">export class</span> Service <span class="kw">extends</span> Context.<span class="fn">Service</span>&lt;Service, Interface&gt;()(<span class="st">"@opencode/v2/Agent"</span>) {}</pre>
+<p>The key is that string tag <span class="mono">"@opencode/v2/Agent"</span>: it's the slot's <strong>global ID card</strong>. When some code says "I need the Agent service," Effect uses this tag to find who filled the slot. Note there's <strong>no implementation yet</strong> — Service is just a <strong>shape</strong>, a promise, like an unwired socket on the wall. This step cleanly separates "<strong>what's needed</strong>" from "<strong>who provides it</strong>".</p>
+<div class="cellgroup">
+  <div class="cg-cap"><b>Context.Service&lt;Service, Interface&gt;()("@opencode/v2/Agent")</b>, three parts</div>
+  <div class="cells"><span class="cell q">Interface</span><span class="lab">what this capability can do — the set of method signatures</span></div>
+  <div class="cells"><span class="cell scale">tag string</span><span class="lab">globally-unique identity; Effect uses it to recognize the slot at runtime</span></div>
+  <div class="cells"><span class="cell">Service class</span><span class="lab">both a type (goes into R) and the runtime "key" you yield*</span></div>
+</div>
+<p>Why a <span class="mono">class</span>? Because it must <strong>do two jobs</strong>: at the type level, <span class="mono">Service</span> is a type recorded in others' R; at runtime, it's a value you can <span class="mono">yield*</span> — a "key" to fetch the matching implementation from the runtime's "ledger." One name being both type and value is exactly Effect's key trick for making "dependencies" both type-safe and runtime-injectable. You needn't memorize all its magic — just recognize the fixed skeleton: <strong>an interface + a tag + a Service class</strong>.</p>
+
+<h2>Layer: wire the slot to a real implementation</h2>
+<p>A slot alone has no power. <strong>Layer</strong> is that "wiring work," <strong>binding</strong> a real implementation to a Service tag:</p>
+<pre class="code"><span class="cm">// simplified from packages/core/src/agent.ts</span>
+<span class="kw">export const</span> layer = Layer.<span class="fn">effect</span>(
+  Service,                          <span class="cm">// which slot to fill</span>
+  Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {        <span class="cm">// how to build the impl (itself an Effect)</span>
+    <span class="kw">const</span> db = <span class="kw">yield</span>* Database     <span class="cm">// a Layer can itself depend on other Services</span>
+    <span class="kw">return</span> { <span class="fn">get</span>: (id) =&gt; <span class="cm">/* …implemented with db… */</span> }
+  }),
+)</pre>
+<p><span class="mono">Layer.effect(Service, make)</span> reads "build the impl with <span class="mono">make</span>, install it into the <span class="mono">Service</span> slot." Neatly, <span class="mono">make</span> is itself an Effect, so <strong>a Layer can depend on other Services while constructing</strong> (above, <span class="mono">yield* Database</span>). So Layers <strong>stack like blocks</strong>: Agent depends on Database, Database on Config… each layer only declaring what it needs and produces.</p>
+<table class="t">
+  <tr><th></th><th>Service</th><th>Layer</th></tr>
+  <tr><td>What</td><td>the capability's <strong>contract</strong> (interface + tag)</td><td>the contract's <strong>impl + wiring</strong></td></tr>
+  <tr><td>Analogy</td><td>the wall socket (shape)</td><td>wiring a generator behind the socket</td></tr>
+  <tr><td>Cares about</td><td>"what it can do"</td><td>"how to build it, who it depends on"</td></tr>
+  <tr><td>Swappability</td><td>consumers only know it</td><td>swap a set anytime (real/fake)</td></tr>
+</table>
+<p>Splitting Service and Layer into two things, rather than mashing them into one "class + new an instance," is the heart of the design. Because consumers depend only on <strong>Service (the contract)</strong>, who plays <strong>Layer (the impl)</strong> becomes a knob freely set at the outermost layer. This "contract-vs-impl separation" takes interfaces + a DI framework to build laboriously in traditional OOP; Effect makes it a <strong>language-level, type-safe</strong> first-class citizen — which is why nearly every opencode module strictly follows this skeleton.</p>
+<p>One more often-missed perk: because a Layer's construction is itself an Effect, it <strong>can also fail and depend on others</strong>. So "starting a service" — connecting the DB, reading config, building a pool, wiring background tasks — is folded into the same typed, composable framework, instead of init code scattered everywhere whose order lives only in someone's head. The whole app's "boot order" becomes one Layer-composition expression: clear, reasoned-about, leak-proof — who depends on whom and who starts first, the compiler and runtime guarantee. Making "wiring" a first-class citizen too is an underrated stroke of this design.</p>
+
+<h2>Consume: yield* a Service</h2>
+<p>How does business code use this capability? Just <span class="mono">yield*</span> the Service inside <span class="mono">Effect.gen</span>:</p>
+<div class="flow">
+  <div class="node"><div class="nt">Service</div><div class="nd">declare slot (tag)</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">yield* Service</div><div class="nd">take the capability</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">one more in R</div><div class="nd">"I need Agent"</div></div>
+</div>
+<p>When you write <span class="mono">const agent = yield* AgentV2.Service</span>, you get that Interface and can call its methods directly. The cost: this computation's type <span class="mono">Effect&lt;A, E, R&gt;</span> <strong>auto-records one more "I need Agent" in R</strong>. That "debt" stays on the type <strong>until some Layer repays it</strong>. In other words, <span class="mono">yield*</span> a Service = owe a dependency in R; provide the matching Layer = repay it. The compiler watches the ledger throughout — short one repayment and it won't let you run.</p>
+<p>This "owe–repay" ledger gives a comfortable property: <strong>what a piece of code needs is written in its type, visible at a glance.</strong> You needn't comb the function body for which globals it secretly imported or which singletons it touched — its R is an honest dependency list. Reading <span class="mono">packages/core</span> this is especially easy: look at an <span class="mono">Effect.fn</span>'s signature and you know which services it draws on; to reuse it, just have those Layers ready. <strong>Making dependencies explicit</strong> turns the old "what does this logic actually involve" headache, in a big codebase, into something you read straight off the type.</p>
+
+<h2>Compose: build the whole app with Layers</h2>
+<p>opencode's entire runtime is essentially <strong>assembling a pile of Layers</strong> until everyone's deps are satisfied and R is fully repaid.</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">Business</span><span class="name">SessionRunner</span></div><div class="ld">yield* Agent, Database, LLM…</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">Layer</span><span class="name">Agent.layer · LLM.layer</span></div><div class="ld">each depends on lower ones</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">Layer</span><span class="name">Database.layer · Config.layer</span></div><div class="ld">more basic capabilities</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">Runtime</span><span class="name">makeRuntime (memoMap dedups)</span></div><div class="ld">turn composed Layers into a runnable runtime</div></div>
+</div>
+<p>opencode uses a <span class="mono">makeRuntime</span> (in <span class="mono">src/effect/run-service.ts</span>) to assemble these Layers into a runtime, backed by a <strong>shared memoMap</strong>: when one Layer is depended on in many places, it's <strong>constructed once</strong> and shared, never ten Databases. That's the dividend of "declarative dependencies" — you just say "who I need," and "who builds first, who can be shared" the framework works out for you.</p>
+<div class="vflow">
+  <div class="step"><b>① Collect debts</b>　each yield*'d Service records an "I need it" in R</div>
+  <div class="step"><b>② Provide Layers</b>　hand the matching Layers to the runtime</div>
+  <div class="step"><b>③ Topo-sort</b>　compute "who builds first" from deps (Layers may depend on Layers)</div>
+  <div class="step"><b>④ memoMap dedup</b>　a Layer depended on in many places is built once, shared</div>
+  <div class="step"><b>⑤ R repaid → runnable</b>　all deps satisfied, only then can the Effect run</div>
+</div>
+<p>The step to remember is ④. Imagine <span class="mono">Agent</span>, <span class="mono">Session</span>, <span class="mono">Tool</span> all depend on <span class="mono">Database</span> — if each new'd one, you'd get three DB connections with possibly mismatched state. memoMap guarantees <strong>one Database across the whole dep tree</strong>, the same one for everyone. You never hand-manage this "singleton sharing"; just declare deps as usual and the framework gets the graph right and aligns the instances. This "declare and it's correct" ease is DI's fundamental edge over hand-written <span class="mono">new</span>.</p>
+
+<h2>Swap a layer, swap the whole world</h2>
+<p>This machinery's most tangible payoff shows in testing. Because business code knows only the Service <strong>slot</strong>, not the concrete impl behind it, to test it you just <strong>provide a different set of Layers</strong>:</p>
+<div class="cols">
+  <div class="col"><h4>Production</h4><p>provide <span class="mono">Database.layer</span> (real SQLite), <span class="mono">LLM.layer</span> (real provider).</p></div>
+  <div class="col"><h4>Test</h4><p>the same business code, swapped onto a <strong>fake Database</strong> and <strong>fake LLM</strong> Layer — no real files, no real network, still runs.</p></div>
+</div>
+<p>The business code <strong>doesn't change one line</strong>; only the Layers fed to it change. That's the real meaning of Lesson 5's "testability almost free": deps are explicitly declared as Services and injected by Layers at the outermost layer, so "swap impl" degenerates into "swap a Layer." V1's monoliths, hard-wiring deps in imports, can never do this.</p>
+<p>One level deeper: "swap a Layer to swap the whole impl" benefits far more than unit tests. The same business code, with different Layers, runs in <strong>different environments</strong> — real SQLite locally, an in-memory DB in CI, a distributed impl when going multi-node later — while the business logic stays <strong>untouched</strong>. opencode can leave room for both "local single-machine" and "future cluster" (Part 11 mentions seams like Location, ownership) precisely thanks to this "wholesale-swappable impl" DI. Service / Layer isn't just test-friendly; it's the foundation for the <strong>architecture to evolve forward</strong>.</p>
+<p>Incidentally, this answers a thread Lesson 4 left dangling: why is V2 "a pile of small collaborators" and V1 "a few boulders"? Because once every capability is cut into Service + Layer, the only coupling left between modules is the <strong>contract</strong>, so they naturally grow into small, independent, separately-testable-and-swappable pieces; whereas V1, hard-wiring deps and mashing logic together, can only roll into boulders. <strong>It's Effect's dependency model that quietly shapes V2's module shape</strong> — an architecture's "temperament" is often decided by the choice of its lowest-level few tools.</p>
+
+<div class="card macro">
+  <div class="tag">🌍 Big picture</div>
+  <strong>Service</strong> uses a globally-tagged interface to declare a "capability slot" (matching Effect's R); <strong>Layer</strong> (<span class="mono">Layer.effect(Service, make)</span>) wires the real impl into that slot, and can itself depend on other Services while constructing. Business code <span class="mono">yield* Service</span> takes the capability and owes a dep in R, repaid wholesale at the outermost layer by composed Layers (<span class="mono">makeRuntime</span>, memoMap dedup). Split "declare vs provide" and swapping impls degenerates into swapping a Layer — the root of V2's testability and composability. More broadly, this machinery folds "what something depends on, who satisfies it, when it's built, whether it's shared" — once scattered across code and held together by convention — into the type and runtime. Read any V2 module: recognize its Service contract, see what its Layer wires in, and you've grasped its "interface" and "wiring," the rest being fill-in-the-blank. Drill this "contract + wiring" reading into instinct and all of <span class="mono">packages/core</span> turns from fog into a clear, predictable, reassuring map.
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  Nearly every core opencode module looks like this (simplified from <span class="mono">packages/core/src/agent.ts</span>); <span class="mono">AGENTS.md</span> also mandates the module's self-reexport form:
+<pre class="code"><span class="cm">// src/agent.ts — the standard skeleton of a Service module</span>
+<span class="kw">interface</span> Interface { <span class="cm">/* … */</span> }
+<span class="kw">export class</span> Service <span class="kw">extends</span> Context.<span class="fn">Service</span>&lt;Service, Interface&gt;()(<span class="st">"@opencode/v2/Agent"</span>) {}
+<span class="kw">export const</span> layer = Layer.<span class="fn">effect</span>(Service, make)
+
+<span class="kw">export</span> * <span class="kw">as</span> AgentV2 <span class="kw">from</span> <span class="st">"./agent"</span>   <span class="cm">// self-reexport; consumers import { AgentV2 }</span></pre>
+  Consumers write <span class="mono">import { AgentV2 } from "@/agent"</span>, then <span class="mono">yield* AgentV2.Service</span> / provide <span class="mono">AgentV2.layer</span> — name, interface, and impl strung together by this fixed structure.
+</div>
+
+<div class="card key">
+  <div class="tag">✅ Key points</div>
+  <ul>
+    <li><strong>Service</strong> = a globally-tagged interface declaring a "capability slot" (matching R).</li>
+    <li><strong>Layer</strong> = <span class="mono">Layer.effect(Service, make)</span>, wiring the real impl into the slot; can depend on other Services while constructing.</li>
+    <li>Consume: <span class="mono">yield* Service</span> takes the capability, auto-owing a dep in R.</li>
+    <li>Compose: assemble Layers, repay R via <span class="mono">makeRuntime</span> (memoMap builds each Layer once).</li>
+    <li>Test = swap in a fake-Layer set, business code unchanged — the root of testability.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_07 = wip('并发原语', 'Concurrency primitives')
 LESSON_08 = wip('项目里的 Effect 工具箱', 'The Effect toolbox')
