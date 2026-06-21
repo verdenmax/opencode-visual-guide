@@ -191,6 +191,215 @@ LESSON_44 = {
 </div>
 """,
 }
-LESSON_45 = wip('Agents：build 与 plan', 'Agents: build & plan')
+LESSON_45 = {
+    "zh": r"""
+<p class="lead">上一课的配置，把「用户想要什么」收齐、校验、合成成一份生效配置。这一课，我们盯住其中最核心的一格——<span class="mono">agents</span>——看一个<strong>「agent」到底是什么</strong>，又是怎么从配置变成一个能跑的角色的。你可能以为「agent」是个很玄的东西，但 opencode 把它定义得朴素得惊人：<strong>一个 agent，就是一束「角色配置」</strong>——用哪个模型（脑）、配什么系统提示（指令）、有哪些权限（能干什么）、怎么跑（mode/步数上限）。把这几样一捆，给它起个名字，就是一个 agent。这种「把复杂的东西还原成一份配置」的做法，本身就值得玩味：它意味着「<strong>agent</strong>」不是一个需要写代码去 new 出来的对象，而是一份<strong>可以被声明、被配置、被用户随手定制</strong>的数据。你想要一个「专门写测试的 agent」「专门审查安全的 agent」？不必改一行 opencode 的源码，往配置里加一束角色卡即可。</p>
+<p>这一课最有启发的，是 opencode 内置的<strong>两个 agent：<span class="mono">build</span> 和 <span class="mono">plan</span></strong>——它俩是理解整个 agent 抽象的最佳样本。<strong>build</strong> 是默认的全能编码 agent，能改文件、跑命令、放手干；<strong>plan</strong> 是「规划模式」，能读、能搜、能想，<strong>却被禁止动任何代码</strong>（只允许写计划文件）。最妙的是：<strong>build 和 plan 用的是同一套 agent 机器、同样的模型与工具，唯一的差别，几乎全在「权限画像」上</strong>。这把第 41 课的权限和这一课的 agent 漂亮地接在了一起——<strong>换一套权限，同一个 agent 引擎就活成了另一个角色</strong>。读懂 build vs plan，你就懂了「为什么 agent 这层抽象，本质是『脑 + 手 + 一张许可证』的命名打包」。</p>
+
+<div class="card analogy">
+  <div class="tag">🪪 生活类比</div>
+  把一个 agent 想象成你派给一名员工的<strong>「岗位角色」</strong>。同一个员工（同一个模型 + 同一套工具），换一份<strong>岗位说明书</strong>（系统提示）、换一张<strong>门禁卡</strong>（权限），就成了两个截然不同的角色。<strong>build</strong> 像一名<strong>全权工程师</strong>：门禁卡能开所有门，可以直接改代码、提交、上线。<strong>plan</strong> 则像一名<strong>顾问</strong>：他能<strong>翻阅一切资料、四处考察</strong>，最后写出一份<strong>方案书</strong>——但他那张门禁卡，<strong>偏偏打不开「实际改动生产」的那扇门</strong>（只放他进「写方案」那一间）。同一个人、同一间办公室、同样的本事，<strong>只因门禁卡上的权限不同，就一个能动手、一个只能建言</strong>。agent 这层抽象的全部精髓，就在这「同一套人马、不同一张证」里。
+</div>
+
+<h2>一个 agent 是什么：一束角色配置</h2>
+<p>先看 <span class="mono">core/src/agent.ts</span> 里的 <span class="mono">AgentV2.Info</span>——它就是「一个 agent」的定义。干净得像一张角色卡：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">model</div><div class="c-txt">用哪个模型（这个角色的「脑」）</div></div>
+  <div class="cell"><div class="c-tag">system</div><div class="c-txt">系统提示（这个角色的「岗位说明书」）</div></div>
+  <div class="cell"><div class="c-tag">mode</div><div class="c-txt">subagent / primary / all——能当主 agent、还是只能当子 agent</div></div>
+  <div class="cell"><div class="c-tag">steps</div><div class="c-txt">步数上限（呼应第 20 课有界步数）</div></div>
+  <div class="cell"><div class="c-tag">permissions</div><div class="c-txt">这个角色自己的权限规则集（第 41 课 Ruleset）</div></div>
+  <div class="cell"><div class="c-tag">description / color / hidden</div><div class="c-txt">描述、UI 颜色、是否隐藏</div></div>
+</div>
+<p>看清楚这张卡，「agent」就不再玄了：它<strong>不是一段神秘的智能，而是一份『配置』</strong>——把「哪个脑（model）、什么指令（system）、什么许可（permissions）、怎么跑（mode/steps）」打包命名。默认 agent 的 ID 就叫 <span class="mono">"build"</span>（<span class="mono">defaultID = ID.make("build")</span>）。其中 <span class="mono">mode</span> 这一项决定它能出现在哪：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">primary</div><div class="c-txt">能作为你直接对话的主 agent（如 build/plan）</div></div>
+  <div class="cell"><div class="c-tag">subagent</div><div class="c-txt">只能被其它 agent 当子任务派出去（回忆第 18 课 FiberSet 子任务）</div></div>
+  <div class="cell"><div class="c-tag">all</div><div class="c-txt">两者皆可——既能当主、也能被派为子</div></div>
+</div>
+<p>这也解释了配置里的 <span class="mono">agents</span> 那一格：用户可以在配置中<strong>定义自己的 agent</strong>（给个名字、挑个模型、写段 system、设权限），于是「造一个新角色」就是「往配置里加一束这样的卡」。值得一提的是，核心的 <span class="mono">AgentV2.Info</span>（解析后的 agent）字段大多是<strong>必填带默认</strong>的（mode、permissions 都有定值），而配置侧的 <span class="mono">ConfigAgent.Info</span> 字段几乎全是<strong>可选</strong>的——因为配置只表达「我想覆盖什么」，没写的就走默认。这一「配置可选、解析必填」的分工，又是第 44 课「层叠覆盖」在 agent 上的具体落地。</p>
+
+<h2>build vs plan：同一套机器，两张许可证</h2>
+<p>现在来看最精彩的对照——opencode 内置的两个 primary agent。它俩的描述就把差别点透了：<span class="mono">build</span> = 「默认 agent，按配置的权限执行工具」；<span class="mono">plan</span> = 「<strong>规划模式，禁用一切编辑工具</strong>」。</p>
+<div class="cols">
+  <div class="col"><h4>build · 全权工程师</h4><p>默认 agent。权限=默认集 + 允许 question/plan_enter + 用户配置。<strong>能改文件、跑命令、放手干</strong>。你日常让 agent「去把这个实现了」，用的就是它。</p></div>
+  <div class="col"><h4>plan · 只读顾问</h4><p>规划模式。权限在默认集上叠了一条狠的：<span class="mono">edit: {"*": "deny"}</span>——<strong>禁掉所有编辑</strong>，只对 <span class="mono">plans/*.md</span> 网开一面。它能读、能搜、能想，<strong>但碰不了你的真实代码</strong>，只能把方案写进计划文件。</p></div>
+</div>
+<p>这个对照是整个 agent 抽象的<strong>点睛之笔</strong>。注意：build 和 plan <strong>共用同一套 agent 引擎、同样的工具、（默认）同一个模型</strong>——它俩几乎一切都一样，<strong>唯一实质的差别，是那张「权限画像」</strong>。plan 的定义里，核心就是在默认权限上叠加：<span class="mono">edit: {"*": "deny", ".opencode/plans/*.md": "allow", …}</span>（禁所有编辑、只放行写计划文件）、<span class="mono">task.general: "deny"</span>、<span class="mono">plan_exit: "allow"</span>（允许退出规划模式回到 build）。换句话说：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">build</span><span class="t-txt">edit 默认放行 → 能直接改你的代码</span></div>
+  <div class="t-row"><span class="t-num">plan</span><span class="t-txt">edit:* deny（除 plans/*.md）→ 只能读/搜/想 + 写方案，碰不了真实代码</span></div>
+  <div class="t-row"><span class="t-num">切换</span><span class="t-txt">build 允许 plan_enter（进规划）、plan 允许 plan_exit（出规划）——两个模式可互相切</span></div>
+</div>
+<p>这就把第 41 课和这一课<strong>焊死</strong>了：<strong>agent 这层抽象之所以强大，正因为「角色的差异」很大程度上可以归结为「权限的差异」</strong>。你不需要为「规划模式」重写一套逻辑、再造一个引擎——你只要拿同一个 agent，<strong>换一张更严的许可证</strong>，它就自动变成了一个「只看不改」的规划者。这是一种极简的威力：<strong>把『这个 agent 能干什么』做成可声明的数据（权限规则），而非写死的代码</strong>，于是「造一个受限的新角色」轻得只剩「写几条 deny 规则」。plan 模式那条 <span class="mono">edit:"*":"deny"</span>，就是用一行声明，造出了一个「安全的、只规划不动手」的 agent。</p>
+<p>再往深想一层，这种「角色 = 权限画像」的设计，给<strong>安全</strong>带来了巨大的好处。当你不太信任一个任务、或在一个敏感的代码库里干活时，你可以先用 <span class="mono">plan</span> 模式让 agent <strong>把方案想清楚、写下来</strong>——这期间它<strong>从结构上就不可能误改你的代码</strong>（不是「它保证不改」，而是「权限层面它根本改不了」）。你审完方案、满意了，再切到 <span class="mono">build</span> 让它动手。<strong>「先规划、后执行」这个对人类协作再自然不过的工作流，被 opencode 用『两个权限画像 + 可互切的模式』直接做进了产品</strong>。而这一切的底层，不过是「同一个 agent 引擎 + 两套不同的权限规则」——没有为 plan 模式特制的引擎、没有散落各处的「if 在 plan 模式则禁止」。<strong>当『角色』被还原成『一束可声明的配置 + 一张权限画像』，新角色、新模式就成了配置层面的事，而非又一轮代码工程。</strong>这正是好抽象的标志：它让本来要写代码才能办到的事，变成了填一张表就能办到。</p>
+
+<h2>系统提示是怎么组装的</h2>
+<p>一个 agent 的 <span class="mono">system</span>（系统提示）也不是凭空一段死文本，而是<strong>组装</strong>出来的。它把「角色的固有指令 + 用户配置的 system + 当前环境上下文」拼成模型最终看到的那段系统提示：</p>
+<div class="flow">
+  <div class="f-node">角色基底提示<br><small>该 agent 的固有指令</small></div>
+  <div class="f-arrow">+ 用户 system →</div>
+  <div class="f-node">配置里的 system 覆盖<br><small>用户对这个角色的额外要求</small></div>
+  <div class="f-arrow">+ 环境上下文 →</div>
+  <div class="f-node">M5 的 System Context<br><small>目录/git/日期…（第 21~27 课）</small></div>
+</div>
+<p>opencode 里还有一批<strong>专职内部 agent</strong>，它们的提示直接来自 <span class="mono">agent/prompt/*.txt</span> 文件——各司一项专门任务：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">explore.txt</div><div class="c-txt">探索子 agent（被派出去搜代码，回忆第 18 课）</div></div>
+  <div class="cell"><div class="c-tag">compaction.txt</div><div class="c-txt">压缩历史的 agent（把长对话浓缩，呼应会话压缩）</div></div>
+  <div class="cell"><div class="c-tag">summary.txt</div><div class="c-txt">生成摘要</div></div>
+  <div class="cell"><div class="c-tag">title.txt</div><div class="c-txt">给会话起标题</div></div>
+</div>
+<p>把这些专职提示<strong>外置成 .txt 文件</strong>是个小而好的工程选择：提示词是<strong>会反复打磨的「文案」</strong>，把它从代码里拎出来放进纯文本，既好读好改、又能让非程序员参与调优，还不必为改一句话重新编译。<strong>agent 的「岗位说明书」，理应像文档一样被对待，而非像代码一样被编译。</strong>你会发现这些专职 agent 本身也印证了「agent = 一束配置」：一个 <span class="mono">explore</span> 子 agent，无非就是「一段 explore.txt 提示 + subagent 模式 + 一组适合搜索的工具与权限」的打包——和 build/plan 是同一套抽象，只是被裁成了更专、更窄的角色。<strong>从全能的 build，到只读的 plan，再到单一职责的 explore——它们全是同一张『角色卡』的不同填法。</strong></p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这一课把「配置里的 agents 那一格」具体成了能跑的角色：</p>
+  <ul>
+    <li><strong>一个 agent = 一束角色配置</strong>（<span class="mono">AgentV2.Info</span>，<span class="mono">core/src/agent.ts</span>）：model（脑）+ system（指令）+ permissions（许可，L41 Ruleset）+ mode（subagent/primary/all）+ steps（上限，L20）+ description/color/hidden。默认 agent ID = <span class="mono">"build"</span>。用户可在配置 <span class="mono">agents</span> 格自定义角色。</li>
+    <li><strong>build vs plan = 同机器、异许可</strong>：build（默认全能、能编辑）vs plan（规划模式、<span class="mono">edit:"*":"deny"</span> 只放行写 plans/*.md）。<strong>唯一实质差别是权限画像</strong>——把第 41 课权限和 agent 抽象焊在一起：换一张许可证，同一引擎变一个角色。</li>
+    <li><strong>mode 决定出场</strong>：primary（可作主 agent 直接对话）/ subagent（只能被派为子任务，L18）/ all。plan_enter / plan_exit 这两个权限动作，实现两模式互切。</li>
+    <li><strong>system 是组装出来的</strong>：角色基底提示 + 配置 system 覆盖 + M5 环境上下文（L21~27）。专职内部 agent（explore/compaction/summary/title）的提示外置成 <span class="mono">agent/prompt/*.txt</span>——提示是文案，该当文档对待。</li>
+  </ul>
+  <p>有了「一个 agent 怎么定义、build/plan 怎么分」，下一课（第 46 课）讲 <strong>MCP 集成</strong>：配置里的 <span class="mono">mcp</span> 那一格，怎么把一个外部 MCP server 接成 agent 能用的<strong>动态工具</strong>（区别于第 37~43 课那些内置工具）。第 47 课讲 <strong>Provider 插件</strong>：几十家模型供应商怎么注册进来供 agent 的 <span class="mono">model</span> 字段挑选。配置（L44）定义意图，agent（L45）是意图凝成的角色，MCP（L46）与 Provider（L47）则把这个角色的「手」和「脑」接到更广的外部世界——一步步，一个真正可用、可定制的 agent 就被「攒」齐了。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>plan agent 的权限定义，把「只读规划」写成了几条声明（简化自 opencode 的 agent 定义）：</p>
+  <pre class="code"><span class="cm">// plan：在默认权限上叠加，核心是禁掉所有 edit</span>
+plan: {
+  name: <span class="st">"plan"</span>,
+  description: <span class="st">"Plan mode. Disallows all edit tools."</span>,
+  permission: Permission.<span class="fn">merge</span>(defaults, Permission.<span class="fn">fromConfig</span>({
+    question: <span class="st">"allow"</span>,
+    plan_exit: <span class="st">"allow"</span>,                 <span class="cm">// 允许退出规划模式</span>
+    task: { general: <span class="st">"deny"</span> },
+    edit: {
+      <span class="st">"*"</span>: <span class="st">"deny"</span>,                       <span class="cm">// ← 禁掉所有编辑</span>
+      <span class="st">".opencode/plans/*.md"</span>: <span class="st">"allow"</span>,    <span class="cm">// 只放行写计划文件</span>
+    },
+  }), user),
+  mode: <span class="st">"primary"</span>, native: <span class="kw">true</span>,
+}</pre>
+  <p>注意 <span class="mono">Permission.merge(defaults, …, user)</span> 这个顺序——它正是第 44 课「分层就近覆盖」的同款思路：<strong>默认权限垫底、agent 自己的规则叠中间、用户配置盖最上</strong>。于是用户始终能<strong>在最高优先级覆盖</strong>掉内置 agent 的任何一条权限（比如你嫌 plan 太严，可以在自己的配置里给它放开某些 edit）。还有个值得品的细节：plan 不是「<strong>什么都不能写</strong>」，而是「<strong>除了写计划文件，什么都不能写</strong>」——<span class="mono">.opencode/plans/*.md</span> 那条 allow，给规划者留了一支「<strong>把方案落到纸上</strong>」的笔。一个真正有用的规划模式，不该是个哑巴，它得能把想出来的方案<strong>持久地写下来</strong>，供你审阅、供后续的 build 模式照着做。<strong>用权限规则的『禁中有放』，精确地雕出一个角色的行为边界</strong>——这比写一堆 if-else 判断「这个 agent 此刻能不能 edit」优雅太多。更进一步说，把边界写成<strong>声明式的数据</strong>，意味着它既能被静态地读懂与审查，也能被用户在配置里逐条覆盖、组合出自己想要的角色，而无需理解引擎内部任何一行控制流——这正是「角色即权限画像」这套设计真正的可扩展性所在。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>一个 agent = 一束角色配置</strong>（<span class="mono">AgentV2.Info</span>，<span class="mono">core/src/agent.ts</span>）：<span class="mono">model</span>（脑）+ <span class="mono">system</span>（指令）+ <span class="mono">permissions</span>（许可，L41 Ruleset）+ <span class="mono">mode</span>（subagent/primary/all）+ <span class="mono">steps</span>（上限，L20）+ description/color/hidden。默认 ID=<span class="mono">"build"</span>。用户可在配置 <span class="mono">agents</span> 格自定义。</li>
+    <li><strong>build vs plan = 同一套引擎、两张许可证</strong>：build=默认全能（能 edit）；plan=「规划模式，禁用一切编辑工具」，核心是 <span class="mono">edit:{"*":"deny", "plans/*.md":"allow"}</span> + <span class="mono">task.general:deny</span> + <span class="mono">plan_exit:allow</span>。<strong>唯一实质差别是权限画像</strong>——焊接第 41 课与 agent 抽象。</li>
+    <li><strong>把「能干什么」做成可声明数据而非死代码</strong>：造受限角色 = 写几条 deny 规则。plan 的 <span class="mono">edit:"*":"deny"</span> 一行声明出一个「只规划不动手」的安全 agent。</li>
+    <li><strong>mode 决定出场</strong>：primary（主 agent）/ subagent（只被派为子任务，L18）/ all。<span class="mono">plan_enter</span>/<span class="mono">plan_exit</span> 实现 build↔plan 互切。</li>
+    <li><strong>system 是组装的</strong>：角色基底 + 配置 system 覆盖 + M5 环境上下文（L21~27）。专职内部 agent 提示外置 <span class="mono">agent/prompt/*.txt</span>（explore/compaction/summary/title）——提示是文案，该当文档对待。<span class="mono">Permission.merge(defaults, agent, user)</span> 顺序=第 44 课就近覆盖，用户始终能最高优先级覆盖。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Last lesson's config gathered, validated, and composed "what the user wants" into one effective config. This lesson fixes on its most core cell—<span class="mono">agents</span>—to see <strong>what an "agent" actually is</strong>, and how it becomes a runnable role from config. You might think "agent" is something mystical, but opencode defines it strikingly plainly: <strong>an agent is a bundle of "role config"</strong>—which model (brain), what system prompt (instructions), which permissions (what it can do), how it runs (mode/step cap). Bundle these, give it a name, and that's an agent. This "reduce the complex into a config" approach is itself worth savoring: it means "<strong>agent</strong>" isn't an object you must write code to new up, but data that can be <strong>declared, configured, customized by the user at will</strong>. Want a "test-writing agent" or a "security-review agent"? No need to change a line of opencode source—just add a role card to the config.</p>
+<p>This lesson's most illuminating part is opencode's two built-in agents: <strong><span class="mono">build</span> and <span class="mono">plan</span></strong>—the best sample for understanding the whole agent abstraction. <strong>build</strong> is the default all-around coding agent, able to edit files, run commands, do anything; <strong>plan</strong> is "plan mode," able to read, search, think, <strong>yet forbidden from touching any code</strong> (allowed only to write plan files). The cleverest part: <strong>build and plan use the same agent machinery, the same model and tools, and the only difference is almost entirely in the "permission profile."</strong> This beautifully connects lesson 41's permissions with this lesson's agent—<strong>swap a permission set, and the same agent engine lives as a different role</strong>. Grasp build vs plan and you'll understand "why the agent abstraction is, at heart, a named packaging of 'brain + hands + a permit.'"</p>
+
+<div class="card analogy">
+  <div class="tag">🪪 Analogy</div>
+  Picture an agent as a <strong>"job role"</strong> you assign to an employee. The same employee (same model + same tools), with a different <strong>job description</strong> (system prompt) and a different <strong>access badge</strong> (permissions), becomes two wholly different roles. <strong>build</strong> is like a <strong>full-authority engineer</strong>: the badge opens all doors, can directly change code, commit, deploy. <strong>plan</strong> is like a <strong>consultant</strong>: he can <strong>read everything, survey everywhere</strong>, and finally write a <strong>proposal</strong>—but his badge <strong>just won't open the door to "actually change production"</strong> (only lets him into the "write proposal" room). Same person, same office, same skills, <strong>yet only because the badge's permissions differ, one can act and the other can only advise</strong>. The whole essence of the agent abstraction is in this "same crew, different badge."
+</div>
+
+<h2>What an agent is: a bundle of role config</h2>
+<p>First look at <span class="mono">AgentV2.Info</span> in <span class="mono">core/src/agent.ts</span>—it's the definition of "an agent." Clean as a role card:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">model</div><div class="c-txt">which model (this role's "brain")</div></div>
+  <div class="cell"><div class="c-tag">system</div><div class="c-txt">system prompt (this role's "job description")</div></div>
+  <div class="cell"><div class="c-tag">mode</div><div class="c-txt">subagent / primary / all—can it be a primary agent, or only a subagent</div></div>
+  <div class="cell"><div class="c-tag">steps</div><div class="c-txt">step cap (echoing lesson 20's bounded steps)</div></div>
+  <div class="cell"><div class="c-tag">permissions</div><div class="c-txt">this role's own permission ruleset (lesson 41's Ruleset)</div></div>
+  <div class="cell"><div class="c-tag">description / color / hidden</div><div class="c-txt">description, UI color, whether hidden</div></div>
+</div>
+<p>See this card and "agent" stops being mystical: it's <strong>not a mysterious intelligence but a "config"</strong>—packaging and naming "which brain (model), what instructions (system), what permits (permissions), how it runs (mode/steps)." The default agent's ID is <span class="mono">"build"</span> (<span class="mono">defaultID = ID.make("build")</span>). The <span class="mono">mode</span> item decides where it can appear:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">primary</div><div class="c-txt">can be a primary agent you converse with directly (e.g. build/plan)</div></div>
+  <div class="cell"><div class="c-tag">subagent</div><div class="c-txt">only dispatchable as a subtask by other agents (recall lesson 18's FiberSet subtasks)</div></div>
+  <div class="cell"><div class="c-tag">all</div><div class="c-txt">both—can be primary, can also be dispatched as a sub</div></div>
+</div>
+<p>This also explains the config's <span class="mono">agents</span> cell: the user can <strong>define their own agents</strong> in config (give a name, pick a model, write a system, set permissions), so "make a new role" is "add such a card to the config." Worth noting, the core <span class="mono">AgentV2.Info</span> (the resolved agent) has mostly <strong>required-with-default</strong> fields (mode, permissions have set values), while the config-side <span class="mono">ConfigAgent.Info</span> fields are almost all <strong>optional</strong>—because config only expresses "what I want to override," with unwritten ones defaulting. This "config optional, resolved required" division is again lesson 44's "cascade override" landing on agents.</p>
+
+<h2>build vs plan: same machinery, two badges</h2>
+<p>Now the most brilliant contrast—opencode's two built-in primary agents. Their descriptions nail the difference: <span class="mono">build</span> = "the default agent, executes tools per configured permissions"; <span class="mono">plan</span> = "<strong>plan mode, disallows all edit tools</strong>."</p>
+<div class="cols">
+  <div class="col"><h4>build · full-authority engineer</h4><p>The default agent. Permissions = default set + allow question/plan_enter + user config. <strong>Can change files, run commands, do anything</strong>. When you daily tell an agent "go implement this," that's it.</p></div>
+  <div class="col"><h4>plan · read-only consultant</h4><p>Plan mode. Its permissions layer one fierce rule on the default set: <span class="mono">edit: {"*": "deny"}</span>—<strong>deny all edits</strong>, with only <span class="mono">plans/*.md</span> spared. It can read, search, think, <strong>but can't touch your real code</strong>, only write the proposal into a plan file.</p></div>
+</div>
+<p>This contrast is the agent abstraction's <strong>crowning touch</strong>. Note: build and plan <strong>share the same agent engine, the same tools, the (default) same model</strong>—nearly everything is the same, <strong>the only substantive difference is that "permission profile."</strong> plan's definition is essentially layering on the default permissions: <span class="mono">edit: {"*": "deny", ".opencode/plans/*.md": "allow", …}</span> (deny all edits, allow only writing plan files), <span class="mono">task.general: "deny"</span>, <span class="mono">plan_exit: "allow"</span> (allow exiting plan mode back to build). In other words:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">build</span><span class="t-txt">edit default-allowed → can directly change your code</span></div>
+  <div class="t-row"><span class="t-num">plan</span><span class="t-txt">edit:* deny (except plans/*.md) → only read/search/think + write proposal, can't touch real code</span></div>
+  <div class="t-row"><span class="t-num">switch</span><span class="t-txt">build allows plan_enter (into plan), plan allows plan_exit (out of plan)—the two modes interconvert</span></div>
+</div>
+<p>This <strong>welds</strong> lesson 41 and this lesson together: <strong>the agent abstraction is powerful precisely because "role differences" can largely reduce to "permission differences."</strong> You needn't rewrite logic for "plan mode" or build another engine—you just take the same agent, <strong>swap a stricter badge</strong>, and it automatically becomes a "look-don't-change" planner. It's a minimalist power: <strong>make "what this agent can do" declarable data (permission rules), not hardcoded code</strong>, so "make a restricted new role" gets as light as "write a few deny rules." plan mode's <span class="mono">edit:"*":"deny"</span> is one declaration making a "safe, plan-only, hands-off" agent.</p>
+<p>One layer deeper, this "role = permission profile" design brings huge <strong>security</strong> benefits. When you don't quite trust a task, or work in a sensitive codebase, you can first use <span class="mono">plan</span> mode to have the agent <strong>think the proposal through and write it down</strong>—during which it's <strong>structurally incapable of mis-editing your code</strong> (not "it promises not to change," but "at the permission level it simply can't"). You review the plan, satisfied, then switch to <span class="mono">build</span> to act. <strong>The "plan first, execute later" workflow, so natural to human collaboration, is baked straight into the product by opencode via "two permission profiles + interconvertible modes."</strong> And underneath it all is merely "the same agent engine + two different permission sets"—no plan-mode-bespoke engine, no scattered "if in plan mode then forbid." <strong>When a "role" is reduced to "a bundle of declarable config + a permission profile," new roles and modes become a config-level matter, not another round of code engineering.</strong> That's the mark of a good abstraction: it turns what would take code into what a filled-in form can do.</p>
+
+<h2>How the system prompt is assembled</h2>
+<p>An agent's <span class="mono">system</span> (system prompt) isn't some out-of-nowhere fixed text either, but <strong>assembled</strong>. It stitches "the role's inherent instructions + the user's config system + the current environment context" into the system prompt the model finally sees:</p>
+<div class="flow">
+  <div class="f-node">role base prompt<br><small>this agent's inherent instructions</small></div>
+  <div class="f-arrow">+ user system →</div>
+  <div class="f-node">config's system override<br><small>the user's extra demands on this role</small></div>
+  <div class="f-arrow">+ env context →</div>
+  <div class="f-node">M5's System Context<br><small>directory/git/date… (lessons 21–27)</small></div>
+</div>
+<p>opencode also has a batch of <strong>dedicated internal agents</strong>, whose prompts come straight from <span class="mono">agent/prompt/*.txt</span> files—each for a specialized task:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">explore.txt</div><div class="c-txt">explore subagent (dispatched to search code, recall lesson 18)</div></div>
+  <div class="cell"><div class="c-tag">compaction.txt</div><div class="c-txt">history-compacting agent (condensing long conversations)</div></div>
+  <div class="cell"><div class="c-tag">summary.txt</div><div class="c-txt">generating summaries</div></div>
+  <div class="cell"><div class="c-tag">title.txt</div><div class="c-txt">titling a session</div></div>
+</div>
+<p>Externalizing these dedicated prompts into <strong>.txt files</strong> is a small good engineering choice: prompts are <strong>"copy" that gets refined repeatedly</strong>, and pulling them out of code into plain text makes them easy to read/change, lets non-programmers tune them, and avoids recompiling to change a sentence. <strong>An agent's "job description" deserves to be treated like a document, not compiled like code.</strong> You'll find these dedicated agents themselves confirm "agent = a bundle of config": an <span class="mono">explore</span> subagent is just a packaging of "an explore.txt prompt + subagent mode + a set of search-suited tools and permissions"—the same abstraction as build/plan, only cut into a narrower, more specialized role. <strong>From the all-around build, to the read-only plan, to the single-purpose explore—they're all different fillings of the same "role card."</strong></p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson makes "the config's agents cell" concrete into runnable roles:</p>
+  <ul>
+    <li><strong>An agent = a bundle of role config</strong> (<span class="mono">AgentV2.Info</span>, <span class="mono">core/src/agent.ts</span>): model (brain) + system (instructions) + permissions (permit, L41 Ruleset) + mode (subagent/primary/all) + steps (cap, L20) + description/color/hidden. Default agent ID = <span class="mono">"build"</span>. The user can customize roles in the config <span class="mono">agents</span> cell.</li>
+    <li><strong>build vs plan = same machinery, different badges</strong>: build (default all-around, can edit) vs plan (plan mode, <span class="mono">edit:"*":"deny"</span> allowing only writing plans/*.md). <strong>The only substantive difference is the permission profile</strong>—welding lesson 41's permissions to the agent abstraction: swap a badge, the same engine becomes a different role.</li>
+    <li><strong>mode decides appearance</strong>: primary (can be a directly-conversed primary agent) / subagent (only dispatchable as a subtask, L18) / all. The <span class="mono">plan_enter</span> / <span class="mono">plan_exit</span> permission actions interconvert the two modes.</li>
+    <li><strong>system is assembled</strong>: role base prompt + config system override + M5 env context (L21–27). Dedicated internal agents' (explore/compaction/summary/title) prompts externalized into <span class="mono">agent/prompt/*.txt</span>—prompts are copy, treat them as documents. <span class="mono">Permission.merge(defaults, agent, user)</span> order = lesson 44's closer-overrides, the user always overrides at highest priority.</li>
+  </ul>
+  <p>With "how an agent is defined, how build/plan differ," the next lesson (46) covers <strong>MCP integration</strong>: how the config's <span class="mono">mcp</span> cell connects an external MCP server into <strong>dynamic tools</strong> the agent can use (distinct from lessons 37–43's built-in tools). Lesson 47 covers <strong>Provider plugins</strong>: how dozens of model providers register for the agent's <span class="mono">model</span> field to pick. Config (L44) defines intent, the agent (L45) is intent crystallized into a role, MCP (L46) and Provider (L47) connect this role's "hands" and "brain" to the wider external world—step by step, a truly usable, customizable agent gets "assembled."</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>The plan agent's permission definition writes "read-only planning" as a few declarations (simplified from opencode's agent definition):</p>
+  <pre class="code"><span class="cm">// plan: layered on default permissions, the core is denying all edit</span>
+plan: {
+  name: <span class="st">"plan"</span>,
+  description: <span class="st">"Plan mode. Disallows all edit tools."</span>,
+  permission: Permission.<span class="fn">merge</span>(defaults, Permission.<span class="fn">fromConfig</span>({
+    question: <span class="st">"allow"</span>,
+    plan_exit: <span class="st">"allow"</span>,                 <span class="cm">// allow exiting plan mode</span>
+    task: { general: <span class="st">"deny"</span> },
+    edit: {
+      <span class="st">"*"</span>: <span class="st">"deny"</span>,                       <span class="cm">// ← deny all edits</span>
+      <span class="st">".opencode/plans/*.md"</span>: <span class="st">"allow"</span>,    <span class="cm">// allow only writing plan files</span>
+    },
+  }), user),
+  mode: <span class="st">"primary"</span>, native: <span class="kw">true</span>,
+}</pre>
+  <p>Note the <span class="mono">Permission.merge(defaults, …, user)</span> order—exactly lesson 44's "layered closer-overrides" idea: <strong>default permissions at the bottom, the agent's own rules in the middle, user config on top</strong>. So the user can always <strong>override at the highest priority</strong> any of a built-in agent's permission rules (e.g. if you find plan too strict, you can open some edits for it in your own config). Another savory detail: plan isn't "<strong>can write nothing</strong>" but "<strong>can write nothing except plan files</strong>"—that <span class="mono">.opencode/plans/*.md</span> allow leaves the planner a pen to "<strong>commit the proposal to paper</strong>." A truly useful plan mode shouldn't be mute; it must be able to <strong>persistently write down</strong> the proposal it conceives, for you to review and for a subsequent build mode to follow. <strong>Using permission rules' "denial with exceptions" to precisely carve a role's behavioral boundary</strong>—far more elegant than a pile of if-else judging "can this agent edit right now."</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>An agent = a bundle of role config</strong> (<span class="mono">AgentV2.Info</span>, <span class="mono">core/src/agent.ts</span>): <span class="mono">model</span> (brain) + <span class="mono">system</span> (instructions) + <span class="mono">permissions</span> (permit, L41 Ruleset) + <span class="mono">mode</span> (subagent/primary/all) + <span class="mono">steps</span> (cap, L20) + description/color/hidden. Default ID=<span class="mono">"build"</span>. User-customizable in the config <span class="mono">agents</span> cell.</li>
+    <li><strong>build vs plan = same engine, two badges</strong>: build=default all-around (can edit); plan="plan mode, disallows all edit tools," core being <span class="mono">edit:{"*":"deny", "plans/*.md":"allow"}</span> + <span class="mono">task.general:deny</span> + <span class="mono">plan_exit:allow</span>. <strong>The only substantive difference is the permission profile</strong>—welding lesson 41 to the agent abstraction.</li>
+    <li><strong>Make "what it can do" declarable data, not hardcoded code</strong>: making a restricted role = writing a few deny rules. plan's <span class="mono">edit:"*":"deny"</span> declares a "plan-only, hands-off" safe agent in one line; enables the "plan first, execute later" secure workflow.</li>
+    <li><strong>mode decides appearance</strong>: primary (primary agent) / subagent (only dispatched as a subtask, L18) / all. <span class="mono">plan_enter</span>/<span class="mono">plan_exit</span> interconvert build↔plan.</li>
+    <li><strong>system is assembled</strong>: role base + config system override + M5 env context (L21–27). Dedicated internal agent prompts externalized as <span class="mono">agent/prompt/*.txt</span> (explore/compaction/summary/title)—prompts are copy, treat as documents. <span class="mono">Permission.merge(defaults, agent, user)</span> order = lesson 44's closer-overrides, user always overrides at highest priority.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_46 = wip('MCP 集成', 'MCP integration')
 LESSON_47 = wip('Provider 插件定义', 'Provider plugins')

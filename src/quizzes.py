@@ -45,6 +45,48 @@ def _shuffle(opts, answer, seed):
 
 
 QUIZZES = {
+    "45-agents.html": {
+        "mcq": [
+            {
+                "q": {"zh": "在 opencode 里，一个「agent」本质上是什么？", "en": "In opencode, what is an \"agent\" essentially?"},
+                "opts": [
+                    {"zh": "一束「角色配置」（AgentV2.Info）——把 model（大脑）+ system（说明书）+ permissions（许可）+ mode/steps（怎么跑）打包并起个名；agent 是可声明、可配置、用户可随意定制的数据", "en": "A bundle of \"role config\" (AgentV2.Info) — packaging model (brain) + system (instructions) + permissions (permit) + mode/steps (how it runs) and naming it; an agent is declarable, configurable, user-customizable data"},
+                    {"zh": "一个必须写代码 new 出来的神秘智能对象", "en": "A mysterious intelligence object you must write code to new up"},
+                    {"zh": "一段固定的、不可配置的内置逻辑", "en": "A fixed, non-configurable piece of built-in logic"},
+                    {"zh": "仅仅是一个模型名字符串", "en": "Just a model-name string"},
+                ],
+                "answer": 0,
+                "why": {"zh": "AgentV2.Info（core/src/agent.ts）就是「一个 agent」的定义，干净得像张角色卡：model（这角色的大脑）、system（这角色的工作说明书）、permissions（L41 的 Ruleset 许可）、mode（subagent/primary/all）、steps（步数上限，呼应 L20）、description/color/hidden。看懂这张卡，agent 就不神秘了：它不是神秘智能而是「一份配置」。这种「把复杂收敛成配置」的好处是：agent 不是必须写代码 new 出来的对象，而是可声明、可配置、用户可随意定制的数据——想要个「写测试的 agent」「做安全审查的 agent」，不用改 opencode 源码一行，往配置里加一张角色卡即可。默认 agent 的 ID 是「build」。", "en": "AgentV2.Info (core/src/agent.ts) is the definition of \"an agent,\" clean as a role card: model (this role's brain), system (its job description), permissions (L41's Ruleset permit), mode (subagent/primary/all), steps (step cap, echoing L20), description/color/hidden. See this card and an agent stops being mystical: it's not mysterious intelligence but \"a config.\" The benefit of \"reducing the complex to config\": an agent isn't an object you must write code to new up, but declarable, configurable, user-customizable data — want a \"test-writing agent\" or \"security-review agent\"? No source change needed, just add a role card to config. The default agent's ID is \"build\"."},
+            },
+            {
+                "q": {"zh": "内置的 build 与 plan 两个 agent，最本质的区别在哪里？", "en": "What is the most essential difference between the built-in build and plan agents?"},
+                "opts": [
+                    {"zh": "几乎只在「权限画像」——同一套 agent 机制、同一模型与工具，plan 在默认权限上叠了 edit:{\"*\":\"deny\"}（仅放行写 plans/*.md），把同一引擎活成「只读规划者」", "en": "Almost only the \"permission profile\" — same agent machinery, same model and tools; plan layers edit:{\"*\":\"deny\"} (allowing only writing plans/*.md) on default permissions, making the same engine live as a \"read-only planner\""},
+                    {"zh": "用了完全不同的两套引擎和模型", "en": "They use two wholly different engines and models"},
+                    {"zh": "plan 用更快的模型、build 用更慢的", "en": "plan uses a faster model, build a slower one"},
+                    {"zh": "build 能读文件、plan 不能读文件", "en": "build can read files, plan cannot read files"},
+                ],
+                "answer": 0,
+                "why": {"zh": "build 与 plan 共用同一套 agent 引擎、同一批工具、（默认）同一模型——几乎一切都一样，唯一实质区别就是那份「权限画像」。build=默认全能编码 agent（能改文件、跑命令）；plan=「Plan mode. Disallows all edit tools.」，定义本质是在默认权限上叠：edit:{\"*\":\"deny\", \".opencode/plans/*.md\":\"allow\"}（拒绝一切编辑，只放行写计划文件）+ task.general:deny + plan_exit:allow。这把 L41 权限和本课 agent 焊在一起：agent 抽象之所以强，正因「角色差异」能大幅归结为「权限差异」——换一套更严的徽章，同一引擎自动变成「只看不改」的规划者。这是极简的力量：把「这个 agent 能做什么」做成可声明的数据（权限规则），而非写死的代码。", "en": "build and plan share the same agent engine, same tools, (default) same model — nearly everything is the same, the only substantive difference is that \"permission profile.\" build = default all-around coding agent (can edit files, run commands); plan = \"Plan mode. Disallows all edit tools,\" essentially layering on default permissions: edit:{\"*\":\"deny\", \".opencode/plans/*.md\":\"allow\"} (deny all edits, allow only writing plan files) + task.general:deny + plan_exit:allow. This welds L41's permissions to this lesson's agent: the agent abstraction is powerful precisely because \"role differences\" largely reduce to \"permission differences\" — swap a stricter badge, the same engine becomes a \"look-don't-change\" planner. A minimalist power: make \"what this agent can do\" declarable data (permission rules), not hardcoded code."},
+            },
+            {
+                "q": {"zh": "agent 的 mode 字段（subagent/primary/all）决定了什么？", "en": "What does an agent's mode field (subagent/primary/all) decide?"},
+                "opts": [
+                    {"zh": "它能在哪里「出场」——primary 可作直接对话的主 agent，subagent 只能被别的 agent 派为子任务（呼应 L18 FiberSet），all 两者皆可", "en": "Where it can \"appear\" — primary can be a directly-conversed primary agent, subagent can only be dispatched as a subtask by others (echoing L18 FiberSet), all means both"},
+                    {"zh": "它用哪个模型", "en": "Which model it uses"},
+                    {"zh": "它的 UI 颜色", "en": "Its UI color"},
+                    {"zh": "它能跑多少步", "en": "How many steps it can run"},
+                ],
+                "answer": 0,
+                "why": {"zh": "mode 决定 agent 在哪里出场：primary（可作你直接对话的主 agent，如 build/plan）、subagent（只能被别的 agent 派为子任务，回想 L18 用 FiberSet 派子任务的 explore）、all（两者皆可——既能作主、也能被派为子）。这也解释了配置里的 agents 格：用户能在配置里定义自己的 agent，「造个新角色」就是「往配置加这样一张卡」。注意核心 AgentV2.Info（已解析的 agent）字段多是「必填带默认」的（mode、permissions 有定值），而配置侧 ConfigAgent.Info 字段几乎全可选——因为配置只表达「我想覆盖什么」，没写的走默认，这又是 L44「层叠覆盖」在 agent 上的落地。plan_enter/plan_exit 是在两个模式间互转的权限动作。", "en": "mode decides where an agent appears: primary (can be a directly-conversed primary agent, like build/plan), subagent (only dispatchable as a subtask by others, recall L18's explore dispatched via FiberSet), all (both — can be primary or dispatched as a sub). This also explains the config's agents cell: the user can define their own agents in config, so \"make a new role\" = \"add such a card to config.\" Note the core AgentV2.Info (resolved agent) fields are mostly \"required-with-default\" (mode, permissions have set values), while config-side ConfigAgent.Info fields are almost all optional — because config only expresses \"what I want to override,\" unwritten ones default; again L44's \"cascade override\" landing on agents. plan_enter/plan_exit are permission actions interconverting the two modes."},
+            },
+        ],
+        "open": [
+            {"zh": "课里反复强调 build 与 plan「同一套机制、两张徽章」——唯一实质区别在权限画像。请你提炼这种「把角色差异归结为权限差异」的设计的威力与代价：它让「造一个受限新角色」轻到只需写几条 deny 规则（如 plan 的 edit:\"*\":\"deny\"），从而把「先规划、再执行」这种人类协作的工作流原生焊进产品。但当角色越来越多、权限规则越叠越深，会带来什么新的复杂度？你会怎样设计才能既享受这种声明式的轻便、又不让权限画像变成一团难以推理的乱麻？", "en": "The lesson repeatedly stresses build and plan are \"same machinery, two badges\" — the only substantive difference is the permission profile. Distill the power and cost of this \"reduce role differences to permission differences\" design: it makes \"making a restricted new role\" as light as writing a few deny rules (like plan's edit:\"*\":\"deny\"), welding the human \"plan first, execute later\" workflow natively into the product. But as roles multiply and permission rules stack deeper, what new complexity arises? How would you design to enjoy this declarative lightness yet keep the permission profile from becoming an un-reasonable-about tangle?"},
+            {"zh": "课里指出 opencode 把一批专用内置 agent（explore/compaction/summary/title）的 prompt 外置成了 agent/prompt/*.txt 文件，并说「agent 的『工作说明书』理应像文档一样对待，而非像代码一样编译」。请你结合你做过的 prompt 工程，谈谈把 prompt 当「会被反复打磨的文案」从代码里抽出来、放进纯文本/独立文件管理，带来了哪些实际好处（可读、可改、非程序员可调、改一句话不必重编译）？又有什么隐患（与代码逻辑脱节、版本漂移、缺少类型/测试保护）？一个成熟系统该如何管理这些「会演化的 prompt 资产」？", "en": "The lesson notes opencode externalizes a batch of dedicated internal agents' (explore/compaction/summary/title) prompts into agent/prompt/*.txt files, saying \"an agent's 'job description' deserves to be treated like a document, not compiled like code.\" From your prompt-engineering experience, discuss the practical benefits of pulling prompts — as \"copy that gets refined repeatedly\" — out of code into plain-text/separate files (readable, changeable, non-programmer-tunable, change a sentence without recompiling). What are the pitfalls (decoupling from code logic, version drift, lack of type/test protection)? How should a mature system manage these \"evolving prompt assets\"?"},
+        ],
+    },
+
     "44-config-loading.html": {
         "mcq": [
             {
