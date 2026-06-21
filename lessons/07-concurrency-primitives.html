@@ -440,7 +440,55 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
     <li>这正是 agent 循环"并发跑工具、可干净中断"的实现（第 18 课细拆）。</li>
   </ul>
 </div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. Fiber 相比普通 Promise，最关键的多出来的能力是什么？</div>
+  <ol class="opts">
+    <li>它占用更少内存</li>
+    <li>它会自动重试失败的任务</li>
+    <li>它本身跑得更快</li>
+    <li>可以被有序地 interrupt（中断并清理资源），而普通 Promise 一旦发起就无法取消</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。Fiber 是一个正在跑的 Effect 的句柄，可 join 等结果、可 interrupt 有序停下并清理。普通 Promise 无法取消——这对随时可能被用户打断的 agent 是刚需。</div></div></div>
+  </details>
 </div>
+<div class="quiz">
+  <div class="qn">2. agent 被用户打断时，runner 调用 FiberSet.clear(toolFibers) 做了什么？</div>
+  <ol class="opts">
+    <li>清空日志文件</li>
+    <li>重启整个 server</li>
+    <li>把整组正在跑的工具一次性中断，并触发它们各自的资源清理</li>
+    <li>把当前进度存盘</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。结构化并发保证开了多少就能收回多少：clear 把整组 Fiber 召回，避免出现“用户喊停了、某工具还在偷偷写文件”这种野任务。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. 为什么“记录结果、再发出事件”这样的关键区要包在 uninterruptibleMask 里？</div>
+  <ol class="opts">
+    <li>保证这类必须成对完成的操作不被半路打断，避免“记了却没通知”的不一致</li>
+    <li>让它跑得更快</li>
+    <li>禁止任何并发</li>
+    <li>给数据加密</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。默认可中断很灵敏，但成对操作中途被打断会留下不一致；uninterruptibleMask 把那一小块圈成原子，必要时用 restore 再开可中断小窗。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里把结构化并发比作“消灭 goto”。说说“开了多少就能收回多少”对一个随时可被打断的 agent，为什么是正确性问题、而不只是性能问题。</li>
+    <li>对照表里，Promise.all 和 FiberSet 拉开差距的是哪两行？结合你实际用 AI agent 的体验，说说这两点为什么重要。</li>
+  </ul>
+</div>
+</div></div>
   <div class="lang-en">
 <p class="lead">The last two lessons laid the foundation: Effect makes computation a composable value, and Service/Layer manage dependencies. This lesson covers its <strong>most visible payoff</strong> — concurrency. Recall the agent loop from Lesson 3: asked in one step to "read three files," the server doesn't queue them, it <strong>runs all three at once</strong>, and can <strong>cleanly reel them all back</strong> when you hit stop. That "launch them, but reel them back" ability rests on Effect's concurrency primitives <span class="mono">Fiber</span> and <span class="mono">FiberSet</span>. They're the heart of V2's tool execution, and this lesson makes them clear.</p>
 <p>Why a whole lesson on concurrency? Because it's Effect's <strong>most tangible</strong> payoff in opencode. The last two lessons' "describe as a value" and "dependency injection" are abstract, taking time to feel; concurrency is different — every time you watch the agent read several files at once, then freeze entirely the instant you press Esc, this lesson's machinery is at work. You could say <strong>Fiber and FiberSet are Effect's abstractions cashed out into the concrete experience you feel every day</strong>. Learn them well and you not only read the code but understand where that "fluid yet controllable" feel comes from.</p>
@@ -553,7 +601,55 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
     <li>This is exactly the agent loop's "run tools concurrently, interrupt cleanly" (Lesson 18 details it).</li>
   </ul>
 </div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. What is the key extra ability a Fiber has over a plain Promise?</div>
+  <ol class="opts">
+    <li>It uses less memory</li>
+    <li>It auto-retries failed tasks</li>
+    <li>It simply runs faster</li>
+    <li>It can be interrupted in an orderly way (cancel + clean up), while a plain Promise cannot be cancelled once started</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. A Fiber is a handle to a running Effect: join for the result, interrupt to stop in order and clean up. A plain Promise cannot cancel — a must for an interruptible agent.</div></div></div>
+  </details>
 </div>
+<div class="quiz">
+  <div class="qn">2. When the user interrupts, what does the runner's FiberSet.clear(toolFibers) do?</div>
+  <ol class="opts">
+    <li>Clear the log files</li>
+    <li>Restart the whole server</li>
+    <li>Interrupt the whole running tool group at once and trigger each one's resource cleanup</li>
+    <li>Save the current progress to disk</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. Structured concurrency guarantees you reel back all you launched: clear recalls the whole Fiber group, avoiding a wild task still writing a file after the user stopped.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. Why wrap a critical region like record-then-emit in uninterruptibleMask?</div>
+  <ol class="opts">
+    <li>To guarantee such paired operations are not interrupted midway, avoiding recorded-but-not-announced inconsistency</li>
+    <li>To make it run faster</li>
+    <li>To forbid all concurrency</li>
+    <li>To encrypt the data</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. Default interruptibility is responsive, but a paired op interrupted midway leaves inconsistency; uninterruptibleMask makes that small region atomic, with restore to reopen an interruptible window if needed.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson likens structured concurrency to “killing goto”. Explain why “reel back all you launched” is a correctness issue (not just performance) for an interruptible agent.</li>
+    <li>In the comparison table, which two rows separate Promise.all from FiberSet? From your own experience using an AI agent, say why those two matter.</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="06-context-layer.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">Context.Service 与 Layer</span><span class="lang-en">Services &amp; Layers</span></div></a><a class="next" href="08-effect-toolbox.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">项目里的 Effect 工具箱</span><span class="lang-en">The Effect toolbox</span></div></a></div>
 </div>
 <script>

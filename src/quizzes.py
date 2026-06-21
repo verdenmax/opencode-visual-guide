@@ -344,13 +344,13 @@ QUIZZES = {
             {
                 "q": {"zh": "Fiber 相比普通 Promise，最关键的多出来的能力是什么？", "en": "What is the key extra ability a Fiber has over a plain Promise?"},
                 "opts": [
-                    {"zh": "可以被有序地 interrupt（中断并清理资源），而普通 Promise 一旦发起就无法取消", "en": "It can be interrupted in an orderly way (cancel + clean up), while a plain Promise can't be cancelled once started"},
+                    {"zh": "可以被有序地 interrupt（中断并清理资源），而普通 Promise 一旦发起就无法取消", "en": "It can be interrupted in an orderly way (cancel + clean up), while a plain Promise cannot be cancelled once started"},
                     {"zh": "它本身跑得更快", "en": "It simply runs faster"},
                     {"zh": "它会自动重试失败的任务", "en": "It auto-retries failed tasks"},
                     {"zh": "它占用更少内存", "en": "It uses less memory"},
                 ],
                 "answer": 0,
-                "why": {"zh": "Fiber 是一个正在跑的 Effect 的句柄，可 join 等结果、可 interrupt 有序停下并清理。普通 Promise 无法取消——这对随时可能被用户打断的 agent 是刚需。", "en": "A Fiber is a handle to a running Effect: join for the result, interrupt to stop in order and clean up. A plain Promise can't cancel — a must for an interruptible agent."},
+                "why": {"zh": "Fiber 是一个正在跑的 Effect 的句柄，可 join 等结果、可 interrupt 有序停下并清理。普通 Promise 无法取消——这对随时可能被用户打断的 agent 是刚需。", "en": "A Fiber is a handle to a running Effect: join for the result, interrupt to stop in order and clean up. A plain Promise cannot cancel — a must for an interruptible agent."},
             },
             {
                 "q": {"zh": "agent 被用户打断时，runner 调用 FiberSet.clear(toolFibers) 做了什么？", "en": "When the user interrupts, what does the runner's FiberSet.clear(toolFibers) do?"},
@@ -361,12 +361,12 @@ QUIZZES = {
                     {"zh": "把当前进度存盘", "en": "Save the current progress to disk"},
                 ],
                 "answer": 0,
-                "why": {"zh": "结构化并发保证开了多少就能收回多少：clear 把整组 Fiber 召回，避免出现"用户喊停了、某工具还在偷偷写文件"的野任务。", "en": "Structured concurrency guarantees you reel back all you launched: clear recalls the whole Fiber group, avoiding a wild task still writing a file after the user stopped."},
+                "why": {"zh": "结构化并发保证开了多少就能收回多少：clear 把整组 Fiber 召回，避免出现“用户喊停了、某工具还在偷偷写文件”这种野任务。", "en": "Structured concurrency guarantees you reel back all you launched: clear recalls the whole Fiber group, avoiding a wild task still writing a file after the user stopped."},
             },
             {
-                "q": {"zh": "为什么"记录结果、再发出事件"这样的关键区要包在 uninterruptibleMask 里？", "en": "Why wrap a critical region like record-then-emit in uninterruptibleMask?"},
+                "q": {"zh": "为什么“记录结果、再发出事件”这样的关键区要包在 uninterruptibleMask 里？", "en": "Why wrap a critical region like record-then-emit in uninterruptibleMask?"},
                 "opts": [
-                    {"zh": "保证这类必须成对完成的操作不被半路打断，避免"记了却没通知"的不一致", "en": "To guarantee such paired operations aren't interrupted midway, avoiding recorded-but-not-announced inconsistency"},
+                    {"zh": "保证这类必须成对完成的操作不被半路打断，避免“记了却没通知”的不一致", "en": "To guarantee such paired operations are not interrupted midway, avoiding recorded-but-not-announced inconsistency"},
                     {"zh": "让它跑得更快", "en": "To make it run faster"},
                     {"zh": "禁止任何并发", "en": "To forbid all concurrency"},
                     {"zh": "给数据加密", "en": "To encrypt the data"},
