@@ -21,7 +21,7 @@
 - **为什么串行**：agent 执行不断读写同一份共享状态（历史/工具状态/账单），两趟同跑=竞态。协调器从结构上排除，而非加锁补救。
 - **run vs wake**：`run`=显式发车（起链或**并入**当前链）；`wake`=建议摇铃（空闲起链，忙则只**合并一个后续**）。admit 后摇的是 wake。
 - **coalesce**（`run-coordinator.ts`）：途中纷至的请求折叠成至多一个后续——**run 压倒 wake；wake 取 maxSeq**。十记铃归一次精准补跑（drain 本就扫光当前所有合格行，故一个后续足矣）。
-- 状态机：`idle → draining → 至多一次合并补跑 → idle`，焊死「至多一条链」。还有 `interrupt`（L20）。`SessionExecution.make({drain})` 把 drain=`SessionRunner.run` 接进来，调度与执行解耦。
+- 状态机：`idle → draining → 至多一次合并补跑 → idle`，焊死「至多一条链」。还有 `interrupt`（L20）。`SessionRunCoordinator.make({drain})` 把 drain=`SessionRunner.run` 接进来，调度与执行解耦（`SessionExecution` 再把 resume/wake/interrupt 转接给它）。
 
 ## L17 V2 agent 循环
 

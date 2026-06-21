@@ -8,6 +8,7 @@ opencode 源文件（`/home/verden/course/opencode`，均在 `packages/core/src/
 | `session/message.ts` | `Message` = 8 成员 `Schema.Union`(按 type)；`AssistantContent` = text/reasoning/tool；`Assistant.content: Array`；`ToolState` = Pending/Running/Completed/Error | L14, L20 |
 | `session/info.ts` | `fromRow`：DB 行 → SessionSchema.Info | L14 |
 | `session/input.ts` | `SessionInput.admit`（publish Admitted 事件→admitted_seq，按 id 幂等）；`Admitted` 类；`Delivery` = steer/queue；`hasPending` | L15, L17 |
+| `session/prompt.ts` | `Prompt` schema —— admit/Admitted 的 prompt 字段类型 | L15 |
 | `session/sql.ts` | `SessionInputTable`（id/prompt/delivery/admitted_seq/**promoted_seq**/time_created + 索引）；`SessionTable`/`MessageTable`/`PartTable` | L14, L15, L19 |
 | `session/execution.ts` | `SessionExecution` 接口：`resume` / `wake(sessionID, seq?)` / `interrupt`（advisory drain 调度） | L15, L16 |
 | `session/execution/local.ts` | `SessionRunCoordinator.make({ drain: …SessionRunner.run({force: mode==="run"}) })`；`{resume:coordinator.run, wake:coordinator.wake, interrupt:coordinator.interrupt}` | L16 |
