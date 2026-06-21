@@ -1528,6 +1528,47 @@ QUIZZES = {
             {"zh": "Copilot 的认证用「令牌交换」：先拿长期的 GitHub OAuth 凭证，换一个短期、限定用途的 Copilot token，再拿它去认证。课里说这是「最小权限 + 短时效凭证」的安全惯例，且这套复杂流程被整个封装进 auth 这一件、不惊动协议层。请论证：为什么「不直接把长期凭证发给推理端点，而是换一个短期 token」更安全？把这种安全复杂性隔离在 auth 这一层（而非散落各处），对整个系统的可维护性和可审计性有什么好处？", "en": "Copilot's auth uses \"token exchange\": take the long-lived GitHub OAuth credential, exchange for a short-lived, purpose-limited Copilot token, then authenticate with it. The lesson calls this the \"least privilege + short-lived credential\" security convention, with the whole complex flow encapsulated into the auth piece, undisturbing the protocol layer. Argue: why is \"not sending the long-lived credential to inference endpoints, but exchanging for a short-lived token\" more secure? What does isolating this security complexity in the auth layer (rather than scattering it) do for the system's maintainability and auditability?"},
         ],
     },
+    "41-permissions.html": {
+        "mcq": [
+            {
+                "q": {"zh": "权限系统的 evaluate 在「一条规则都没匹配上」时，默认给什么 effect？为什么这个默认很关键？", "en": "When no rule matches, what effect does the permission system's evaluate default to, and why is this default crucial?"},
+                "opts": [
+                    {"zh": "默认 ask（问用户）——安全默认：把所有「未被预先考虑」的敏感操作都落到「问一下」的安全网，agent 无法钻空子悄悄做未批准的事", "en": "Defaults to ask (ask the user) — secure default: every \"not pre-considered\" sensitive operation falls into the \"ask\" safety net, the agent can't game it into doing unapproved things silently"},
+                    {"zh": "默认 allow，怎么方便怎么来", "en": "Defaults to allow, whatever's convenient"},
+                    {"zh": "默认 deny，一律拒绝", "en": "Defaults to deny, refuse everything"},
+                    {"zh": "直接崩溃报错", "en": "Crashes outright"},
+                ],
+                "answer": 0,
+                "why": {"zh": "evaluate 把各 ruleset 拼起、findLast 通配匹配（后匹配者胜），一条都没命中时默认 effect:ask。这是整套安全模型的定盘星：若默认 allow，每出现一个设计者没预料的新动作，agent 就可能悄无声息做了你本想拦下的事；默认 ask 把这种「漏网」从根上堵死，代价不过初期多问几句，再用 always 把省事挣回来。把「未知」归到「问人」而非「放行」，是这套系统最重要的选择。", "en": "evaluate concatenates rulesets, findLast wildcard-match (last match wins), and when none match defaults to effect:ask. This is the security model's keystone: if it defaulted to allow, every new action the designers didn't foresee could let the agent silently do something you'd want blocked; defaulting to ask plugs this slip-through at the root, at the cost of a few early prompts, earning convenience back via always. Defaulting \"unknown\" to \"ask\" rather than \"allow\" is the system's most important choice."},
+            },
+            {
+                "q": {"zh": "用户对一次 ask 回答 always，会发生什么？", "en": "What happens when the user answers always to an ask?"},
+                "opts": [
+                    {"zh": "放行这次 + 把决定持久化成一条规则（saved.add→SQLite permission 表、project 作用域），以后同样的 action×resource 直接 allow、不再问；还顺带解除被新规则覆盖的其它挂起询问", "en": "Permit this time + persist the decision into a rule (saved.add→SQLite permission table, project-scoped), future same action×resource is allowed directly, no more asking; also releases other pending asks the new rule covers"},
+                    {"zh": "只放行这一次，下次还问", "en": "Permits just this once, asks again next time"},
+                    {"zh": "永久禁用该工具", "en": "Permanently disables the tool"},
+                    {"zh": "什么都不做", "en": "Does nothing"},
+                ],
+                "answer": 0,
+                "why": {"zh": "always 不只「放行这次」，还把用户的决定固化成规则存进 permission 表（按 project 作用域、跨会话存活）。下次同样的 action×resource 再评估，这条 saved 规则让 evaluate 直接得到 allow，不再打扰用户。这让权限系统有「会学习」的体感：默认保守（问），每点一次 always 就少一类未来打扰，随信任积累问得越来越少——在「放手干」与「人在环」间动态平衡，把自由度的决定权可回收地交给用户。源码还顺带解除被新规则覆盖的其它挂起询问。", "en": "always does more than \"permit this time\"; it solidifies the user's decision into a rule stored in the permission table (project-scoped, cross-session). Next time the same action×resource is evaluated, this saved rule makes evaluate return allow directly, no more bothering the user. This gives the system a \"learning\" feel: conservative by default (ask), each always sheds a class of future interruptions, asking less as trust accumulates — dynamically balancing \"run free\" and \"human in the loop,\" handing the freedom decision revocably to the user. The source also releases other pending asks the new rule covers."},
+            },
+            {
+                "q": {"zh": "deny 和 ask 这两种 effect，分别在哪一层把关？", "en": "At which layer do the two effects deny and ask each gate?"},
+                "opts": [
+                    {"zh": "deny 在「菜单层」（第37课 whollyDisabled，工具根本不出现给模型）；ask 在「调用层」（工具在菜单上、模型能点，但执行前发问）——纵深防御", "en": "deny at the \"menu layer\" (lesson 37 whollyDisabled, the tool not even shown to the model); ask at the \"call layer\" (the tool's on the menu, the model can pick it, but asks before executing) — defense in depth"},
+                    {"zh": "两者都在同一层、做同一件事", "en": "Both at the same layer doing the same thing"},
+                    {"zh": "deny 在调用层、ask 在菜单层", "en": "deny at the call layer, ask at the menu layer"},
+                    {"zh": "两者都只在数据库层", "en": "Both only at the database layer"},
+                ],
+                "answer": 0,
+                "why": {"zh": "纵深防御：被彻底 deny 的工具在 materialize 时就被 whollyDisabled 滤掉，根本不进发给模型的清单——模型连「有这个工具」都不知道（最干净的拒绝是让对方不知道有这个选项，第37课）。而 ask 的工具在菜单上、模型能点，但每次真要执行时 assert 先发问——执行前的最后一道闸。deny 管「能不能有」、ask 管「这次行不行」，各司其职。", "en": "Defense in depth: a wholly-denied tool is filtered by whollyDisabled at materialize, not even entering the list sent to the model — the model doesn't even know \"this tool exists\" (the cleanest refusal is to not let the other know the option exists, lesson 37). An ask tool is on the menu and the model can pick it, but each time it's about to execute, assert asks first — the last gate before execution. deny governs \"can it exist,\" ask governs \"is this time OK,\" each its own job."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说权限系统在「让 agent 放手干」和「让人始终在环」之间找动态平衡：默认保守（问），随 always 攒规则逐步放开，把自由度可回收地交给用户。请结合你用过的「权限/同意」机制（如手机 App 权限、sudo、CI 部署审批），谈谈「一次性同意 vs 永久授权 vs 每次都问」各自的利弊。一个好的「人在环」系统，应该如何随时间调整它打扰用户的频率？", "en": "The lesson says the permission system finds a dynamic balance between \"let the agent run free\" and \"keep a human in the loop\": conservative by default (ask), gradually loosening as always accrues rules, handing the freedom decision revocably to the user. Using permission/consent mechanisms you've used (mobile app permissions, sudo, CI deploy approvals), discuss the pros/cons of \"one-time consent vs permanent authorization vs ask every time.\" How should a good \"human-in-the-loop\" system adjust how often it bothers the user over time?"},
+            {"zh": "课里指出 reject 有两种形态：纯 RejectedError（光说不行）和 CorrectedError（拒绝 + 附理由，理由回传给模型让它纠偏），后者把「拒绝」从死胡同变成一次纠偏，让「人在环」不只是卡危险、更是引导 agent 向对。请论证：为什么「带反馈的拒绝」比「光拒绝」对一个 LLM agent 更有价值？这和你给人/系统反馈时「不只说不行、还说怎么改」是同一种智慧吗？", "en": "The lesson notes reject has two forms: pure RejectedError (just \"no\") and CorrectedError (reject + attached reason, the reason fed back to the model to course-correct), the latter turning \"rejection\" from a dead end into a correction, making \"human in the loop\" not just block danger but steer the agent toward right. Argue: why is \"rejection with feedback\" more valuable than \"plain rejection\" for an LLM agent? Is this the same wisdom as \"don't just say no, say how to fix it\" when giving feedback to people/systems?"},
+        ],
+    },
     "40-other-tools.html": {
         "mcq": [
             {

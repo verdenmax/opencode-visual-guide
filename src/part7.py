@@ -1019,6 +1019,205 @@ description = <span class="st">`...The current year is ${'$'}{new Date().getFull
 </div>
 """,
 }
-LESSON_41 = wip('权限系统', 'Permissions')
+LESSON_41 = {
+    "zh": r"""
+<p class="lead">前五课，我们给 agent 配齐了一双强大的手：能改文件、跑命令、搜网、抓页、问人。但<strong>能力越大，越需要一根缰绳</strong>——一个能 <span class="mono">rm -rf</span>、能把代码推上线、能往外发请求的 agent，要是没人管，那是灾难而非助手。这一课的<strong>权限系统</strong>，就是那根缰绳。它回答一个贯穿所有工具的问题：<strong>这一步，到底准不准做？</strong>你或许已经注意到，前面每个工具的 execute 里都埋着一句 <span class="mono">permission.assert(...)</span>——它们全都通向这里。工具讲的是「<strong>能做什么</strong>」，权限讲的是「<strong>准做什么</strong>」；前者是能力，后者是边界，二者合起来，才是一个既有用、又可控、又敢托付的 agent。</p>
+<p>这套系统的内核出奇地简洁——它本质是一个 <strong>allow / deny / ask 三态规则引擎</strong>：每条规则说「对某个动作、某个资源，放行 / 拒绝 / 问一下」；评估时<strong>后匹配的规则胜出</strong>，而<strong>没有规则命中时，默认是「问」</strong>。这个「默认问」的设计是整套安全模型的灵魂：agent 想做任何<strong>没被预先批准</strong>的敏感事，要么撞上一条 allow 规则、要么就得<strong>停下来等用户点头</strong>。更妙的是用户的回答有三档——<strong>once（就这次）/ always（以后都行，并记下来）/ reject（不行）</strong>——其中 always 会把决定<strong>持久化成一条规则</strong>，于是系统会<strong>随着信任的积累，问得越来越少</strong>。读懂这一课，你就明白 opencode 是怎么在「让 agent 放手干」和「让人始终在环」之间，找到那个动态平衡点的。</p>
+
+<div class="card analogy">
+  <div class="tag">🛂 生活类比</div>
+  把权限系统想象成一栋大楼的<strong>门禁前台 + 一本规则册</strong>。每当工人（agent）要进某个房间做点敏感事（对某资源跑某工具），都得在前台刷一下。前台翻规则册：写着「<strong>允许</strong>」就放行；写着「<strong>禁止</strong>」就拦下（而且这种房间根本不会出现在工人的楼层图上）；<strong>规则册里没提到</strong>的，前台就<strong>按铃叫经理</strong>（用户）来定夺。经理可以说三种话：「<strong>就这一次</strong>」（放行这回）、「<strong>以后都行</strong>」（放行，且前台<strong>把这条写进规则册</strong>，下次同样的事就不再打扰经理）、「<strong>不行</strong>」（拦下，还能附一句「为什么不行」捎给工人）。日子久了，规则册渐渐填满经理的常规决定，前台<strong>按铃越来越少</strong>——工人越来越顺手，而经理始终对「册子上没有的新情况」保留最终拍板权。<strong>放手，但不失控，松紧自如</strong>，这就是门禁前台的智慧。
+</div>
+
+<h2>三态规则引擎：allow / deny / ask</h2>
+<p>权限系统的内核，是一个朴素得惊人的数据结构。打开 <span class="mono">permission/schema.ts</span>，一条规则就三个字段：</p>
+<pre class="code"><span class="cm">// permission/schema.ts —— 一条规则</span>
+Rule = { action: <span class="kw">string</span>, resource: <span class="kw">string</span>, effect: <span class="st">"allow"</span> | <span class="st">"deny"</span> | <span class="st">"ask"</span> }
+Ruleset = Rule[]</pre>
+<p><span class="mono">action</span>（做什么，如 edit/bash）、<span class="mono">resource</span>（对谁，如某文件路径）、<span class="mono">effect</span>（怎么办）。三个 effect 就是这套系统的全部「态度」：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">allow</div><div class="c-txt">放行，静默执行，不打扰用户</div></div>
+  <div class="cell"><div class="c-tag">deny</div><div class="c-txt">拒绝，抛 DeniedError；且这种工具在第 37 课就被「whollyDisabled」挡在菜单外</div></div>
+  <div class="cell"><div class="c-tag">ask</div><div class="c-txt">问用户——发一个 permission.v2.asked 事件，停下来等回答</div></div>
+</div>
+<p>评估靠一个 <span class="mono">evaluate(action, resource, ...rulesets)</span> 函数，逻辑只有两句话，却字字关键：把各 ruleset 拼起来，<strong><span class="mono">findLast</span> 找最后一条「动作和资源都通配匹配」的规则</strong>，用它的 effect；<strong>若一条都没匹配上，默认 <span class="mono">effect: "ask"</span></strong>。这两句话定义了整套安全模型的两条铁律：</p>
+<div class="cols">
+  <div class="col"><h4>后匹配者胜（findLast）</h4><p>规则按顺序排，<strong>越靠后越优先</strong>。可以先写一条宽泛规则、再用一条具体规则去覆盖它——和防火墙规则表一个套路。</p></div>
+  <div class="col"><h4>默认即「问」</h4><p>没有任何规则提到的动作，<strong>不默认放行、也不默认拒绝，而是问人</strong>。这是「安全默认」：未知 = 交给人判断。</p></div>
+</div>
+<p>「默认问」这一条，看似平常，实则是整套设计的<strong>定盘星</strong>。它意味着：agent <strong>无法靠「钻规则的空子」悄悄做成一件没人批准的事</strong>——凡是规则册没明说放行的敏感操作，都会触发一次对用户的询问。新工具、新场景、边界情况……一切「未被预先考虑」的，统统落到「问一下」这个安全网里。<strong>把「未知」默认归到「问人」，而不是「放行」，是这套权限系统最重要的一个选择。</strong>反过来想就明白它的分量：如果默认是「放行」，那每出现一个设计者没预料到的新动作，agent 就可能<strong>悄无声息地做了一件你本想拦下的事</strong>；而默认「问」，把这种「漏网」的风险<strong>从根上堵死</strong>——代价不过是初期多问几句。在「安全」与「省事」之间，这套系统毫不犹豫地选了前者，再用 always 把「省事」一点点挣回来。</p>
+
+<h2>评估流：assert 的一次完整裁决</h2>
+<p>这套规则怎么作用到一次具体的工具调用上？看 <span class="mono">permission.assert</span>——前面每个工具 execute 里那句。它发起一次完整的裁决：</p>
+<div class="flow">
+  <div class="f-node">工具调 assert<br><small>{action, resource}</small></div>
+  <div class="f-arrow">evaluate →</div>
+  <div class="f-node">查 effective 规则集<br><small>findLast，未命中→ask</small></div>
+  <div class="f-arrow">三态分流 →</div>
+  <div class="f-node">allow→放行<br>deny→DeniedError<br>ask→发问、等回答</div>
+</div>
+<p>三条分支：<span class="mono">deny</span> → 直接抛 <span class="mono">DeniedError</span>，工具根本跑不起来；<span class="mono">allow</span> → 静默返回，工具照跑；<span class="mono">ask</span> → 发一个 <span class="mono">permission.v2.asked</span> 事件、<strong>挂起等待</strong>（用一个 Deferred 把这次执行<strong>暂停</strong>在原地），直到用户那边给出回答。注意整个 assert 被裹在 <span class="mono">uninterruptibleMask</span> 里——「问—等—答」这一串不能被中途打断，否则就可能出现「问了一半、状态错乱」的尴尬。这又是第 8 课「把关键时序原子化」的体现。</p>
+<p>这里值得停下来，看清 <span class="mono">deny</span> 和 <span class="mono">ask</span> 其实在<strong>两个不同的关口</strong>把关——这是一种<strong>纵深防御</strong>：</p>
+<div class="cols">
+  <div class="col"><h4>deny · 菜单层（第 37 课）</h4><p>一个被彻底 deny 的工具，在 <span class="mono">materialize</span> 时就被 <span class="mono">whollyDisabled</span> 滤掉，<strong>根本不出现在发给模型的清单里</strong>——模型连「有这个工具」都不知道。</p></div>
+  <div class="col"><h4>ask · 调用层（本课）</h4><p>工具<strong>在菜单上、模型能点</strong>，但每次真要执行时 <span class="mono">assert</span> 先发问——执行前的最后一道闸。</p></div>
+</div>
+<p>这两级的分工很讲究：<strong>「绝不允许」的，在源头就让模型看不见</strong>（不给它「想都不要想」的机会，也省下解释和拒绝的来回）；<strong>「视情况而定」的，留在菜单上、临门一脚再问</strong>。最干净的拒绝是让对方根本不知道有这个选项（呼应第 37 课），而最灵活的把关是临场征求同意——deny 与 ask 各司其职，一个管「能不能有」、一个管「这次行不行」。</p>
+<p>用户的回答（<span class="mono">reply</span>）分三档，每一档都对应一种不同的「未来」：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">once</span><span class="t-txt">就这一次放行；下次同样的事，还会再问</span></div>
+  <div class="t-row"><span class="t-num">always</span><span class="t-txt">放行 + 把这条写进持久化规则（saved.add → SQLite，按 project 作用域）；以后同样的事直接 allow，不再问</span></div>
+  <div class="t-row"><span class="t-num">reject</span><span class="t-txt">拒绝这次 → RejectedError；若附了反馈则 CorrectedError（把「为什么不行」捎回给模型）</span></div>
+</div>
+<p>这里 <span class="mono">reject</span> 的两种形态值得多看一眼。光说「不行」（<span class="mono">RejectedError</span>）是<strong>纯拦截</strong>；但若用户在拒绝时<strong>附一句理由</strong>，就变成 <span class="mono">CorrectedError</span>——而这句理由会<strong>顺着错误回传给模型</strong>。这一笔很妙：它把「拒绝」从一个<strong>死胡同</strong>，变成了一次<strong>纠偏</strong>。用户不必只是「拦下」，还能「拦下并告诉它该怎么改」——比如「别动 prod 配置，改 staging 那份」。模型收到这句反馈，就能<strong>调整后重来</strong>，而不是一头撞墙、不知所措。于是权限系统不只是一道「闸门」，更是一个<strong>把人的判断喂回给 agent 的回路</strong>：人在环，不仅是「卡住危险」，更是「<strong>把 agent 引向正确</strong>」。</p>
+
+<h2>always：会随信任而减少打扰的系统</h2>
+<p><span class="mono">always</span> 这一档，是整套设计里最「人性化」的一笔。它做的不只是「放行这次」，而是把用户的这个决定 <strong>固化成一条规则、存进数据库</strong>（<span class="mono">PermissionSaved</span> → <span class="mono">permission</span> 表，带 project_id + action + resource 的唯一索引，<strong>按项目作用域</strong>）。下一次同样的「动作 × 资源」再来评估时，这条 saved 规则会让 <span class="mono">evaluate</span> 直接得到 <span class="mono">allow</span>——<strong>不再打扰用户</strong>。</p>
+<div class="flow">
+  <div class="f-node">用户答 always<br><small>对某 action×resource</small></div>
+  <div class="f-arrow">saved.add →</div>
+  <div class="f-node">写入 permission 表<br><small>project 作用域、跨会话存活</small></div>
+  <div class="f-arrow">下次 evaluate →</div>
+  <div class="f-node">命中该规则 → allow<br><small>静默放行、不再问</small></div>
+</div>
+<p>这条「always 会持久化」的设计，让整个权限系统有了一种<strong>会学习的体感</strong>：刚开始用，agent 干什么都问你，略显啰嗦；但你每点一次「以后都行」，就<strong>少了一类未来的打扰</strong>。用得越久、信任积累得越多，系统问得越少，越接近「<strong>你放心让它自动做的事，它就真的自动做了；你在意的事，它还是会先问</strong>」。这是一种动态平衡：<strong>初始保守（默认问），随用户授权逐步放开（always 攒规则）</strong>，把「要多大自由度」的决定权，<strong>一点一点、可回收地</strong>交到用户手里——而不是一开始就让你在「全放开」和「事事问」之间做一个尴尬的二选一。源码里还有个体贴细节：当一条 always 规则被存下，它会<strong>顺手把其它正在挂起、恰好被这条新规则覆盖的询问也一并放行</strong>——你批准一次，相关的等待一起解除。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>权限系统是贯穿整个工具系统的<strong>横切安全层</strong>，给「能力」装上「边界」：</p>
+  <ul>
+    <li><strong>三态规则引擎</strong>（<span class="mono">permission/schema.ts</span>）：<span class="mono">Rule = {action, resource, effect: allow|deny|ask}</span>。<span class="mono">evaluate</span> 把各 ruleset 拼起、<span class="mono">findLast</span> 通配匹配（<strong>后匹配者胜</strong>），<strong>未命中默认 ask</strong>（安全默认：未知=交给人）。</li>
+    <li><strong>assert 裁决流</strong>：工具 <span class="mono">permission.assert</span> → evaluate → deny 抛 <span class="mono">DeniedError</span> / allow 静默放行 / ask 发 <span class="mono">permission.v2.asked</span> 事件并挂起等回答（裹在 <span class="mono">uninterruptibleMask</span> 原子化）。</li>
+    <li><strong>三档回复 once/always/reject</strong>：once 仅此一次；always 放行 + <strong>持久化规则</strong>（<span class="mono">saved.add</span> → SQLite <span class="mono">permission</span> 表、project 作用域）；reject → <span class="mono">RejectedError</span>（带反馈则 <span class="mono">CorrectedError</span>，把理由回传模型）。</li>
+    <li><strong>两级把关</strong>：<strong>deny 在「菜单层」</strong>（第 37 课 <span class="mono">whollyDisabled</span>，工具根本不出现给模型）；<strong>ask 在「调用层」</strong>（执行前发问）。纵深防御。</li>
+    <li><strong>会随信任减少打扰</strong>：默认保守（问），always 攒规则后逐步放开——动态平衡「放手干」与「人在环」。</li>
+  </ul>
+  <p>有了权限这根缰绳，M7 工具系统的「能力 + 边界」就配齐了。下一课（第 42 课）回到另一条贯穿 M7 的红线——<strong>有界工具输出</strong>：一个 grep/bash 可能吐出几万行，怎么截断、怎么把全文外溢到托管文件，既不撑爆模型上下文、又不丢信息。第 43 课则讲 <strong>Skills 系统</strong>，M7 收尾。权限管「准不准做」，有界输出管「做完的结果怎么安全地交回给模型」——两者都是让一个强大 agent 真正「可控、可信、可托付」的关键拼图。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>整套引擎的核心，就是这个十来行的 <span class="mono">evaluate</span>（简化自 permission.ts）：</p>
+  <pre class="code"><span class="cm">// 后匹配者胜；一条都没匹配上 → 默认 ask</span>
+<span class="kw">function</span> <span class="fn">evaluate</span>(action, resource, ...rulesets) {
+  <span class="kw">return</span> rulesets.<span class="fn">flat</span>()
+    .<span class="fn">findLast</span>(rule =&gt;
+      Wildcard.<span class="fn">match</span>(action, rule.action) &amp;&amp; Wildcard.<span class="fn">match</span>(resource, rule.resource))
+    ?? { action, resource, effect: <span class="st">"ask"</span> }   <span class="cm">// ← 安全默认</span>
+}</pre>
+  <p>三处细节见功力。其一，<span class="mono">findLast</span> 而非 <span class="mono">find</span>——<strong>后定义的规则覆盖先定义的</strong>，于是「宽规则打底 + 窄规则特例」这种自然的表达成立（saved 规则、agent 规则、配置规则拼在一起，顺序即优先级）。其二，那个 <span class="mono">?? { effect: "ask" }</span> 的兜底——把「<strong>没有规则覆盖</strong>」这一最常见的情况，<strong>稳稳接到「问人」上</strong>，而不是悄悄放行。其三，<span class="mono">Wildcard.match</span> 让规则能用 <span class="mono">*</span> 通配——<span class="mono">{action:"*", resource:"*", effect:"deny"}</span> 就是一条「全拒」兜底（<span class="mono">missingAgentPermissions</span> 给缺权限的 agent 用的正是它）。<strong>十来行代码，承载了「默认安全、可叠加覆盖、可通配」三个性质</strong>——好的安全机制，往往不靠复杂，而靠把对的默认值放在对的位置。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>权限是贯穿所有工具的横切层</strong>（<span class="mono">core/src/permission.ts</span> + <span class="mono">permission/{schema,saved,sql}.ts</span>）：前面每个工具 execute 里的 <span class="mono">permission.assert</span> 都通向这里。工具=「能做什么」，权限=「准做什么」。</li>
+    <li><strong>三态规则引擎</strong>：<span class="mono">Rule={action, resource, effect: allow|deny|ask}</span>。<span class="mono">evaluate</span>=各 ruleset 拼接后 <span class="mono">findLast</span> 通配匹配（<strong>后匹配者胜</strong>，顺序即优先级），<strong>未命中默认 ask</strong>（安全默认：未知交给人判断，agent 无法钻空子悄悄做未批准的事）。</li>
+    <li><strong>assert 裁决</strong>：deny→<span class="mono">DeniedError</span>（且第 37 课 <span class="mono">whollyDisabled</span> 让它不进菜单）；allow→静默放行；ask→发 <span class="mono">permission.v2.asked</span> 事件、<span class="mono">uninterruptibleMask</span> 内挂起等回答。</li>
+    <li><strong>回复 once/always/reject</strong>：once 仅此次；<strong>always→放行 + 持久化规则</strong>（<span class="mono">saved.add</span>→SQLite <span class="mono">permission</span> 表，<strong>project 作用域、跨会话</strong>，下次直接 allow，且顺带解除被新规则覆盖的其它挂起询问）；reject→<span class="mono">RejectedError</span>/带反馈的 <span class="mono">CorrectedError</span>（理由回传模型）。</li>
+    <li><strong>两级把关 + 会学习</strong>：deny 在菜单层、ask 在调用层（纵深防御）；默认保守（问）、always 攒规则后逐步放开——在「放手干」与「人在环」间动态平衡，把自由度的决定权可回收地交给用户。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Over five lessons we equipped the agent with a powerful pair of hands: changing files, running commands, searching the web, fetching pages, asking people. But <strong>the greater the power, the more it needs a leash</strong>—an agent that can <span class="mono">rm -rf</span>, push code live, send outbound requests, if unmanaged, is a disaster not an assistant. This lesson's <strong>permission system</strong> is that leash. It answers a question running through all tools: <strong>this step—is it actually allowed?</strong> You may have noticed every prior tool's execute hides a <span class="mono">permission.assert(...)</span>—they all lead here. Tools cover "<strong>what can be done</strong>," permissions cover "<strong>what's allowed</strong>"; the former is capability, the latter the boundary, and together they make an agent both useful and controllable.</p>
+<p>This system's core is surprisingly clean—it's essentially an <strong>allow / deny / ask three-state rule engine</strong>: each rule says "for some action on some resource, permit / deny / ask"; evaluation is <strong>last-match-wins</strong>, and <strong>when no rule matches, the default is "ask."</strong> This "default-ask" design is the soul of the whole security model: for the agent to do anything <strong>not pre-approved and sensitive</strong>, it must either hit an allow rule or <strong>stop and await the user's nod</strong>. Better still, the user's reply has three levels—<strong>once / always (and remember it) / reject</strong>—where always <strong>persists the decision into a rule</strong>, so the system <strong>asks less and less as trust accumulates</strong>. Grasp this lesson and you'll understand how opencode finds the dynamic balance point between "let the agent run free" and "keep a human in the loop."</p>
+
+<div class="card analogy">
+  <div class="tag">🛂 Analogy</div>
+  Picture the permission system as a building's <strong>security desk + a rulebook</strong>. Every time a worker (the agent) wants to enter a room to do something sensitive (run some tool on some resource), they badge at the desk. The desk flips the rulebook: marked "<strong>allow</strong>" → wave through; marked "<strong>deny</strong>" → blocked (and such rooms don't even appear on the worker's floor map); <strong>not mentioned in the rulebook</strong> → the desk <strong>buzzes the manager</strong> (user) to decide. The manager can say three things: "<strong>just this once</strong>" (let this through), "<strong>always</strong>" (let through, and the desk <strong>writes it into the rulebook</strong> so it won't bother the manager next time), "<strong>no</strong>" (blocked, possibly with a "why not" passed to the worker). Over time, the rulebook fills with the manager's standing decisions, and the desk <strong>buzzes less and less</strong>—the worker grows handier while the manager keeps final say over "new situations not in the book." <strong>Run free, but not out of control</strong>—that's the security desk's wisdom.
+</div>
+
+<h2>The three-state rule engine: allow / deny / ask</h2>
+<p>The permission system's core is a strikingly humble data structure. Open <span class="mono">permission/schema.ts</span>, and a rule is just three fields:</p>
+<pre class="code"><span class="cm">// permission/schema.ts —— one rule</span>
+Rule = { action: <span class="kw">string</span>, resource: <span class="kw">string</span>, effect: <span class="st">"allow"</span> | <span class="st">"deny"</span> | <span class="st">"ask"</span> }
+Ruleset = Rule[]</pre>
+<p><span class="mono">action</span> (do what, e.g. edit/bash), <span class="mono">resource</span> (on whom, e.g. a file path), <span class="mono">effect</span> (what to do). The three effects are the system's entire "stance":</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">allow</div><div class="c-txt">permit, execute silently, don't bother the user</div></div>
+  <div class="cell"><div class="c-tag">deny</div><div class="c-txt">refuse, throw DeniedError; and such a tool is kept off the menu by lesson 37's "whollyDisabled"</div></div>
+  <div class="cell"><div class="c-tag">ask</div><div class="c-txt">ask the user—emit a permission.v2.asked event, stop and await an answer</div></div>
+</div>
+<p>Evaluation relies on an <span class="mono">evaluate(action, resource, ...rulesets)</span> function, just two lines of logic, every word crucial: concatenate the rulesets, <strong><span class="mono">findLast</span> the last rule whose action and resource both wildcard-match</strong>, use its effect; <strong>if none match, default to <span class="mono">effect: "ask"</span></strong>. These two lines define the whole security model's two iron laws:</p>
+<div class="cols">
+  <div class="col"><h4>Last match wins (findLast)</h4><p>Rules in order, <strong>later takes precedence</strong>. You can write a broad rule then override with a specific one—same approach as a firewall ruleset.</p></div>
+  <div class="col"><h4>Default is "ask"</h4><p>An action no rule mentions <strong>defaults to neither allow nor deny, but ask the human</strong>. This is "secure by default": unknown = leave it to a person.</p></div>
+</div>
+<p>This "default-ask," seemingly ordinary, is actually the design's <strong>keystone</strong>. It means: the agent <strong>can't quietly accomplish something unapproved by "gaming the rules"</strong>—any sensitive operation the rulebook didn't explicitly permit triggers a user prompt. New tools, new scenarios, edge cases… everything "not pre-considered" falls into the "ask" safety net. <strong>Defaulting "unknown" to "ask a human" rather than "allow" is this permission system's single most important choice.</strong> Reverse it to see the weight: if the default were "allow," then every new action the designers didn't foresee could let the agent <strong>silently do something you'd have wanted to block</strong>; defaulting to "ask" <strong>plugs this "slip-through" risk at the root</strong>—at the mere cost of a few extra prompts early on. Between "safety" and "convenience," this system unhesitatingly picks the former, then earns "convenience" back bit by bit via always.</p>
+
+<h2>Evaluation flow: one complete adjudication by assert</h2>
+<p>How does this ruleset act on a concrete tool call? Look at <span class="mono">permission.assert</span>—that line in every prior tool's execute. It launches a complete adjudication:</p>
+<div class="flow">
+  <div class="f-node">tool calls assert<br><small>{action, resource}</small></div>
+  <div class="f-arrow">evaluate →</div>
+  <div class="f-node">check effective ruleset<br><small>findLast, unmatched→ask</small></div>
+  <div class="f-arrow">three-way branch →</div>
+  <div class="f-node">allow→proceed<br>deny→DeniedError<br>ask→prompt, await</div>
+</div>
+<p>Three branches: <span class="mono">deny</span> → throw <span class="mono">DeniedError</span> outright, the tool can't run at all; <span class="mono">allow</span> → return silently, the tool runs; <span class="mono">ask</span> → emit a <span class="mono">permission.v2.asked</span> event and <strong>suspend</strong> (a Deferred <strong>pauses</strong> this execution in place) until the user answers. Note the whole assert is wrapped in <span class="mono">uninterruptibleMask</span>—the "ask—await—answer" sequence can't be interrupted midway, else you'd get "asked halfway, state scrambled." Again lesson 8's "atomize critical timing."</p>
+<p>Worth pausing here to see that <span class="mono">deny</span> and <span class="mono">ask</span> actually guard <strong>two different gates</strong>—a kind of <strong>defense in depth</strong>:</p>
+<div class="cols">
+  <div class="col"><h4>deny · menu layer (lesson 37)</h4><p>A wholly-denied tool is filtered out by <span class="mono">whollyDisabled</span> at <span class="mono">materialize</span>, <strong>not even appearing in the list sent to the model</strong>—the model doesn't even know "this tool exists."</p></div>
+  <div class="col"><h4>ask · call layer (this lesson)</h4><p>The tool <strong>is on the menu, the model can pick it</strong>, but each time it's actually about to execute, <span class="mono">assert</span> asks first—the last gate before execution.</p></div>
+</div>
+<p>The two levels' division is careful: <strong>"never allowed" things are made invisible to the model at the source</strong> (denying it even the chance to "think about it," sparing the explain-and-refuse round trips); <strong>"depends" things stay on the menu, asked at the last moment</strong>. The cleanest refusal is to not let the other know the option exists (echoing lesson 37), the most flexible gatekeeping is asking consent on the spot—deny and ask each do their job, one governing "can it exist," the other "is this time OK."</p>
+<p>The user's reply has three levels, each corresponding to a different "future":</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">once</span><span class="t-txt">permit just this once; the same thing next time still asks</span></div>
+  <div class="t-row"><span class="t-num">always</span><span class="t-txt">permit + write into a persisted rule (saved.add → SQLite, project-scoped); future same thing is allowed directly, no more asking</span></div>
+  <div class="t-row"><span class="t-num">reject</span><span class="t-txt">refuse this time → RejectedError; with feedback → CorrectedError (carry "why not" back to the model)</span></div>
+</div>
+<p>The two forms of <span class="mono">reject</span> deserve a closer look. Just saying "no" (<span class="mono">RejectedError</span>) is <strong>pure interception</strong>; but if the user <strong>attaches a reason</strong> when rejecting, it becomes <span class="mono">CorrectedError</span>—and that reason <strong>flows back to the model with the error</strong>. This stroke is clever: it turns "rejection" from a <strong>dead end</strong> into a <strong>course-correction</strong>. The user needn't just "block" but can "block and tell it how to fix"—e.g. "don't touch the prod config, change the staging one." Receiving this feedback, the model can <strong>adjust and retry</strong>, rather than slamming into a wall, at a loss. So the permission system isn't just a "gate" but a <strong>loop feeding human judgment back to the agent</strong>: a human in the loop isn't only "stop the dangerous" but "<strong>steer the agent toward right</strong>."</p>
+
+<h2>always: a system that bothers you less as trust grows</h2>
+<p>The <span class="mono">always</span> level is the design's most "humane" stroke. It does more than "permit this time"; it <strong>solidifies the user's decision into a rule, stored in the database</strong> (<span class="mono">PermissionSaved</span> → the <span class="mono">permission</span> table, with a unique index on project_id + action + resource, <strong>project-scoped</strong>). Next time the same "action × resource" comes up for evaluation, this saved rule makes <span class="mono">evaluate</span> return <span class="mono">allow</span> directly—<strong>no more bothering the user</strong>.</p>
+<div class="flow">
+  <div class="f-node">user answers always<br><small>for some action×resource</small></div>
+  <div class="f-arrow">saved.add →</div>
+  <div class="f-node">write to permission table<br><small>project-scoped, survives across sessions</small></div>
+  <div class="f-arrow">next evaluate →</div>
+  <div class="f-node">match this rule → allow<br><small>silently permit, no more asking</small></div>
+</div>
+<p>This "always persists" design gives the whole permission system a <strong>learning feel</strong>: at first, the agent asks you about everything, a bit naggy; but every time you click "always," you <strong>shed a class of future interruptions</strong>. The longer you use it, the more trust accumulates, the less the system asks, approaching "<strong>what you're comfortable letting it do automatically, it really does automatically; what you care about, it still asks first</strong>." It's a dynamic balance: <strong>conservative at first (default-ask), gradually loosening with user authorization (always accrues rules)</strong>, handing the decision of "how much freedom" to the user <strong>bit by bit, revocably</strong>—rather than forcing an awkward up-front choice between "fully open" and "ask about everything." The source has a thoughtful detail too: when an always rule is saved, it <strong>incidentally permits other pending asks that the new rule now covers</strong>—you approve once, and related waits all release together.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>The permission system is the <strong>cross-cutting security layer</strong> through the whole tool system, fitting "capability" with a "boundary":</p>
+  <ul>
+    <li><strong>Three-state rule engine</strong> (<span class="mono">permission/schema.ts</span>): <span class="mono">Rule = {action, resource, effect: allow|deny|ask}</span>. <span class="mono">evaluate</span> concatenates rulesets, <span class="mono">findLast</span> wildcard-match (<strong>last match wins</strong>), <strong>unmatched defaults to ask</strong> (secure default: unknown = leave to a human).</li>
+    <li><strong>assert adjudication</strong>: tool <span class="mono">permission.assert</span> → evaluate → deny throws <span class="mono">DeniedError</span> / allow proceeds silently / ask emits <span class="mono">permission.v2.asked</span> and suspends awaiting (wrapped in <span class="mono">uninterruptibleMask</span> for atomicity).</li>
+    <li><strong>Three replies once/always/reject</strong>: once just this time; always permits + <strong>persists a rule</strong> (<span class="mono">saved.add</span> → SQLite <span class="mono">permission</span> table, project-scoped); reject → <span class="mono">RejectedError</span> (with feedback → <span class="mono">CorrectedError</span>, the reason back to the model).</li>
+    <li><strong>Two gating levels</strong>: <strong>deny at the "menu layer"</strong> (lesson 37 <span class="mono">whollyDisabled</span>, the tool not even shown to the model); <strong>ask at the "call layer"</strong> (prompt before executing). Defense in depth.</li>
+    <li><strong>Bothers less as trust grows</strong>: conservative by default (ask), gradually loosens after always accrues rules—dynamically balancing "run free" and "human in the loop."</li>
+  </ul>
+  <p>With permissions as the leash, M7's tool system has its "capability + boundary" complete. The next lesson (42) returns to another red thread through M7—<strong>bounded tool output</strong>: a grep/bash may spit tens of thousands of lines; how to truncate, how to spill the full text to a managed file, without blowing the model's context yet without losing info. Lesson 43 then covers the <strong>Skills system</strong>, wrapping up M7. Permissions govern "may it be done," bounded output governs "how the finished result is safely handed back to the model"—both key pieces making a powerful agent truly controllable, trustworthy, and worth entrusting.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>The whole engine's core is this dozen-line <span class="mono">evaluate</span> (simplified from permission.ts):</p>
+  <pre class="code"><span class="cm">// last match wins; if none match → default ask</span>
+<span class="kw">function</span> <span class="fn">evaluate</span>(action, resource, ...rulesets) {
+  <span class="kw">return</span> rulesets.<span class="fn">flat</span>()
+    .<span class="fn">findLast</span>(rule =&gt;
+      Wildcard.<span class="fn">match</span>(action, rule.action) &amp;&amp; Wildcard.<span class="fn">match</span>(resource, rule.resource))
+    ?? { action, resource, effect: <span class="st">"ask"</span> }   <span class="cm">// ← secure default</span>
+}</pre>
+  <p>Three details show craft. One, <span class="mono">findLast</span> not <span class="mono">find</span>—<strong>later-defined rules override earlier</strong>, so the natural expression "broad rule as base + narrow rule as exception" holds (saved rules, agent rules, config rules concatenated, order = precedence). Two, that <span class="mono">?? { effect: "ask" }</span> fallback—catching "<strong>no rule covers it</strong>," the most common case, <strong>squarely onto "ask a human,"</strong> not silently allowing. Three, <span class="mono">Wildcard.match</span> lets rules use <span class="mono">*</span>—<span class="mono">{action:"*", resource:"*", effect:"deny"}</span> is a "deny-all" fallback (<span class="mono">missingAgentPermissions</span> for agents lacking permission is exactly this). <strong>A dozen lines carry "secure default, stackable override, wildcardable" three properties</strong>—a good security mechanism often relies not on complexity but on putting the right default in the right place.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>Permission is the cross-cutting layer through all tools</strong> (<span class="mono">core/src/permission.ts</span> + <span class="mono">permission/{schema,saved,sql}.ts</span>): every prior tool's <span class="mono">permission.assert</span> leads here. Tools = "what can be done," permissions = "what's allowed."</li>
+    <li><strong>Three-state rule engine</strong>: <span class="mono">Rule={action, resource, effect: allow|deny|ask}</span>. <span class="mono">evaluate</span> = concatenate rulesets then <span class="mono">findLast</span> wildcard-match (<strong>last match wins</strong>, order = precedence), <strong>unmatched defaults to ask</strong> (secure default: unknown left to a human, the agent can't game it into doing unapproved things silently).</li>
+    <li><strong>assert adjudication</strong>: deny→<span class="mono">DeniedError</span> (and lesson 37's <span class="mono">whollyDisabled</span> keeps it off the menu); allow→proceed silently; ask→emit <span class="mono">permission.v2.asked</span> event, suspend awaiting within <span class="mono">uninterruptibleMask</span>.</li>
+    <li><strong>Replies once/always/reject</strong>: once just this time; <strong>always→permit + persist a rule</strong> (<span class="mono">saved.add</span>→SQLite <span class="mono">permission</span> table, <strong>project-scoped, cross-session</strong>, next time allowed directly, and incidentally releasing other pending asks the new rule covers); reject→<span class="mono">RejectedError</span>/with-feedback <span class="mono">CorrectedError</span> (reason back to the model = steering, not just blocking).</li>
+    <li><strong>Two gating levels + learning</strong>: deny at the menu layer, ask at the call layer (defense in depth); conservative by default (ask), gradually loosening after always accrues rules—dynamically balancing "run free" and "human in the loop," handing the freedom decision revocably to the user.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_42 = wip('有界工具输出', 'Bounded tool output')
 LESSON_43 = wip('Skills 系统', 'The skills system')
