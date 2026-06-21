@@ -437,9 +437,9 @@ LESSON_38 = {
 <table class="t">
   <tr><th>工具</th><th>input</th><th>改动粒度</th><th>权限</th></tr>
   <tr><td>read</td><td>path, offset?, limit?</td><td>只读（可翻页、可列目录）</td><td>assert 读权限</td></tr>
-  <tr><td>write</td><td>path, content</td><td>整文件覆盖/新建</td><td>withPermission "write"</td></tr>
+  <tr><td>write</td><td>path, content</td><td>整文件覆盖/新建</td><td>withPermission "edit"</td></tr>
   <tr><td>edit</td><td>path, oldString, newString, replaceAll?</td><td>精确查找替换（一处或全部）</td><td>withPermission "edit"</td></tr>
-  <tr><td>apply_patch</td><td>patchText</td><td>多文件批量 add/update/delete</td><td>withPermission</td></tr>
+  <tr><td>apply_patch</td><td>patchText</td><td>多文件批量 add/update/delete</td><td>withPermission "edit"</td></tr>
 </table>
 <p>这张表本身就是一堂设计课。四个工具覆盖了一条<strong>从粗到细、从单到多</strong>的改动光谱：<span class="mono">write</span> 最粗（整页换）、<span class="mono">edit</span> 最细（一句改）、<span class="mono">apply_patch</span> 最广（跨文件一把梭），而 <span class="mono">read</span> 是唯一<strong>不产生副作用</strong>的观察者。为什么要分这么多把？因为<strong>不同的改动形状，配不同的工具最省 token、最不易出错</strong>：改一行用 edit（只发那一行），重写整文件用 write（不必发 diff），跨文件重构用 apply_patch（一次成型）。模型会根据要做的事，<strong>自己挑那把最趁手的</strong>。这正是第 36 课「一张表、各自填空」结出的果——四种填法，覆盖四种真实需求。</p>
 <p>另一个共性是<strong>路径的边界</strong>：所有文件工具的路径都<strong>相对于「当前 Location」（工作区）解析</strong>；Location 内的绝对路径可接受，但指向<strong>外部</strong>的绝对路径，需要额外的 <span class="mono">external_directory</span> 批准才放行。这是一道安全栅栏——agent 默认只能在它的工作区里折腾，想伸手到工作区外，得先过一道明确的许可。</p>
@@ -455,7 +455,7 @@ LESSON_38 = {
   <div class="cell"><div class="c-tag">update</div><div class="c-txt">修改一个已有文件</div></div>
   <div class="cell"><div class="c-tag">delete</div><div class="c-txt">删除一个文件</div></div>
 </div>
-<p>一段 <span class="mono">patchText</span> 里可以同时描述多文件的增、改、删，<span class="mono">apply_patch</span> <strong>顺序施工</strong>、逐条记进 <span class="mono">applied</span>。当模型要做一次「跨好几个文件的重构」时，比起连发十几次 edit，一次 apply_patch 既省 token、又让这组改动成为一个<strong>语义上的整体</strong>，要么整组生效、要么一眼看清在哪一步出了岔。</p>
+<p>一段 <span class="mono">patchText</span> 里可以同时描述多文件的增、改、删，<span class="mono">apply_patch</span> <strong>顺序施工</strong>、逐条记进 <span class="mono">applied</span>。当模型要做一次「跨好几个文件的重构」时，比起连发十几次 edit，一次 apply_patch 既省 token、又让这组改动成为一个<strong>语义上的整体</strong>（按顺序逐条施工、逐条记进 applied，方便一眼看清哪一步出了岔；注意目前并不支持失败自动回滚）。</p>
 
 <h2>worked-example：一次 edit 的完整一生</h2>
 <p>现在把 <span class="mono">edit</span> 的 <span class="mono">execute</span> 一步步摊开。表面上它只做一件事——「把文件里的 <span class="mono">oldString</span> 换成 <span class="mono">newString</span>」。但真实的执行，是一条布满护栏的流水线：</p>
@@ -497,7 +497,7 @@ LESSON_38 = {
     <li><strong>edit 的四道护栏</strong>：精确匹配（不模糊）、歧义拒绝（多匹配不猜）、行尾归一（\n↔\r\n）、乐观并发写（<span class="mono">writeIfUnchanged</span> 不覆盖别人）。真正「替换」只一行，其余全是护栏。</li>
     <li><strong>路径边界</strong>：相对「当前 Location」解析；外部绝对路径需 <span class="mono">external_directory</span> 批准。安全栅栏让 agent 默认只在工作区内活动。</li>
   </ul>
-  <p>这一课的主旋律——「让 AI 安全地改代码，难点在护栏不在替换」——会一路贯穿 M7。下一课（第 39 课）转向<strong>搜索与执行工具</strong>：<span class="mono">glob</span>（按名找文件）、<span class="mono">grep</span>（按内容搜）、<span class="mono">bash</span>（跑命令）——其中 bash 经 PTY 运行、又是另一圈精巧的护栏。读文件、搜文件、跑命令，是 coding agent 的三大基本功，这两课把前两样讲透。</p>
+  <p>这一课的主旋律——「让 AI 安全地改代码，难点在护栏不在替换」——会一路贯穿 M7。下一课（第 39 课）转向<strong>搜索与执行工具</strong>：<span class="mono">glob</span>（按名找文件）、<span class="mono">grep</span>（按内容搜）、<span class="mono">bash</span>（跑命令）——其中 bash 经子进程（spawn）批处理运行、又是另一圈精巧的护栏（注意：bash 不走 PTY，下一课会澄清）。读文件、搜文件、跑命令，是 coding agent 的三大基本功，这两课把前两样讲透。</p>
 </div>
 
 <div class="card detail">
@@ -531,7 +531,7 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
 """,
     "en": r"""
 <p class="lead">The prior two lessons built the tool system's <strong>skeleton</strong>: how a tool is defined (lesson 36's <span class="mono">Tool.make</span>), how it's collected into a model-visible list (lesson 37's registry). From this lesson, we dive into <strong>individual real tools</strong>, watching "the skeleton grow flesh." First the most everyday—and most skill-testing—family: <strong>file tools</strong>: <span class="mono">read</span>, <span class="mono">write</span> (whole-write), <span class="mono">edit</span> (precise edit), <span class="mono">apply_patch</span> (batch patching). For a code-writing agent, the vast majority of actions land as these four "hands" reading and changing files.</p>
-<p>This lesson has two layers of payoff. One, <strong>confirming lesson 36</strong>: you'll see firsthand these four tools are <strong>all different fillings of the same <span class="mono">Config</span> form</strong>—each declaring input/output schema + execute, wrapped in <span class="mono">withPermission</span>, nothing more. Two, the centerpiece: we'll <strong>unfold the edit tool's execution step by step</strong> (the spec-named worked-example), seeing how much <strong>production-grade rigor</strong> hides behind a small "change this text to that" operation—exact match, ambiguity refusal, line-ending normalization, optimistic-concurrency write. You'll come away understanding: letting AI safely change your code, <strong>the hard part was never "string replacement," but the ring of guardrails around it—"don't guess, don't err, don't clobber others."</strong></p>
+<p>This lesson has two layers of payoff. One, <strong>confirming lesson 36</strong>: you'll see firsthand these four tools are <strong>all different fillings of the same <span class="mono">Config</span> form</strong>—each declaring input/output schema + execute, permissioned (write/edit/apply_patch via <span class="mono">withPermission "edit"</span>, read via internal <span class="mono">permission.assert</span>), nothing more. Two, the centerpiece: we'll <strong>unfold the edit tool's execution step by step</strong> (the spec-named worked-example), seeing how much <strong>production-grade rigor</strong> hides behind a small "change this text to that" operation—exact match, ambiguity refusal, line-ending normalization, optimistic-concurrency write. You'll come away understanding: letting AI safely change your code, <strong>the hard part was never "string replacement," but the ring of guardrails around it—"don't guess, don't err, don't clobber others."</strong></p>
 
 <div class="card analogy">
   <div class="tag">✍️ Analogy</div>
@@ -543,9 +543,9 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
 <table class="t">
   <tr><th>Tool</th><th>input</th><th>Change granularity</th><th>Permission</th></tr>
   <tr><td>read</td><td>path, offset?, limit?</td><td>read-only (paging, directory listing)</td><td>assert read permission</td></tr>
-  <tr><td>write</td><td>path, content</td><td>whole-file overwrite/create</td><td>withPermission "write"</td></tr>
+  <tr><td>write</td><td>path, content</td><td>whole-file overwrite/create</td><td>withPermission "edit"</td></tr>
   <tr><td>edit</td><td>path, oldString, newString, replaceAll?</td><td>exact find-replace (one or all)</td><td>withPermission "edit"</td></tr>
-  <tr><td>apply_patch</td><td>patchText</td><td>multi-file batch add/update/delete</td><td>withPermission</td></tr>
+  <tr><td>apply_patch</td><td>patchText</td><td>multi-file batch add/update/delete</td><td>withPermission "edit"</td></tr>
 </table>
 <p>This table is itself a design lesson. The four cover a <strong>coarse-to-fine, single-to-many</strong> change spectrum: <span class="mono">write</span> coarsest (whole page swap), <span class="mono">edit</span> finest (one sentence change), <span class="mono">apply_patch</span> broadest (cross-file in one go), and <span class="mono">read</span> the only <strong>side-effect-free</strong> observer. Why so many? Because <strong>different change shapes fit different tools to save the most tokens and least err</strong>: change one line with edit (send just that line), rewrite a whole file with write (no diff needed), refactor across files with apply_patch (formed in one pass). The model, per the task, <strong>picks the handiest one itself</strong>. This is the fruit of lesson 36's "one form, each fills blanks"—four fillings, covering four real needs.</p>
 <p>Another commonality is the <strong>path boundary</strong>: all file tools' paths resolve <strong>relative to the "active Location" (workspace)</strong>; absolute paths inside the Location are accepted, but absolute paths pointing <strong>outside</strong> require extra <span class="mono">external_directory</span> approval. This is a security fence—the agent by default can only mess within its workspace; reaching outside needs explicit permission first.</p>
@@ -561,7 +561,7 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
   <div class="cell"><div class="c-tag">update</div><div class="c-txt">modify an existing file</div></div>
   <div class="cell"><div class="c-tag">delete</div><div class="c-txt">delete a file</div></div>
 </div>
-<p>One <span class="mono">patchText</span> can describe adds, updates, deletes across multiple files at once; <span class="mono">apply_patch</span> <strong>executes sequentially</strong>, logging each into <span class="mono">applied</span>. When the model wants "a refactor across several files," versus firing a dozen edits, one apply_patch both saves tokens and makes this group of changes <strong>a semantic whole</strong>.</p>
+<p>One <span class="mono">patchText</span> can describe adds, updates, deletes across multiple files at once; <span class="mono">apply_patch</span> <strong>executes sequentially</strong>, logging each into <span class="mono">applied</span>. When the model wants "a refactor across several files," versus firing a dozen edits, one apply_patch both saves tokens and makes this group of changes <strong>a semantic whole</strong> (sequential, each logged into applied for easy "which step went wrong" inspection; note automatic rollback on failure is not yet supported).</p>
 
 <h2>Worked-example: a single edit's full life</h2>
 <p>Now unfold <span class="mono">edit</span>'s <span class="mono">execute</span> step by step. On the surface it does one thing—"replace <span class="mono">oldString</span> with <span class="mono">newString</span> in the file." But the real execution is a pipeline lined with guardrails:</p>
@@ -603,7 +603,7 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
     <li><strong>edit's four guardrails</strong>: exact match (no fuzzy), ambiguity refusal (multiple matches, no guessing), line-ending normalization (\n↔\r\n), optimistic-concurrency write (<span class="mono">writeIfUnchanged</span> doesn't clobber). Only one line actually "replaces," the rest all guardrails.</li>
     <li><strong>Path boundary</strong>: resolved relative to "active Location"; external absolute paths need <span class="mono">external_directory</span> approval. A security fence keeping the agent within its workspace by default.</li>
   </ul>
-  <p>This lesson's main theme—"letting AI safely change code, the difficulty is in guardrails not replacement"—runs through all of M7. The next lesson (39) turns to <strong>search & exec tools</strong>: <span class="mono">glob</span> (find files by name), <span class="mono">grep</span> (search by content), <span class="mono">bash</span> (run commands)—where bash runs via PTY, another ring of fine guardrails. Reading files, searching files, running commands are a coding agent's three basic skills; these two lessons cover the first two thoroughly.</p>
+  <p>This lesson's main theme—"letting AI safely change code, the difficulty is in guardrails not replacement"—runs through all of M7. The next lesson (39) turns to <strong>search & exec tools</strong>: <span class="mono">glob</span> (find files by name), <span class="mono">grep</span> (search by content), <span class="mono">bash</span> (run commands)—where bash runs via spawned subprocess (batch), another ring of fine guardrails (note: bash does NOT use PTY, the next lesson clarifies). Reading files, searching files, running commands are a coding agent's three basic skills; these two lessons cover the first two thoroughly.</p>
 </div>
 
 <div class="card detail">
@@ -1428,7 +1428,7 @@ LESSON_43 = {
 <p>Skills 系统的灵魂，是把这样一个技能<strong>劈成两半</strong>，分走两条完全不同的通道。这张对照表是这一课最该记住的东西：</p>
 <div class="cols">
   <div class="col"><h4>「名字」半 · 走 Context Source</h4><p><span class="mono">SkillGuidance.load(agent)</span> 返回一个 <span class="mono">SystemContext</span>（第 21~27 课的源！），往系统上下文注入一份<strong>技能清单</strong>——每个只有 <span class="mono">&lt;name&gt;</span> + <span class="mono">&lt;description&gt;</span>，外加一句「任务匹配某技能时，用 skill 工具加载它」。<strong>常驻、便宜、模型随时看得见。</strong></p></div>
-  <div class="col"><h4>「正文」半 · 走 skill 工具</h4><p><span class="mono">skill</span> 工具（<span class="mono">withPermission</span> 权限化）：input 一个 <span class="mono">{name}</span>。模型调用它，<span class="mono">toModelOutput</span> 把该技能的<strong>完整正文</strong>（指令 + 基准目录 + 文件清单）注入对话。<strong>按需、昂贵、只在用到时取。</strong></p></div>
+  <div class="col"><h4>「正文」半 · 走 skill 工具</h4><p><span class="mono">skill</span> 工具（经内部 <span class="mono">permission.assert</span>(action: skill) 权限化，非 withPermission）：input 一个 <span class="mono">{name}</span>。模型调用它，<span class="mono">toModelOutput</span> 把该技能的<strong>完整正文</strong>（指令 + 基准目录 + 文件清单）注入对话。<strong>按需、昂贵、只在用到时取。</strong></p></div>
 </div>
 <p>为什么非要劈成两半？因为<strong>「全都加载」根本行不通</strong>。设想技能库里有上百个技能，每个正文动辄几千字——若开局就把它们的全文一股脑塞进上下文，<strong>窗口瞬间爆满，正经对话没地方放了</strong>。但模型又必须<strong>知道有哪些技能可用</strong>，否则它根本想不到去调用。两段式正是这对矛盾的优雅解：<strong>把「有什么」（廉价的名字）和「具体是什么」（昂贵的正文）分开</strong>——名字便宜，全摆出来当目录；正文昂贵，谁用到谁再取。这和第 37 课注册表的「definitions 全列、settle 按需执行」、第 42 课的「预览常驻、全文 spill 待取」，是<strong>同一个套路在不同地方的第三次现身</strong>。<strong>opencode 反反复复在用这一招：先廉价地广而告之，再昂贵地按需兑现。</strong></p>
 <div class="flow">
@@ -1456,7 +1456,7 @@ LESSON_43 = {
   <div class="cell"><div class="c-tag">用 Context Source（M5）</div><div class="c-txt">技能名+描述经 SystemContext 常驻注入（第 21~27 课）</div></div>
   <div class="cell"><div class="c-tag">用 Tool.make（L36）</div><div class="c-txt">skill 工具本身就是一张填好的 Config 表</div></div>
   <div class="cell"><div class="c-tag">用注册表（L37）</div><div class="c-txt">skill 工具经 SkillTool.layer 在 locationLayer 里自我登记</div></div>
-  <div class="cell"><div class="c-tag">用权限（L41）</div><div class="c-txt">skill 工具 withPermission——加载技能也要过许可</div></div>
+  <div class="cell"><div class="c-tag">用权限（L41）</div><div class="c-txt">skill 工具内部调 permission.assert(action: skill)——加载技能也要过许可</div></div>
   <div class="cell"><div class="c-tag">用 read 等工具（L38）</div><div class="c-txt">正文引用的脚本/文件，靠通用 read 工具去取</div></div>
   <div class="cell"><div class="c-tag">发现与下载</div><div class="c-txt">SkillDiscovery 从目录索引、还能从 URL 下载技能</div></div>
 </div>
@@ -1499,7 +1499,7 @@ LESSON_43 = {
   <div class="tag">🎯 本课要点</div>
   <ul>
     <li><strong>skill = 知识+步骤+配套文件的打包单元</strong>（<span class="mono">core/src/skill/*</span>、<span class="mono">tool/skill.ts</span>），按需加载。给 agent 加本领 = 往技能库丢一个 skill，不重训模型、不改代码。</li>
-    <li><strong>两段式架构（核心）</strong>：<strong>名字半</strong>经 <span class="mono">SkillGuidance.load</span> → <span class="mono">SystemContext</span>（M5 Context Source，第 21~27 课）常驻注入（仅 name+description，省 token、随时可见）；<strong>正文半</strong>经 <span class="mono">withPermission</span> 的 <span class="mono">skill</span> 工具（input {name}）按需注入完整正文。渐进式披露/懒加载——与第 37 课「definitions 全列/settle 按需」、第 42 课「预览常驻/全文 spill」同一套路。</li>
+    <li><strong>两段式架构（核心）</strong>：<strong>名字半</strong>经 <span class="mono">SkillGuidance.load</span> → <span class="mono">SystemContext</span>（M5 Context Source，第 21~27 课）常驻注入（仅 name+description，省 token、随时可见）；<strong>正文半</strong>经 <span class="mono">skill</span> 工具（<span class="mono">Tool.make</span> + 内部 <span class="mono">permission.assert</span>(action: skill)，非 withPermission；input {name}）按需注入完整正文。渐进式披露/懒加载——与第 37 课「definitions 全列/settle 按需」、第 42 课「预览常驻/全文 spill」同一套路。</li>
     <li><strong>skill 只「发讲义」、不「干活」</strong>：<span class="mono">toModelOutput</span> 注入 <span class="mono">&lt;skill_content&gt;</span>（指令 + 基准目录 URL + <span class="mono">&lt;skill_files&gt;</span> 清单）；真正执行靠模型已有通用工具（read 读脚本、bash 跑、edit 改）。技能扩展「知道该怎么做」，非「能做什么」。</li>
     <li><strong>M5+M7 交汇点</strong>：Skills 用全 Context Source（M5）+ Tool.make（L36）+ 注册表（L37，<span class="mono">SkillTool.layer</span>）+ 权限（L41）+ read（L38）。一只脚在上下文、一只脚在工具——半上下文、半工具。是建立在前面所有抽象之上的更高层复用。</li>
     <li><strong>可发现/可分发</strong>：<span class="mono">SkillDiscovery</span> 从目录索引、能从 URL 下载技能。文件清单标注 <span class="mono">sampled</span>（抽样、有界），层层懒加载（技能正文懒加载、技能内文件再懒加载）——「按需、有界」纪律贯穿到 M7 收官。</li>
@@ -1526,7 +1526,7 @@ LESSON_43 = {
 <p>The Skills system's soul is splitting such a skill <strong>in two</strong>, routed down two completely different channels. This table is the thing to remember most from this lesson:</p>
 <div class="cols">
   <div class="col"><h4>"name" half · via Context Source</h4><p><span class="mono">SkillGuidance.load(agent)</span> returns a <span class="mono">SystemContext</span> (lessons 21–27's source!), injecting into the system context a <strong>skill catalog</strong>—each with just <span class="mono">&lt;name&gt;</span> + <span class="mono">&lt;description&gt;</span>, plus "when a task matches a skill, load it with the skill tool." <strong>Resident, cheap, always visible to the model.</strong></p></div>
-  <div class="col"><h4>"body" half · via the skill tool</h4><p>The <span class="mono">skill</span> tool (<span class="mono">withPermission</span> permissioned): input a <span class="mono">{name}</span>. The model calls it, and <span class="mono">toModelOutput</span> injects that skill's <strong>full body</strong> (instructions + base directory + file list) into the conversation. <strong>On demand, expensive, fetched only when used.</strong></p></div>
+  <div class="col"><h4>"body" half · via the skill tool</h4><p>The <span class="mono">skill</span> tool (permissioned via an internal <span class="mono">permission.assert</span>(action: skill), not withPermission): input a <span class="mono">{name}</span>. The model calls it, and <span class="mono">toModelOutput</span> injects that skill's <strong>full body</strong> (instructions + base directory + file list) into the conversation. <strong>On demand, expensive, fetched only when used.</strong></p></div>
 </div>
 <p>Why split in two? Because "<strong>load everything</strong>" simply won't work. Imagine the library has hundreds of skills, each body thousands of words—loading all their full text into context at the start would <strong>instantly max out the window, leaving no room for the actual conversation</strong>. Yet the model must <strong>know which skills are available</strong>, else it'd never think to call one. The two stages elegantly resolve this tension: <strong>separate "what exists" (cheap names) from "what it specifically is" (expensive body)</strong>—names cheap, all laid out as a catalog; body expensive, fetched only by whoever needs it. This, lesson 37's registry "list all definitions, settle on demand," and lesson 42's "preview resident, full text spilled for retrieval" are <strong>the same pattern's third appearance in a different place</strong>. <strong>opencode uses this move over and over: cheaply advertise first, expensively fulfill on demand.</strong></p>
 <div class="flow">
@@ -1554,7 +1554,7 @@ LESSON_43 = {
   <div class="cell"><div class="c-tag">uses Context Source (M5)</div><div class="c-txt">skill name+description resident-injected via SystemContext (lessons 21–27)</div></div>
   <div class="cell"><div class="c-tag">uses Tool.make (L36)</div><div class="c-txt">the skill tool is itself a filled-in Config form</div></div>
   <div class="cell"><div class="c-tag">uses the registry (L37)</div><div class="c-txt">the skill tool self-registers in locationLayer via SkillTool.layer</div></div>
-  <div class="cell"><div class="c-tag">uses permissions (L41)</div><div class="c-txt">the skill tool withPermission—loading a skill needs permission too</div></div>
+  <div class="cell"><div class="c-tag">uses permissions (L41)</div><div class="c-txt">the skill tool calls permission.assert(action: skill) internally—loading a skill needs permission too</div></div>
   <div class="cell"><div class="c-tag">uses read etc. (L38)</div><div class="c-txt">the body's referenced scripts/files are fetched by the general read tool</div></div>
   <div class="cell"><div class="c-tag">discovery & download</div><div class="c-txt">SkillDiscovery indexes from a directory, and can download skills from a URL</div></div>
 </div>
@@ -1597,7 +1597,7 @@ LESSON_43 = {
   <div class="tag">🎯 Key Takeaways</div>
   <ul>
     <li><strong>skill = a packaged unit of knowledge+steps+accompanying files</strong> (<span class="mono">core/src/skill/*</span>, <span class="mono">tool/skill.ts</span>), loaded on demand. Adding a competence = drop a skill into the library, no retraining, no code change.</li>
-    <li><strong>Two-stage architecture (core)</strong>: the <strong>name half</strong> via <span class="mono">SkillGuidance.load</span> → <span class="mono">SystemContext</span> (M5 Context Source, lessons 21–27) resident-injected (only name+description, token-saving, always visible); the <strong>body half</strong> via the <span class="mono">withPermission</span> <span class="mono">skill</span> tool (input {name}) injected on demand. Progressive disclosure/lazy loading—same pattern as lesson 37's "list definitions/settle on demand" and lesson 42's "preview resident/full text spilled."</li>
+    <li><strong>Two-stage architecture (core)</strong>: the <strong>name half</strong> via <span class="mono">SkillGuidance.load</span> → <span class="mono">SystemContext</span> (M5 Context Source, lessons 21–27) resident-injected (only name+description, token-saving, always visible); the <strong>body half</strong> via the <span class="mono">skill</span> tool (<span class="mono">Tool.make</span> + internal <span class="mono">permission.assert</span>(action: skill), not withPermission; input {name}) injected on demand. Progressive disclosure/lazy loading—same pattern as lesson 37's "list definitions/settle on demand" and lesson 42's "preview resident/full text spilled."</li>
     <li><strong>skill only "hands out the handbook," doesn't "do the work"</strong>: <span class="mono">toModelOutput</span> injects <span class="mono">&lt;skill_content&gt;</span> (instructions + base directory URL + <span class="mono">&lt;skill_files&gt;</span> list); actual execution via the model's existing general tools (read for scripts, bash to run, edit to change). A skill extends "knowing how to do it," not "what it can do."</li>
     <li><strong>M5+M7 meeting point</strong>: Skills fully uses Context Source (M5) + Tool.make (L36) + registry (L37, <span class="mono">SkillTool.layer</span>) + permissions (L41) + read (L38). One foot in context, one in tools—half-context, half-tool. A higher-level reuse built atop all prior abstractions.</li>
     <li><strong>Discoverable/distributable</strong>: <span class="mono">SkillDiscovery</span> indexes from a directory, can download skills from a URL. The file list is marked <span class="mono">sampled</span> (sampled, bounded), with layered lazy loading (skill body lazy-loaded, files within lazy-loaded again)—the "on demand, bounded" discipline runs through to M7's finale.</li>

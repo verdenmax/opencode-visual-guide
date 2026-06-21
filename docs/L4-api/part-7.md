@@ -8,7 +8,7 @@ opencode 源文件（`/home/verden/course/opencode`，除注明外均在 `packag
 | `tool/registry.ts` | `ToolRegistry`：`register`（`local: Map<name,Array<{token,registration:{identity,tool}}>>` 叠摞、`addFinalizer` 按 token 撤销、`uninterruptible`）；`materialize`（applications+local 摞顶、删 `whollyDisabled`→`{definitions,settle}`）；`settleWith`（验 identity→Stale tool call、catch ToolFailure、`resources.bound`） | L37 |
 | `tool/builtins.ts` | `locationLayer` = `Layer.mergeAll`(ApplyPatch/Bash/Edit/Glob/Grep/Question/Read(+FileSystem)/Skill/TodoWrite/WebFetch/WebSearch/Write).layer——各内置工具 Location 作用域自我登记 | L37, L38, L39, L40, L43 |
 | `tool/read.ts` · `read-filesystem.ts` | `read{path,offset?,limit?}`→`Content\|TextPage\|ListPage`（读文件 OR 列目录、翻页、图片→base64+图片 mime）；`permission.assert` 读权限 | L38 |
-| `tool/write.ts` | `write{path,content}`→`{operation:write,target,resource,existed}`；`withPermission "write"`；外部绝对路径需 external_directory | L38 |
+| `tool/write.ts` | `write{path,content}`→`{operation:write,target,resource,existed}`；`withPermission "edit"`（write/edit/apply_patch 共用 "edit" 权限）；外部绝对路径需 external_directory | L38 |
 | `tool/edit.ts` | `edit{path,oldString,newString,replaceAll?}`→`{...,replacements}`；验参(old==new/空串)→ToolFailure；`detectLineEnding`/`convertToLineEnding`(\n↔\r\n)；`countOccurrences`(0→拒/>1&!replaceAll→拒)；**`writeIfUnchanged({target,expected:source.content,content})`**(乐观并发 CAS)；`withPermission "edit"` | L38 |
 | `tool/apply-patch.ts` | `apply_patch{patchText}`→`{applied:[{type:add\|update\|delete,resource,target}]}`；`Patch` 模块；`name="apply_patch"`；`withPermission` | L38 |
 | `tool/glob.ts` · `grep.ts` | glob{pattern,path?,limit?}→Entry[]、grep{pattern,path?,include?,limit?}→Match[]；都用 `Ripgrep` 服务（默认尊重 .gitignore）；limit 上限 | L39 |
@@ -26,5 +26,5 @@ opencode 源文件（`/home/verden/course/opencode`，除注明外均在 `packag
 | `config/tool-output.ts` | `ConfigToolOutput.Info{max_lines?,max_bytes?}`——覆盖默认界 | L42 |
 | `skill/guidance.ts` | `SkillGuidance.load(agent)`→`SystemContext`（注入技能名+描述清单，Context Source）；Summary{name,description} | L43 |
 | `skill/discovery.ts` | `SkillDiscovery`：从目录索引（`Index{skills:IndexSkill{name,files}}`）、能从 URL `download` 技能 | L43 |
-| `tool/skill.ts` | `skill{name}`→{name,directory,output}；`withPermission`；`toModelOutput` 注入 `<skill_content>`（content + 基准目录 URL + `<skill_files>` 清单，"file list is sampled"） | L43 |
+| `tool/skill.ts` | `skill{name}`→{name,directory,output}；`Tool.make` + 内部 `permission.assert`(action: skill)（非 withPermission）；`toModelOutput` 注入 `<skill_content>`（content + 基准目录 URL + `<skill_files>` 清单，"file list is sampled"） | L43 |
 | `CONTEXT.md`（repo 根） | 与有界工具输出、Managed File 相关的设计概念 | L42 |

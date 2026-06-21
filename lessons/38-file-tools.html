@@ -342,9 +342,9 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <table class="t">
   <tr><th>工具</th><th>input</th><th>改动粒度</th><th>权限</th></tr>
   <tr><td>read</td><td>path, offset?, limit?</td><td>只读（可翻页、可列目录）</td><td>assert 读权限</td></tr>
-  <tr><td>write</td><td>path, content</td><td>整文件覆盖/新建</td><td>withPermission "write"</td></tr>
+  <tr><td>write</td><td>path, content</td><td>整文件覆盖/新建</td><td>withPermission "edit"</td></tr>
   <tr><td>edit</td><td>path, oldString, newString, replaceAll?</td><td>精确查找替换（一处或全部）</td><td>withPermission "edit"</td></tr>
-  <tr><td>apply_patch</td><td>patchText</td><td>多文件批量 add/update/delete</td><td>withPermission</td></tr>
+  <tr><td>apply_patch</td><td>patchText</td><td>多文件批量 add/update/delete</td><td>withPermission "edit"</td></tr>
 </table>
 <p>这张表本身就是一堂设计课。四个工具覆盖了一条<strong>从粗到细、从单到多</strong>的改动光谱：<span class="mono">write</span> 最粗（整页换）、<span class="mono">edit</span> 最细（一句改）、<span class="mono">apply_patch</span> 最广（跨文件一把梭），而 <span class="mono">read</span> 是唯一<strong>不产生副作用</strong>的观察者。为什么要分这么多把？因为<strong>不同的改动形状，配不同的工具最省 token、最不易出错</strong>：改一行用 edit（只发那一行），重写整文件用 write（不必发 diff），跨文件重构用 apply_patch（一次成型）。模型会根据要做的事，<strong>自己挑那把最趁手的</strong>。这正是第 36 课「一张表、各自填空」结出的果——四种填法，覆盖四种真实需求。</p>
 <p>另一个共性是<strong>路径的边界</strong>：所有文件工具的路径都<strong>相对于「当前 Location」（工作区）解析</strong>；Location 内的绝对路径可接受，但指向<strong>外部</strong>的绝对路径，需要额外的 <span class="mono">external_directory</span> 批准才放行。这是一道安全栅栏——agent 默认只能在它的工作区里折腾，想伸手到工作区外，得先过一道明确的许可。</p>
@@ -360,7 +360,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="cell"><div class="c-tag">update</div><div class="c-txt">修改一个已有文件</div></div>
   <div class="cell"><div class="c-tag">delete</div><div class="c-txt">删除一个文件</div></div>
 </div>
-<p>一段 <span class="mono">patchText</span> 里可以同时描述多文件的增、改、删，<span class="mono">apply_patch</span> <strong>顺序施工</strong>、逐条记进 <span class="mono">applied</span>。当模型要做一次「跨好几个文件的重构」时，比起连发十几次 edit，一次 apply_patch 既省 token、又让这组改动成为一个<strong>语义上的整体</strong>，要么整组生效、要么一眼看清在哪一步出了岔。</p>
+<p>一段 <span class="mono">patchText</span> 里可以同时描述多文件的增、改、删，<span class="mono">apply_patch</span> <strong>顺序施工</strong>、逐条记进 <span class="mono">applied</span>。当模型要做一次「跨好几个文件的重构」时，比起连发十几次 edit，一次 apply_patch 既省 token、又让这组改动成为一个<strong>语义上的整体</strong>（按顺序逐条施工、逐条记进 applied，方便一眼看清哪一步出了岔；注意目前并不支持失败自动回滚）。</p>
 
 <h2>worked-example：一次 edit 的完整一生</h2>
 <p>现在把 <span class="mono">edit</span> 的 <span class="mono">execute</span> 一步步摊开。表面上它只做一件事——「把文件里的 <span class="mono">oldString</span> 换成 <span class="mono">newString</span>」。但真实的执行，是一条布满护栏的流水线：</p>
@@ -402,7 +402,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <li><strong>edit 的四道护栏</strong>：精确匹配（不模糊）、歧义拒绝（多匹配不猜）、行尾归一（\n↔\r\n）、乐观并发写（<span class="mono">writeIfUnchanged</span> 不覆盖别人）。真正「替换」只一行，其余全是护栏。</li>
     <li><strong>路径边界</strong>：相对「当前 Location」解析；外部绝对路径需 <span class="mono">external_directory</span> 批准。安全栅栏让 agent 默认只在工作区内活动。</li>
   </ul>
-  <p>这一课的主旋律——「让 AI 安全地改代码，难点在护栏不在替换」——会一路贯穿 M7。下一课（第 39 课）转向<strong>搜索与执行工具</strong>：<span class="mono">glob</span>（按名找文件）、<span class="mono">grep</span>（按内容搜）、<span class="mono">bash</span>（跑命令）——其中 bash 经 PTY 运行、又是另一圈精巧的护栏。读文件、搜文件、跑命令，是 coding agent 的三大基本功，这两课把前两样讲透。</p>
+  <p>这一课的主旋律——「让 AI 安全地改代码，难点在护栏不在替换」——会一路贯穿 M7。下一课（第 39 课）转向<strong>搜索与执行工具</strong>：<span class="mono">glob</span>（按名找文件）、<span class="mono">grep</span>（按内容搜）、<span class="mono">bash</span>（跑命令）——其中 bash 经子进程（spawn）批处理运行、又是另一圈精巧的护栏（注意：bash 不走 PTY，下一课会澄清）。读文件、搜文件、跑命令，是 coding agent 的三大基本功，这两课把前两样讲透。</p>
 </div>
 
 <div class="card detail">
@@ -445,7 +445,7 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。write 最粗（整页换）、edit 最细（一句改）、apply_patch 最广（跨文件一把梭）、read 是唯一无副作用的观察者。不同改动形状配不同工具最省 token、最不易错：改一行用 edit、重写整文件用 write、跨文件重构用 apply_patch，模型自己挑趁手的。四者都在填第 36 课那张 Config 表——各声明 input/output schema + execute，套 withPermission。这正是「一张表、各自填空」的果。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。write 最粗（整页换）、edit 最细（一句改）、apply_patch 最广（跨文件一把梭）、read 是唯一无副作用的观察者。不同改动形状配不同工具最省 token、最不易错：改一行用 edit、重写整文件用 write、跨文件重构用 apply_patch，模型自己挑趁手的。四者都在填第 36 课那张 Config 表——各声明 input/output schema + execute，套权限（write/edit/apply_patch 经 withPermission "edit"、read 经内部 permission.assert）。这正是「一张表、各自填空」的果。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -484,7 +484,7 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
 </div></div>
   <div class="lang-en">
 <p class="lead">The prior two lessons built the tool system's <strong>skeleton</strong>: how a tool is defined (lesson 36's <span class="mono">Tool.make</span>), how it's collected into a model-visible list (lesson 37's registry). From this lesson, we dive into <strong>individual real tools</strong>, watching "the skeleton grow flesh." First the most everyday—and most skill-testing—family: <strong>file tools</strong>: <span class="mono">read</span>, <span class="mono">write</span> (whole-write), <span class="mono">edit</span> (precise edit), <span class="mono">apply_patch</span> (batch patching). For a code-writing agent, the vast majority of actions land as these four "hands" reading and changing files.</p>
-<p>This lesson has two layers of payoff. One, <strong>confirming lesson 36</strong>: you'll see firsthand these four tools are <strong>all different fillings of the same <span class="mono">Config</span> form</strong>—each declaring input/output schema + execute, wrapped in <span class="mono">withPermission</span>, nothing more. Two, the centerpiece: we'll <strong>unfold the edit tool's execution step by step</strong> (the spec-named worked-example), seeing how much <strong>production-grade rigor</strong> hides behind a small "change this text to that" operation—exact match, ambiguity refusal, line-ending normalization, optimistic-concurrency write. You'll come away understanding: letting AI safely change your code, <strong>the hard part was never "string replacement," but the ring of guardrails around it—"don't guess, don't err, don't clobber others."</strong></p>
+<p>This lesson has two layers of payoff. One, <strong>confirming lesson 36</strong>: you'll see firsthand these four tools are <strong>all different fillings of the same <span class="mono">Config</span> form</strong>—each declaring input/output schema + execute, permissioned (write/edit/apply_patch via <span class="mono">withPermission "edit"</span>, read via internal <span class="mono">permission.assert</span>), nothing more. Two, the centerpiece: we'll <strong>unfold the edit tool's execution step by step</strong> (the spec-named worked-example), seeing how much <strong>production-grade rigor</strong> hides behind a small "change this text to that" operation—exact match, ambiguity refusal, line-ending normalization, optimistic-concurrency write. You'll come away understanding: letting AI safely change your code, <strong>the hard part was never "string replacement," but the ring of guardrails around it—"don't guess, don't err, don't clobber others."</strong></p>
 
 <div class="card analogy">
   <div class="tag">✍️ Analogy</div>
@@ -496,9 +496,9 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
 <table class="t">
   <tr><th>Tool</th><th>input</th><th>Change granularity</th><th>Permission</th></tr>
   <tr><td>read</td><td>path, offset?, limit?</td><td>read-only (paging, directory listing)</td><td>assert read permission</td></tr>
-  <tr><td>write</td><td>path, content</td><td>whole-file overwrite/create</td><td>withPermission "write"</td></tr>
+  <tr><td>write</td><td>path, content</td><td>whole-file overwrite/create</td><td>withPermission "edit"</td></tr>
   <tr><td>edit</td><td>path, oldString, newString, replaceAll?</td><td>exact find-replace (one or all)</td><td>withPermission "edit"</td></tr>
-  <tr><td>apply_patch</td><td>patchText</td><td>multi-file batch add/update/delete</td><td>withPermission</td></tr>
+  <tr><td>apply_patch</td><td>patchText</td><td>multi-file batch add/update/delete</td><td>withPermission "edit"</td></tr>
 </table>
 <p>This table is itself a design lesson. The four cover a <strong>coarse-to-fine, single-to-many</strong> change spectrum: <span class="mono">write</span> coarsest (whole page swap), <span class="mono">edit</span> finest (one sentence change), <span class="mono">apply_patch</span> broadest (cross-file in one go), and <span class="mono">read</span> the only <strong>side-effect-free</strong> observer. Why so many? Because <strong>different change shapes fit different tools to save the most tokens and least err</strong>: change one line with edit (send just that line), rewrite a whole file with write (no diff needed), refactor across files with apply_patch (formed in one pass). The model, per the task, <strong>picks the handiest one itself</strong>. This is the fruit of lesson 36's "one form, each fills blanks"—four fillings, covering four real needs.</p>
 <p>Another commonality is the <strong>path boundary</strong>: all file tools' paths resolve <strong>relative to the "active Location" (workspace)</strong>; absolute paths inside the Location are accepted, but absolute paths pointing <strong>outside</strong> require extra <span class="mono">external_directory</span> approval. This is a security fence—the agent by default can only mess within its workspace; reaching outside needs explicit permission first.</p>
@@ -514,7 +514,7 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
   <div class="cell"><div class="c-tag">update</div><div class="c-txt">modify an existing file</div></div>
   <div class="cell"><div class="c-tag">delete</div><div class="c-txt">delete a file</div></div>
 </div>
-<p>One <span class="mono">patchText</span> can describe adds, updates, deletes across multiple files at once; <span class="mono">apply_patch</span> <strong>executes sequentially</strong>, logging each into <span class="mono">applied</span>. When the model wants "a refactor across several files," versus firing a dozen edits, one apply_patch both saves tokens and makes this group of changes <strong>a semantic whole</strong>.</p>
+<p>One <span class="mono">patchText</span> can describe adds, updates, deletes across multiple files at once; <span class="mono">apply_patch</span> <strong>executes sequentially</strong>, logging each into <span class="mono">applied</span>. When the model wants "a refactor across several files," versus firing a dozen edits, one apply_patch both saves tokens and makes this group of changes <strong>a semantic whole</strong> (sequential, each logged into applied for easy "which step went wrong" inspection; note automatic rollback on failure is not yet supported).</p>
 
 <h2>Worked-example: a single edit's full life</h2>
 <p>Now unfold <span class="mono">edit</span>'s <span class="mono">execute</span> step by step. On the surface it does one thing—"replace <span class="mono">oldString</span> with <span class="mono">newString</span> in the file." But the real execution is a pipeline lined with guardrails:</p>
@@ -556,7 +556,7 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
     <li><strong>edit's four guardrails</strong>: exact match (no fuzzy), ambiguity refusal (multiple matches, no guessing), line-ending normalization (\n↔\r\n), optimistic-concurrency write (<span class="mono">writeIfUnchanged</span> doesn't clobber). Only one line actually "replaces," the rest all guardrails.</li>
     <li><strong>Path boundary</strong>: resolved relative to "active Location"; external absolute paths need <span class="mono">external_directory</span> approval. A security fence keeping the agent within its workspace by default.</li>
   </ul>
-  <p>This lesson's main theme—"letting AI safely change code, the difficulty is in guardrails not replacement"—runs through all of M7. The next lesson (39) turns to <strong>search & exec tools</strong>: <span class="mono">glob</span> (find files by name), <span class="mono">grep</span> (search by content), <span class="mono">bash</span> (run commands)—where bash runs via PTY, another ring of fine guardrails. Reading files, searching files, running commands are a coding agent's three basic skills; these two lessons cover the first two thoroughly.</p>
+  <p>This lesson's main theme—"letting AI safely change code, the difficulty is in guardrails not replacement"—runs through all of M7. The next lesson (39) turns to <strong>search & exec tools</strong>: <span class="mono">glob</span> (find files by name), <span class="mono">grep</span> (search by content), <span class="mono">bash</span> (run commands)—where bash runs via spawned subprocess (batch), another ring of fine guardrails (note: bash does NOT use PTY, the next lesson clarifies). Reading files, searching files, running commands are a coding agent's three basic skills; these two lessons cover the first two thoroughly.</p>
 </div>
 
 <div class="card detail">
@@ -599,7 +599,7 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. write coarsest (whole-page swap), edit finest (one-sentence change), apply_patch broadest (cross-file in one go), read the only side-effect-free observer. Different change shapes fit different tools to save tokens and least err: change one line with edit, rewrite a whole file with write, refactor across files with apply_patch, the model picking. All four fill lesson 36's Config form — declaring input/output schema + execute, wrapped in withPermission. The fruit of "one form, each fills blanks."</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. write coarsest (whole-page swap), edit finest (one-sentence change), apply_patch broadest (cross-file in one go), read the only side-effect-free observer. Different change shapes fit different tools to save tokens and least err: change one line with edit, rewrite a whole file with write, refactor across files with apply_patch, the model picking. All four fill lesson 36's Config form — declaring input/output schema + execute, permissioned (write/edit/apply_patch via withPermission "edit", read via internal permission.assert). The fruit of "one form, each fills blanks."</div></div></div>
   </details>
 </div>
 <div class="quiz">

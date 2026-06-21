@@ -53,6 +53,6 @@
 ## L43 Skills 系统
 
 - **skill = 知识+步骤+配套文件的打包单元**（`skill/*`、`tool/skill.ts`），按需加载。给 agent 加本领=往技能库丢一个 skill，不重训模型、不改代码。
-- **两段式架构（核心）**：**名字半**经 `SkillGuidance.load(agent)` → `SystemContext`（M5 Context Source、第 21~27 课）常驻注入（仅 `<name>`+`<description>` + 一句「匹配时用 skill 工具加载」，省 token、随时可见）；**正文半**经 `withPermission` 的 `skill` 工具（input `{name}`）`toModelOutput` 按需注入完整 `<skill_content>`（指令 + 基准目录 URL + `<skill_files>` 清单）。**渐进式披露/懒加载**——与第 37 课「definitions 全列/settle 按需」、第 42 课「预览常驻/全文 spill」同一套路。
+- **两段式架构（核心）**：**名字半**经 `SkillGuidance.load(agent)` → `SystemContext`（M5 Context Source、第 21~27 课）常驻注入（仅 `<name>`+`<description>` + 一句「匹配时用 skill 工具加载」，省 token、随时可见）；**正文半**经 `skill` 工具（`Tool.make` + 内部 `permission.assert`(action: skill)，非 withPermission；input `{name}`）`toModelOutput` 按需注入完整 `<skill_content>`（指令 + 基准目录 URL + `<skill_files>` 清单）。**渐进式披露/懒加载**——与第 37 课「definitions 全列/settle 按需」、第 42 课「预览常驻/全文 spill」同一套路。
 - **skill 只「发讲义」不「干活」**：注入正文（含基准目录与文件清单），真正执行靠模型已有通用工具（read 读 scripts/、bash 跑、edit 改）。技能扩展「知道该怎么做」（方法论），非「能做什么」（能力）。
 - **M5+M7 交汇点**：用全 Context Source（M5）+ Tool.make（L36）+ 注册表（L37，`SkillTool.layer`）+ 权限（L41）+ read（L38）；半上下文、半工具。`SkillDiscovery`（`skill/discovery.ts`）从目录索引（Index{name,files}）、能从 URL 下载——可发现/分发/扩展。文件清单标注 `sampled`（抽样、有界），层层懒加载。

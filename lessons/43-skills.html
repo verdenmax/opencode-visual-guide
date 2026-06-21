@@ -348,7 +348,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <p>Skills 系统的灵魂，是把这样一个技能<strong>劈成两半</strong>，分走两条完全不同的通道。这张对照表是这一课最该记住的东西：</p>
 <div class="cols">
   <div class="col"><h4>「名字」半 · 走 Context Source</h4><p><span class="mono">SkillGuidance.load(agent)</span> 返回一个 <span class="mono">SystemContext</span>（第 21~27 课的源！），往系统上下文注入一份<strong>技能清单</strong>——每个只有 <span class="mono">&lt;name&gt;</span> + <span class="mono">&lt;description&gt;</span>，外加一句「任务匹配某技能时，用 skill 工具加载它」。<strong>常驻、便宜、模型随时看得见。</strong></p></div>
-  <div class="col"><h4>「正文」半 · 走 skill 工具</h4><p><span class="mono">skill</span> 工具（<span class="mono">withPermission</span> 权限化）：input 一个 <span class="mono">{name}</span>。模型调用它，<span class="mono">toModelOutput</span> 把该技能的<strong>完整正文</strong>（指令 + 基准目录 + 文件清单）注入对话。<strong>按需、昂贵、只在用到时取。</strong></p></div>
+  <div class="col"><h4>「正文」半 · 走 skill 工具</h4><p><span class="mono">skill</span> 工具（经内部 <span class="mono">permission.assert</span>(action: skill) 权限化，非 withPermission）：input 一个 <span class="mono">{name}</span>。模型调用它，<span class="mono">toModelOutput</span> 把该技能的<strong>完整正文</strong>（指令 + 基准目录 + 文件清单）注入对话。<strong>按需、昂贵、只在用到时取。</strong></p></div>
 </div>
 <p>为什么非要劈成两半？因为<strong>「全都加载」根本行不通</strong>。设想技能库里有上百个技能，每个正文动辄几千字——若开局就把它们的全文一股脑塞进上下文，<strong>窗口瞬间爆满，正经对话没地方放了</strong>。但模型又必须<strong>知道有哪些技能可用</strong>，否则它根本想不到去调用。两段式正是这对矛盾的优雅解：<strong>把「有什么」（廉价的名字）和「具体是什么」（昂贵的正文）分开</strong>——名字便宜，全摆出来当目录；正文昂贵，谁用到谁再取。这和第 37 课注册表的「definitions 全列、settle 按需执行」、第 42 课的「预览常驻、全文 spill 待取」，是<strong>同一个套路在不同地方的第三次现身</strong>。<strong>opencode 反反复复在用这一招：先廉价地广而告之，再昂贵地按需兑现。</strong></p>
 <div class="flow">
@@ -376,7 +376,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="cell"><div class="c-tag">用 Context Source（M5）</div><div class="c-txt">技能名+描述经 SystemContext 常驻注入（第 21~27 课）</div></div>
   <div class="cell"><div class="c-tag">用 Tool.make（L36）</div><div class="c-txt">skill 工具本身就是一张填好的 Config 表</div></div>
   <div class="cell"><div class="c-tag">用注册表（L37）</div><div class="c-txt">skill 工具经 SkillTool.layer 在 locationLayer 里自我登记</div></div>
-  <div class="cell"><div class="c-tag">用权限（L41）</div><div class="c-txt">skill 工具 withPermission——加载技能也要过许可</div></div>
+  <div class="cell"><div class="c-tag">用权限（L41）</div><div class="c-txt">skill 工具内部调 permission.assert(action: skill)——加载技能也要过许可</div></div>
   <div class="cell"><div class="c-tag">用 read 等工具（L38）</div><div class="c-txt">正文引用的脚本/文件，靠通用 read 工具去取</div></div>
   <div class="cell"><div class="c-tag">发现与下载</div><div class="c-txt">SkillDiscovery 从目录索引、还能从 URL 下载技能</div></div>
 </div>
@@ -419,7 +419,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="tag">🎯 本课要点</div>
   <ul>
     <li><strong>skill = 知识+步骤+配套文件的打包单元</strong>（<span class="mono">core/src/skill/*</span>、<span class="mono">tool/skill.ts</span>），按需加载。给 agent 加本领 = 往技能库丢一个 skill，不重训模型、不改代码。</li>
-    <li><strong>两段式架构（核心）</strong>：<strong>名字半</strong>经 <span class="mono">SkillGuidance.load</span> → <span class="mono">SystemContext</span>（M5 Context Source，第 21~27 课）常驻注入（仅 name+description，省 token、随时可见）；<strong>正文半</strong>经 <span class="mono">withPermission</span> 的 <span class="mono">skill</span> 工具（input {name}）按需注入完整正文。渐进式披露/懒加载——与第 37 课「definitions 全列/settle 按需」、第 42 课「预览常驻/全文 spill」同一套路。</li>
+    <li><strong>两段式架构（核心）</strong>：<strong>名字半</strong>经 <span class="mono">SkillGuidance.load</span> → <span class="mono">SystemContext</span>（M5 Context Source，第 21~27 课）常驻注入（仅 name+description，省 token、随时可见）；<strong>正文半</strong>经 <span class="mono">skill</span> 工具（<span class="mono">Tool.make</span> + 内部 <span class="mono">permission.assert</span>(action: skill)，非 withPermission；input {name}）按需注入完整正文。渐进式披露/懒加载——与第 37 课「definitions 全列/settle 按需」、第 42 课「预览常驻/全文 spill」同一套路。</li>
     <li><strong>skill 只「发讲义」、不「干活」</strong>：<span class="mono">toModelOutput</span> 注入 <span class="mono">&lt;skill_content&gt;</span>（指令 + 基准目录 URL + <span class="mono">&lt;skill_files&gt;</span> 清单）；真正执行靠模型已有通用工具（read 读脚本、bash 跑、edit 改）。技能扩展「知道该怎么做」，非「能做什么」。</li>
     <li><strong>M5+M7 交汇点</strong>：Skills 用全 Context Source（M5）+ Tool.make（L36）+ 注册表（L37，<span class="mono">SkillTool.layer</span>）+ 权限（L41）+ read（L38）。一只脚在上下文、一只脚在工具——半上下文、半工具。是建立在前面所有抽象之上的更高层复用。</li>
     <li><strong>可发现/可分发</strong>：<span class="mono">SkillDiscovery</span> 从目录索引、能从 URL 下载技能。文件清单标注 <span class="mono">sampled</span>（抽样、有界），层层懒加载（技能正文懒加载、技能内文件再懒加载）——「按需、有界」纪律贯穿到 M7 收官。</li>
@@ -437,7 +437,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。「全都加载」行不通：上百个技能、每个正文几千字，开局全塞进上下文会瞬间爆满。但模型又必须知道有哪些技能可用。两段式正是这对矛盾的解：把「有什么」（廉价名字+描述，经 SkillGuidance→SystemContext 常驻，第21~27课 Context Source）和「具体是什么」（昂贵正文，经 withPermission 的 skill 工具按需注入）分开——渐进式披露/懒加载。这和第37课「definitions 全列/settle 按需」、第42课「预览常驻/全文 spill」是同一套路。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。「全都加载」行不通：上百个技能、每个正文几千字，开局全塞进上下文会瞬间爆满。但模型又必须知道有哪些技能可用。两段式正是这对矛盾的解：把「有什么」（廉价名字+描述，经 SkillGuidance→SystemContext 常驻，第21~27课 Context Source）和「具体是什么」（昂贵正文，经 skill 工具——Tool.make+内部 permission.assert(action skill)——按需注入）分开——渐进式披露/懒加载。这和第37课「definitions 全列/settle 按需」、第42课「预览常驻/全文 spill」是同一套路。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -494,7 +494,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <p>The Skills system's soul is splitting such a skill <strong>in two</strong>, routed down two completely different channels. This table is the thing to remember most from this lesson:</p>
 <div class="cols">
   <div class="col"><h4>"name" half · via Context Source</h4><p><span class="mono">SkillGuidance.load(agent)</span> returns a <span class="mono">SystemContext</span> (lessons 21–27's source!), injecting into the system context a <strong>skill catalog</strong>—each with just <span class="mono">&lt;name&gt;</span> + <span class="mono">&lt;description&gt;</span>, plus "when a task matches a skill, load it with the skill tool." <strong>Resident, cheap, always visible to the model.</strong></p></div>
-  <div class="col"><h4>"body" half · via the skill tool</h4><p>The <span class="mono">skill</span> tool (<span class="mono">withPermission</span> permissioned): input a <span class="mono">{name}</span>. The model calls it, and <span class="mono">toModelOutput</span> injects that skill's <strong>full body</strong> (instructions + base directory + file list) into the conversation. <strong>On demand, expensive, fetched only when used.</strong></p></div>
+  <div class="col"><h4>"body" half · via the skill tool</h4><p>The <span class="mono">skill</span> tool (permissioned via an internal <span class="mono">permission.assert</span>(action: skill), not withPermission): input a <span class="mono">{name}</span>. The model calls it, and <span class="mono">toModelOutput</span> injects that skill's <strong>full body</strong> (instructions + base directory + file list) into the conversation. <strong>On demand, expensive, fetched only when used.</strong></p></div>
 </div>
 <p>Why split in two? Because "<strong>load everything</strong>" simply won't work. Imagine the library has hundreds of skills, each body thousands of words—loading all their full text into context at the start would <strong>instantly max out the window, leaving no room for the actual conversation</strong>. Yet the model must <strong>know which skills are available</strong>, else it'd never think to call one. The two stages elegantly resolve this tension: <strong>separate "what exists" (cheap names) from "what it specifically is" (expensive body)</strong>—names cheap, all laid out as a catalog; body expensive, fetched only by whoever needs it. This, lesson 37's registry "list all definitions, settle on demand," and lesson 42's "preview resident, full text spilled for retrieval" are <strong>the same pattern's third appearance in a different place</strong>. <strong>opencode uses this move over and over: cheaply advertise first, expensively fulfill on demand.</strong></p>
 <div class="flow">
@@ -522,7 +522,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="cell"><div class="c-tag">uses Context Source (M5)</div><div class="c-txt">skill name+description resident-injected via SystemContext (lessons 21–27)</div></div>
   <div class="cell"><div class="c-tag">uses Tool.make (L36)</div><div class="c-txt">the skill tool is itself a filled-in Config form</div></div>
   <div class="cell"><div class="c-tag">uses the registry (L37)</div><div class="c-txt">the skill tool self-registers in locationLayer via SkillTool.layer</div></div>
-  <div class="cell"><div class="c-tag">uses permissions (L41)</div><div class="c-txt">the skill tool withPermission—loading a skill needs permission too</div></div>
+  <div class="cell"><div class="c-tag">uses permissions (L41)</div><div class="c-txt">the skill tool calls permission.assert(action: skill) internally—loading a skill needs permission too</div></div>
   <div class="cell"><div class="c-tag">uses read etc. (L38)</div><div class="c-txt">the body's referenced scripts/files are fetched by the general read tool</div></div>
   <div class="cell"><div class="c-tag">discovery & download</div><div class="c-txt">SkillDiscovery indexes from a directory, and can download skills from a URL</div></div>
 </div>
@@ -565,7 +565,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="tag">🎯 Key Takeaways</div>
   <ul>
     <li><strong>skill = a packaged unit of knowledge+steps+accompanying files</strong> (<span class="mono">core/src/skill/*</span>, <span class="mono">tool/skill.ts</span>), loaded on demand. Adding a competence = drop a skill into the library, no retraining, no code change.</li>
-    <li><strong>Two-stage architecture (core)</strong>: the <strong>name half</strong> via <span class="mono">SkillGuidance.load</span> → <span class="mono">SystemContext</span> (M5 Context Source, lessons 21–27) resident-injected (only name+description, token-saving, always visible); the <strong>body half</strong> via the <span class="mono">withPermission</span> <span class="mono">skill</span> tool (input {name}) injected on demand. Progressive disclosure/lazy loading—same pattern as lesson 37's "list definitions/settle on demand" and lesson 42's "preview resident/full text spilled."</li>
+    <li><strong>Two-stage architecture (core)</strong>: the <strong>name half</strong> via <span class="mono">SkillGuidance.load</span> → <span class="mono">SystemContext</span> (M5 Context Source, lessons 21–27) resident-injected (only name+description, token-saving, always visible); the <strong>body half</strong> via the <span class="mono">skill</span> tool (<span class="mono">Tool.make</span> + internal <span class="mono">permission.assert</span>(action: skill), not withPermission; input {name}) injected on demand. Progressive disclosure/lazy loading—same pattern as lesson 37's "list definitions/settle on demand" and lesson 42's "preview resident/full text spilled."</li>
     <li><strong>skill only "hands out the handbook," doesn't "do the work"</strong>: <span class="mono">toModelOutput</span> injects <span class="mono">&lt;skill_content&gt;</span> (instructions + base directory URL + <span class="mono">&lt;skill_files&gt;</span> list); actual execution via the model's existing general tools (read for scripts, bash to run, edit to change). A skill extends "knowing how to do it," not "what it can do."</li>
     <li><strong>M5+M7 meeting point</strong>: Skills fully uses Context Source (M5) + Tool.make (L36) + registry (L37, <span class="mono">SkillTool.layer</span>) + permissions (L41) + read (L38). One foot in context, one in tools—half-context, half-tool. A higher-level reuse built atop all prior abstractions.</li>
     <li><strong>Discoverable/distributable</strong>: <span class="mono">SkillDiscovery</span> indexes from a directory, can download skills from a URL. The file list is marked <span class="mono">sampled</span> (sampled, bounded), with layered lazy loading (skill body lazy-loaded, files within lazy-loaded again)—the "on demand, bounded" discipline runs through to M7's finale.</li>
@@ -583,7 +583,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. "Load everything" won't work: hundreds of skills, each body thousands of words, stuffed into context at the start would instantly max it out. Yet the model must know which skills exist. The two stages resolve this: separate "what exists" (cheap name+description, resident via SkillGuidance→SystemContext, lessons 21–27's Context Source) from "what it specifically is" (expensive body, injected on demand via the withPermission skill tool) — progressive disclosure/lazy loading. Same pattern as lesson 37's "list definitions/settle on demand" and lesson 42's "preview resident/full text spilled."</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. "Load everything" won't work: hundreds of skills, each body thousands of words, stuffed into context at the start would instantly max it out. Yet the model must know which skills exist. The two stages resolve this: separate "what exists" (cheap name+description, resident via SkillGuidance→SystemContext, lessons 21–27's Context Source) from "what it specifically is" (expensive body, injected on demand via the skill tool — Tool.make + internal permission.assert(action skill)) — progressive disclosure/lazy loading. Same pattern as lesson 37's "list definitions/settle on demand" and lesson 42's "preview resident/full text spilled."</div></div></div>
   </details>
 </div>
 <div class="quiz">
