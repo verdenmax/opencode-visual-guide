@@ -328,8 +328,292 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第四部分 · Session 与 agent 循环</span><span class="lang-en">Part 4 · Session Core</span></div>
     <h1><span class="lang-zh">投影历史</span><span class="lang-en">Projected history</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《投影历史》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“投影历史”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Projected history" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Projected history" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">第 15 课埋了一个伏笔：会话的真相，是一长串<strong>只追加、永不改写</strong>的事件。第 17 课的循环又反复强调一句：每一轮都<strong>「重读投影历史」</strong>。这两件事之间，缺了一块拼图——<strong>那一串干巴巴的事件，是怎么变成模型能读的一段干净对话的？</strong>这一课就补上它。答案是一个经典而优雅的架构：<strong>写的时候用事件（append-only），读的时候用「投影」出来的消息视图</strong>。事件是底账，投影是据底账随时誊出的、随时可读的「报表」。读懂这一课，你就理解了 opencode 如何同时拥有「事件的可靠」与「消息的好读」——鱼与熊掌兼得的秘密，就在「投影」二字。</p>
+<p>为什么要把「读」和「写」分成两种形状？因为它俩的诉求<strong>恰好相反</strong>。写，要的是<strong>只追加、不可变、有序</strong>——这样才崩不丢、可重放、能定责（第 15 课）。读，要的是<strong>当下、干净、现成</strong>——模型每轮要的是「现在这段对话长什么样」，可不想自己把几百个事件从头重放一遍。硬用一种形状同时满足这两端，必然两头都别扭。opencode 的解法，是数据库和会计行当用了几十年的老智慧：<strong>底账只管追加，报表据底账投影</strong>。这一课就拆开这套「一份真相、两种形状」的设计。</p>
+
+<div class="card analogy">
+  <div class="tag">🏦 生活类比</div>
+  把会话的存储想成一家<strong>银行的账务系统</strong>。每一笔存取，都被一字不改地记进<strong>流水账</strong>（事件日志）：只追加、绝不涂改，是法律意义上铁打的底账——要更正，也只能<strong>再追加一笔冲账</strong>，而非擦掉旧的。但你想知道「我现在有多少钱」，<strong>没人会把开户至今的每笔流水重算一遍</strong>；银行维护着一份<strong>对账单</strong>（投影出来的消息视图），随时誊新、一眼可读。后台那个不停把流水誊进对账单的过程，就是<strong>投影器</strong>。当 agent 循环要「读历史」时，它读的是这份<strong>对账单</strong>，而不是原始流水。更妙的是，对账单还会写明「<strong>本期起于上月结余</strong>」——久远的流水被一笔「结余」概括掉，你不必、也读不到那么早（这就是压缩与上下文纪元的边界）。底账求稳、报表求快，这家银行两样都要。
+</div>
+
+<h2>一份真相，两种形状</h2>
+<p>整套设计的核心，是把同一份真相<strong>分成两端、各取所需</strong>。<strong>写端</strong>是事件日志：第 15 课的 <span class="mono">admit</span>、模型每吐一个片段、每个工具状态翻牌……全是往事件流里<strong>追加</strong>一条不可变记录。<strong>读端</strong>是投影出来的消息/部件表（<span class="mono">MessageTable</span> / <span class="mono">PartTable</span>）：一份<strong>誊写好的、可直接读的</strong>对话。两端由中间的<strong>投影器</strong>（<span class="mono">SessionProjector</span>）连起来——它消费事件，把它们「应用」成消息表里的行。</p>
+<div class="cols">
+  <div class="col"><h4>写端 · 事件（底账）</h4><p>append-only、不可变、有序。求<strong>稳</strong>：崩不丢、可重放、可定责。但直接读它，得自己重放一切。</p></div>
+  <div class="col"><h4>读端 · 投影消息（报表）</h4><p>誊写好、当下、现成。求<strong>快</strong>：模型一读即用，不必重放。它是底账的「投影」，可随时据底账重建。</p></div>
+</div>
+<p>这套「写一种、读一种」的分家，在工程上有个名字叫 <strong>CQRS / 事件溯源读模型</strong>——但名字不重要，重要的是那个直觉：<strong>底账与报表，是同一份真相的两张脸。</strong>报表丢了不要紧，照底账能重新投影出来；但底账要是被改写了，那就真的失去了真相。所以 opencode 把「不可变的权威」放在事件这一端，把「可重建的便利」放在投影这一端——<strong>权威的那份永不可变，好读的那份随时可弃可重建</strong>。这个主次一旦摆正，可靠和好读就不再打架了。一旦你习惯用「底账 vs 报表」这副眼镜看系统，你会在很多地方认出它：数据库的物化视图、缓存与源数据、甚至 git 的提交历史与工作区——都是同一种「权威只追加、视图可重建」的分工。</p>
+<div class="flow">
+  <div class="node">事件日志<span class="sub">append-only·底账（第 15 课）</span></div>
+  <div class="arrow">投影器 →</div>
+  <div class="node">消息/部件表<span class="sub">誊写好的读模型</span></div>
+  <div class="arrow">history.load →</div>
+  <div class="node">agent 循环<span class="sub">每轮重读（第 17 课）</span></div>
+</div>
+
+<h2>投影器：把事件誊成消息</h2>
+<p><span class="mono">SessionProjector</span>（<span class="mono">projector.ts</span>）就是那个后台誊账的clerk。它消费一个个事件，往 <span class="mono">MessageTable</span>/<span class="mono">PartTable</span> 里<strong>插入或更新</strong>对应的行——一个 <span class="mono">Admitted</span> 事件投影成一条 User 消息，一串流式片段投影成 Assistant 消息里逐渐长出的 part 数组，一个工具状态变更更新对应 tool part 的 state……源码里有一行注释很能说明它的谨慎：「<strong>更新的回合会取代过时的残行；绝不接着投影一条更老的 assistant 记录</strong>」。换句话说，投影不是无脑追加，它<strong>懂得新回合该盖过旧的、半截的残留</strong>，保证誊出来的对账单始终自洽。</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">事件流来一个 PromptLifecycle.Admitted → 投影成一条 User 消息行</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">模型流式 text/reasoning/tool-call 片段 → 长进 Assistant 消息的 part 数组</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">工具状态翻牌 → 更新对应 tool part 的 state（completed/error）</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">新回合到来 → 取代过时残行，绝不续写更老的投影</span></div>
+</div>
+<p>这就回答了第 14 课留下的一个隐线：那些 Session/Message/Part 的结构化数据，是<strong>谁、在何时</strong>填进数据库的？答案是投影器，<strong>在事件到达时</strong>。第 14 课讲的是数据的<strong>形状</strong>，这一课讲的是这些形状<strong>怎么被一点点誊出来</strong>。两课合起来，你才看清 opencode 那套消息模型完整的「从事件到可读」的来路——形状有了、誊写的人也有了，那张对账单才算真正立得起来。</p>
+
+<h2>为什么不干脆每次重放事件？</h2>
+<p>你可能会想：既然事件是底账，那每次要读历史时，把事件从头重放一遍、现算出当前对话，不就行了？何必额外维护一份投影、还要操心它和事件同不同步？这是个好问题，答案藏在「读」的频率里。回想第 17 课：agent 循环<strong>每一轮</strong>都要重读历史——一段长会话可能有几百轮、上千个事件。若每轮都把全部事件从头重放一遍，代价随对话<strong>越滚越大</strong>，到后面光「准备这一轮的输入」就慢得让人抓狂。</p>
+<div class="cols">
+  <div class="col"><h4>❌ 每次读都重放事件</h4><p>读端零维护、永远准。但每读一次都要重放全部事件，代价随历史线性增长——高频的「每轮重读」会被拖垮。</p></div>
+  <div class="col"><h4>✅ 维护一份投影，读时直取</h4><p>把重放的代价一次性付在<strong>写端</strong>（事件到达时誊一笔）；读端永远是现成的，每轮重读都廉价。代价是要维护投影的一致。</p></div>
+</div>
+<p>opencode 选了后者，本质是一笔<strong>「拿写端的一次性成本，换读端的长久廉价」</strong>的交易。事件到达时，投影器顺手誊一笔（写端多花一点）；此后无论这段历史被重读多少轮，每次都只是从消息表里直接 <span class="mono">select</span>（读端永远便宜）。对一个「写一次、读千遍」的 agent 循环，这笔账怎么算都划算。这也正是数据库给视图建物化（materialized view）、给热点查询建索引时的同一笔算计：<strong>把贵的活挪到低频的写端做一次，让高频的读端永远捡现成。</strong></p>
+
+<h2>history.load：读一段「有界」的历史</h2>
+<p>读端的入口，是 <span class="mono">SessionHistory.load</span>（<span class="mono">history.ts</span>）——第 17 课循环里「重读投影历史」那一下，底下调的就是它。但它有个极关键的细节：它<strong>不</strong>把开天辟地以来的所有消息都捞出来，而是读一段<strong>有界</strong>的窗口。它先并发查两样东西，界定这扇窗的边界：</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">全</span><span class="name">完整事件/消息历史</span></div><div class="ld">开天辟地以来的一切——但不全读</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">界</span><span class="name">最近一次 compaction</span></div><div class="ld">久远部分被概括成一条压缩消息，从它往后读</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">界</span><span class="name">上下文纪元 baseline_seq</span></div><div class="ld">界定哪些 system 消息算数（第 24 课）</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">窗</span><span class="name">本轮该读的历史窗口</span></div><div class="ld">只 decode 这一扇窗的消息行喂给模型</div></div>
+</div>
+<div class="cellgroup">
+  <div class="cell"><div class="k">最近一次压缩</div><div class="v">latestCompaction：久远的对话被概括成一条 compaction，从它往后读即可</div></div>
+  <div class="cell"><div class="k">上下文纪元基线</div><div class="v">baseline_seq：上下文纪元的起点（第 24 课），界定哪些 system 消息算数</div></div>
+  <div class="cell"><div class="k">→ messageRows</div><div class="v">据这两条边界，只捞这扇窗内的消息行，再逐行 decode 成 Message</div></div>
+</div>
+<p>为什么非要「有界」？因为模型的上下文窗口装不下无限长的对话。一段聊了几小时、几百轮的会话，若每轮都把全部历史原样喂进去，要么爆窗、要么烧光预算。<span class="mono">load</span> 的做法是：久远的部分，由一条<strong>压缩消息</strong>（compaction，第 51 课）概括掉，只从它往后读；再叠加<strong>上下文纪元</strong>（第 24 课）的基线，精确界定这一轮该让模型看到的历史窗口。<strong>「读历史」从来不是「读全部历史」，而是「读当前该看的那一段」</strong>——而这「该看的一段」具体怎么算、怎么随对话演进而移动，正是下一整个部分（第五部分·上下文纪元）要展开的大主题。这一课先把这条线接上：<span class="mono">load</span> 读的是投影出来的、且被压缩与纪元<strong>裁过边</strong>的历史。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这一课把第 15、17 课之间缺的那块拼图补上了，也为第四、第五部分搭了座桥：</p>
+  <ul>
+    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳），读端是投影出的消息/部件表（报表，求快）——CQRS / 事件溯源读模型。</li>
+    <li><strong>投影器</strong>（SessionProjector）：消费事件、誊成消息行；懂得新回合盖过过时残留，保证读模型自洽。它正是第 14 课结构化数据的「填表人」。</li>
+    <li><strong>history.load</strong>：第 17 课「重读投影历史」的底层；读的是一段<strong>有界</strong>窗口，由最近压缩 + 上下文纪元基线裁边。</li>
+    <li><strong>权威永不变、报表可重建</strong>：投影丢了能照事件重投，事件改了才真失真——主次摆正，可靠与好读就不再打架。</li>
+  </ul>
+  <p>那条「该让模型看哪一段历史」的边界，被这一课轻轻点到，却是整个第五部分的灵魂——<strong>上下文纪元（Context Epoch）系统</strong>。它要回答：当对话很长、当中途换了 agent、当上下文需要被重组，模型每一轮究竟该看到怎样一份「世界」？带着第四部分这台跑起来的引擎，我们下一站就进入那个决定「引擎该读什么」的精密系统。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">history.load</span> 怎么「裁边」，看它开头并发取的那两样东西：</p>
+  <pre class="code"><span class="cm">// 简化自 session/history.ts</span>
+<span class="kw">const</span> [epoch, compaction] = <span class="kw">yield</span>* Effect.<span class="fn">all</span>([
+  db.<span class="fn">select</span>({ baselineSeq: ...baseline_seq })...,   <span class="cm">// 上下文纪元基线</span>
+  <span class="fn">latestCompaction</span>(db, sessionID),                  <span class="cm">// 最近一次压缩</span>
+], { concurrency: <span class="st">"unbounded"</span> })
+
+<span class="kw">return</span> <span class="kw">yield</span>* Effect.<span class="fn">forEach</span>(
+  <span class="kw">yield</span>* <span class="fn">messageRows</span>(db, sessionID, compaction, epoch?.baselineSeq),  <span class="cm">// 据边界取窗口</span>
+  decodeMessageRow)                                    <span class="cm">// 逐行 decode 成 Message</span></pre>
+  <p>读这段：先<strong>并发</strong>拿到「上下文纪元基线」和「最近压缩点」两条边界（<span class="mono">concurrency: "unbounded"</span> 让两个查询同时跑），再据这两条边界从消息表里<strong>只取那一扇窗</strong>的行，最后逐行 <span class="mono">decode</span> 还原成强类型的 <span class="mono">Message</span>。整段没有一处在「重放事件」——它读的是投影器早已誊好的消息表。<strong>写时投影、读时直取</strong>，把重放的代价一次性付在写端，让每一轮的读都廉价而干净。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳：崩不丢/可重放/可定责），读端是投影出的消息/部件表（报表，求快：一读即用）。即 CQRS / 事件溯源读模型。</li>
+    <li><strong>投影器</strong>（SessionProjector）消费事件、誊成消息行，是第 14 课结构化数据的「填表人」；它懂得让新回合盖过过时残留，保证读模型自洽。</li>
+    <li><strong>history.load</strong> 是第 17 课「重读投影历史」的底层：它读的是<strong>投影好的</strong>消息，且只读一段<strong>有界</strong>窗口。</li>
+    <li>窗口的边界由<strong>最近一次压缩</strong>（第 51 课）+ <strong>上下文纪元基线</strong>（第 24 课）裁定——「读历史」是「读当前该看的那一段」，不是读全部。</li>
+    <li><strong>权威永不变、报表可重建</strong>：投影丢了能照事件重投，事件改了才真失真——主次一摆正，可靠与好读不再打架。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. opencode 会话存储「一份真相、两种形状」指的是？</div>
+  <ol class="opts">
+    <li>压缩前一份、压缩后一份</li>
+    <li>一份存数据库、一份存文件，内容相同</li>
+    <li>中文一份、英文一份</li>
+    <li>写端用 append-only 事件（底账），读端用投影出的消息/部件表（报表）</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。写要 append-only/不可变/有序（崩不丢、可重放）；读要当下/干净/现成（模型一读即用）。两端诉求相反，故分两形状：事件是底账，投影消息是报表，由 SessionProjector 连接。即 CQRS/事件溯源读模型。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. 为什么不每次读历史就把事件从头重放一遍？</div>
+  <ol class="opts">
+    <li>重放会改写事件</li>
+    <li>事件不能被读取</li>
+    <li>模型不支持事件</li>
+    <li>agent 循环每轮都重读，重放代价随历史线性增长会拖垮高频读；维护投影=把贵活一次性付在写端</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。第 17 课循环每轮重读历史，长会话上千事件。每轮全重放，代价越滚越大。维护投影=拿写端一次性成本换读端长久廉价（读时只 select）。同数据库物化视图/索引的算计：贵活挪到低频写端做一次。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. SessionHistory.load 读出的是什么？</div>
+  <ol class="opts">
+    <li>只有最后一条消息</li>
+    <li>投影好的、且被最近压缩+上下文纪元基线裁过边的一段「有界」历史窗口</li>
+    <li>开天辟地以来的全部消息</li>
+    <li>原始未处理的事件流</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。模型上下文窗口装不下无限历史。load 不读全部：久远部分由 compaction（第 51 课）概括、从它往后读，再叠加上下文纪元 baseline_seq（第 24 课）。「读历史」=「读当前该看的那一段」。读的是投影消息，不重放事件。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里说「报表丢了能照底账重投，底账改了才真失真」，所以权威放在不可变的事件端、便利放在可重建的投影端。用这副「底账 vs 报表」的眼镜，再举一个你熟悉的系统（如 git、缓存、数据库物化视图）说说同样的分工。</li>
+    <li>投影器有一行注释：「更新的回合取代过时残行，绝不接着投影一条更老的 assistant 记录」。为什么投影不能无脑追加、必须懂得让新回合盖过旧的半截残留？举一个会出问题的场景。</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">Lesson 15 planted a hook: a session's truth is a long string of <strong>append-only, never-rewritten</strong> events. Lesson 17's loop kept stressing one line: each round <strong>"reread the projected history."</strong> Between these sits a missing puzzle piece — <strong>how does that string of dry events become a clean conversation the model can read?</strong> This lesson supplies it. The answer is a classic, elegant architecture: <strong>write with events (append-only), read with a "projected" message view</strong>. Events are the ledger; the projection is a readable "statement" transcribed from it anytime. Understand this lesson and you'll see how opencode has both "the reliability of events" and "the readability of messages" at once — the secret of having your cake and eating it lies in one word: projection.</p>
+<p>Why split "read" and "write" into two shapes? Because their needs are <strong>exactly opposite</strong>. Writing wants <strong>append-only, immutable, ordered</strong> — only thus is it crash-safe, replayable, accountable (Lesson 15). Reading wants <strong>current, clean, ready-made</strong> — each round the model wants "what does this conversation look like now," not to replay hundreds of events itself. Forcing one shape to serve both ends is awkward at both. opencode's solution is the old wisdom databases and accounting have used for decades: <strong>the ledger only appends, the statement is projected from the ledger</strong>. This lesson unpacks this "one truth, two shapes" design.</p>
+
+<div class="card analogy">
+  <div class="tag">🏦 Analogy</div>
+  Think of a session's storage as a <strong>bank's accounting system</strong>. Every deposit and withdrawal is recorded verbatim into the <strong>transaction journal</strong> (the event log): append-only, never altered, the legally ironclad ledger — to correct, you can only <strong>append a reversing entry</strong>, not erase the old. But to know "how much do I have now," <strong>no one re-computes every transaction since you opened the account</strong>; the bank maintains a <strong>statement</strong> (the projected message view), kept fresh, instantly readable. That back-office process endlessly transcribing the journal into the statement is the <strong>projector</strong>. When the agent loop "reads history," it reads this <strong>statement</strong>, not the raw journal. Better still, the statement notes "<strong>this period starts from last month's closing balance</strong>" — old transactions are rolled into a "balance," you needn't and can't read that far back (the boundary of compaction and context epoch). The ledger for stability, the statement for speed — this bank wants both.
+</div>
+
+<h2>One truth, two shapes</h2>
+<p>The core of the whole design is splitting one truth into <strong>two ends, each taking what it needs</strong>. The <strong>write end</strong> is the event log: Lesson 15's <span class="mono">admit</span>, every fragment the model emits, every tool-state flip… all <strong>append</strong> an immutable record to the event stream. The <strong>read end</strong> is the projected message/part tables (<span class="mono">MessageTable</span> / <span class="mono">PartTable</span>): a <strong>transcribed, directly readable</strong> conversation. The two ends are linked by the <strong>projector</strong> in the middle (<span class="mono">SessionProjector</span>) — it consumes events and "applies" them as rows in the message tables.</p>
+<div class="cols">
+  <div class="col"><h4>write end · events (ledger)</h4><p>append-only, immutable, ordered. For <strong>stability</strong>: crash-safe, replayable, accountable. But to read it directly, you'd replay everything.</p></div>
+  <div class="col"><h4>read end · projected messages (statement)</h4><p>transcribed, current, ready-made. For <strong>speed</strong>: the model reads it as-is, no replay. It's the ledger's "projection," rebuildable from the ledger anytime.</p></div>
+</div>
+<p>This "write one shape, read another" split has an engineering name: <strong>CQRS / event-sourcing read model</strong> — but the name doesn't matter; what matters is the intuition: <strong>the ledger and the statement are two faces of one truth.</strong> Lose the statement and it's fine, it can be re-projected from the ledger; but rewrite the ledger and you've truly lost the truth. So opencode puts "the immutable authority" at the event end and "the rebuildable convenience" at the projection end — <strong>the authoritative copy is forever immutable, the readable copy is discardable and rebuildable anytime</strong>. Once this priority is set right, reliability and readability stop fighting. Once you get used to viewing systems through the "ledger vs statement" lens, you'll recognize it everywhere: a database's materialized views, a cache vs its source data, even git's commit history vs the working tree — all the same division of "authority only appends, the view rebuilds."</p>
+<div class="flow">
+  <div class="node">event log<span class="sub">append-only · ledger (Lesson 15)</span></div>
+  <div class="arrow">projector →</div>
+  <div class="node">message/part tables<span class="sub">transcribed read model</span></div>
+  <div class="arrow">history.load →</div>
+  <div class="node">agent loop<span class="sub">reread each round (Lesson 17)</span></div>
+</div>
+
+<h2>The projector: transcribing events into messages</h2>
+<p><span class="mono">SessionProjector</span> (<span class="mono">projector.ts</span>) is that back-office transcribing clerk. It consumes events one by one, <strong>inserting or updating</strong> the matching rows in <span class="mono">MessageTable</span>/<span class="mono">PartTable</span> — an <span class="mono">Admitted</span> event projects into a User message, a stream of fragments projects into the gradually-growing part array of an Assistant message, a tool-state change updates that tool part's state… A comment in the source shows its care well: "<strong>a newer turn supersedes stale incomplete rows; never resume an older assistant projection</strong>." In other words, projection isn't mindless appending; it <strong>knows a new turn should override stale, half-finished leftovers</strong>, keeping the transcribed statement always self-consistent.</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">a PromptLifecycle.Admitted arrives → project into a User message row</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">streaming text/reasoning/tool-call fragments → grow into an Assistant message's part array</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">a tool-state flip → update the matching tool part's state (completed/error)</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">a new turn arrives → supersede stale rows, never resume an older projection</span></div>
+</div>
+<p>This answers a hidden thread Lesson 14 left: those structured Session/Message/Part data — <strong>who, and when</strong>, fills them into the database? The answer is the projector, <strong>as events arrive</strong>. Lesson 14 was about the <strong>shape</strong> of the data; this lesson is about how those shapes are <strong>transcribed bit by bit</strong>. Put the two lessons together and you see the full "from events to readable" provenance of opencode's message model.</p>
+
+<h2>Why not just replay events each time?</h2>
+<p>You might think: since events are the ledger, then each time you read history, just replay the events from scratch and compute the current conversation — why maintain a separate projection and worry whether it's in sync with the events? Good question, and the answer hides in the frequency of "reads." Recall Lesson 17: the agent loop rereads history <strong>every round</strong> — a long session may have hundreds of rounds, thousands of events. Replaying all events from scratch each round, the cost <strong>snowballs</strong> with the conversation, until just "preparing this round's input" is maddeningly slow.</p>
+<div class="cols">
+  <div class="col"><h4>❌ replay events on every read</h4><p>Zero read-side maintenance, always correct. But each read replays all events, cost growing linearly with history — the high-frequency "reread each round" gets dragged down.</p></div>
+  <div class="col"><h4>✅ maintain a projection, read directly</h4><p>Pay the replay cost once at the <strong>write end</strong> (transcribe as events arrive); the read end is always ready, every reread cheap. The cost is keeping the projection consistent.</p></div>
+</div>
+<p>opencode chose the latter, essentially a trade of <strong>"a one-time cost at the write end for lasting cheapness at the read end."</strong> As events arrive, the projector transcribes one entry (the write end spends a bit more); thereafter, however many rounds this history is reread, each is just a direct <span class="mono">select</span> from the message tables (the read end is forever cheap). For an agent loop that "writes once, reads a thousand times," this trade is a no-brainer. It's the same calculation behind a database's materialized views and indexes on hot queries: <strong>move the expensive work to the low-frequency write end to do once, so the high-frequency read end always picks up the ready-made.</strong></p>
+
+<h2>history.load: reading a "bounded" slice of history</h2>
+<p>The read end's entry is <span class="mono">SessionHistory.load</span> (<span class="mono">history.ts</span>) — what Lesson 17's loop "reread projected history" calls underneath. But it has a crucial detail: it does <strong>not</strong> fetch all messages since the dawn of time but reads a <strong>bounded</strong> window. It first concurrently queries two things to define the window's edges:</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">all</span><span class="name">full event/message history</span></div><div class="ld">everything since the dawn of time — but not all read</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">edge</span><span class="name">latest compaction</span></div><div class="ld">old part rolled into a compaction message, read from it onward</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">edge</span><span class="name">context epoch baseline_seq</span></div><div class="ld">defines which system messages count (Lesson 24)</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">window</span><span class="name">this round's history window</span></div><div class="ld">decode only this window's message rows to feed the model</div></div>
+</div>
+<div class="cellgroup">
+  <div class="cell"><div class="k">latest compaction</div><div class="v">latestCompaction: old conversation summarized into one compaction; read from it onward</div></div>
+  <div class="cell"><div class="k">context epoch baseline</div><div class="v">baseline_seq: the context epoch's start (Lesson 24), defines which system messages count</div></div>
+  <div class="cell"><div class="k">→ messageRows</div><div class="v">by these two edges, fetch only this window's rows, then decode each into a Message</div></div>
+</div>
+<p>Why must it be "bounded"? Because the model's context window can't hold an infinitely long conversation. A session chatted for hours, hundreds of rounds — feeding the full history verbatim each round would either overflow the window or burn the budget. <span class="mono">load</span>'s approach: the old part is summarized by a <strong>compaction message</strong> (Lesson 51), read only from it onward; layered with the <strong>context epoch</strong> (Lesson 24) baseline, it precisely defines the history window the model should see this round. <strong>"Reading history" is never "reading all history" but "reading the slice you should see now"</strong> — and exactly how that "slice you should see" is computed and how it shifts as the conversation evolves is the big theme the next whole part (Part 5 · Context Epoch) unfolds. This lesson just connects the thread: <span class="mono">load</span> reads history that's projected, and <strong>edge-trimmed</strong> by compaction and epoch.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture</div>
+  <p>This lesson supplies the missing puzzle piece between Lessons 15 and 17, and builds a bridge to Parts 4 and 5:</p>
+  <ul>
+    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability), the read end is projected message/part tables (statement, for speed) — CQRS / event-sourcing read model.</li>
+    <li><strong>The projector</strong> (SessionProjector): consumes events, transcribes them into message rows; knows a new turn overrides stale leftovers, keeping the read model self-consistent. It's the "form-filler" of Lesson 14's structured data.</li>
+    <li><strong>history.load</strong>: the underside of Lesson 17's "reread projected history"; reads a <strong>bounded</strong> window, edge-trimmed by latest compaction + context epoch baseline.</li>
+    <li><strong>Authority never changes, the statement rebuilds</strong>: lose the projection and it re-projects from events, only rewriting events truly distorts — set the priority right and reliability and readability stop fighting.</li>
+  </ul>
+  <p>That boundary of "which slice of history the model should see," lightly touched here, is the soul of all of Part 5 — the <strong>Context Epoch system</strong>. It answers: when the conversation is long, when the agent switches mid-way, when context needs reassembly, what kind of "world" should the model see each round? With Part 4's now-running engine in hand, our next stop enters the precise system that decides "what the engine should read."</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p>How <span class="mono">history.load</span> "edge-trims," see the two things it concurrently fetches at the start:</p>
+  <pre class="code"><span class="cm">// simplified from session/history.ts</span>
+<span class="kw">const</span> [epoch, compaction] = <span class="kw">yield</span>* Effect.<span class="fn">all</span>([
+  db.<span class="fn">select</span>({ baselineSeq: ...baseline_seq })...,   <span class="cm">// context epoch baseline</span>
+  <span class="fn">latestCompaction</span>(db, sessionID),                  <span class="cm">// latest compaction</span>
+], { concurrency: <span class="st">"unbounded"</span> })
+
+<span class="kw">return</span> <span class="kw">yield</span>* Effect.<span class="fn">forEach</span>(
+  <span class="kw">yield</span>* <span class="fn">messageRows</span>(db, sessionID, compaction, epoch?.baselineSeq),  <span class="cm">// fetch window by edges</span>
+  decodeMessageRow)                                    <span class="cm">// decode each into a Message</span></pre>
+  <p>Read it: first <strong>concurrently</strong> get the two edges, "context epoch baseline" and "latest compaction point" (<span class="mono">concurrency: "unbounded"</span> runs the two queries at once), then by these edges fetch <strong>only that window</strong>'s rows from the message tables, finally <span class="mono">decode</span> each row back into a strongly-typed <span class="mono">Message</span>. Nowhere in this does it "replay events" — it reads the message tables the projector long since transcribed. <strong>Project on write, read directly</strong>, paying the replay cost once at the write end so every round's read is cheap and clean.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability: crash-safe/replayable/accountable), the read end is projected message/part tables (statement, for speed: read as-is). I.e. CQRS / event-sourcing read model.</li>
+    <li><strong>The projector</strong> (SessionProjector) consumes events and transcribes them into message rows — the "form-filler" of Lesson 14's structured data; it knows to let a new turn override stale leftovers, keeping the read model consistent.</li>
+    <li><strong>history.load</strong> is the underside of Lesson 17's "reread projected history": it reads <strong>projected</strong> messages, and only a <strong>bounded</strong> window.</li>
+    <li>The window's edges are trimmed by <strong>latest compaction</strong> (Lesson 51) + <strong>context epoch baseline</strong> (Lesson 24) — "reading history" is "reading the slice you should see now," not all of it.</li>
+    <li><strong>Authority never changes, the statement rebuilds</strong>: lose the projection and it re-projects from events, only rewriting events truly distorts — set the priority right and reliability and readability stop fighting.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. What does opencode's session storage "one truth, two shapes" mean?</div>
+  <ol class="opts">
+    <li>One before compression, one after</li>
+    <li>One copy in a database, one in a file, identical content</li>
+    <li>One Chinese copy, one English copy</li>
+    <li>Write end uses append-only events (ledger); read end uses projected message/part tables (statement)</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. Writing wants append-only/immutable/ordered (crash-safe, replayable); reading wants current/clean/ready-made (model reads as-is). Opposite needs, so two shapes: events the ledger, projected messages the statement, linked by SessionProjector. I.e. CQRS / event-sourcing read model.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. Why not replay events from scratch on every history read?</div>
+  <ol class="opts">
+    <li>Replaying rewrites the events</li>
+    <li>Events can't be read</li>
+    <li>The model doesn't support events</li>
+    <li>The agent loop rereads every round; replay cost grows linearly with history, dragging down high-frequency reads; a projection pays the expensive work once at the write end</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. Lesson 17's loop rereads each round; a long session has thousands of events. Replaying all each round snowballs. A projection trades a one-time write-end cost for lasting read-end cheapness (reads are just selects). Same as a DB's materialized views/indexes: move the expensive work to the low-frequency write end.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. What does SessionHistory.load read?</div>
+  <ol class="opts">
+    <li>Only the last message</li>
+    <li>Projected history, edge-trimmed by latest compaction + context epoch baseline — a "bounded" window</li>
+    <li>All messages since the dawn of time</li>
+    <li>The raw unprocessed event stream</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. The model's context window can't hold infinite history. load reads not all: the old part is summarized by compaction (Lesson 51), read from it onward, layered with the context epoch baseline_seq (Lesson 24). "Reading history" = "reading the slice you should see now." It reads projected messages, not replayed events.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson says "lose the statement and it re-projects from the ledger; rewriting the ledger truly distorts," so authority sits at the immutable event end, convenience at the rebuildable projection end. With this "ledger vs statement" lens, name another system you know (git, caches, DB materialized views) with the same division.</li>
+    <li>The projector has a comment: "a newer turn supersedes stale incomplete rows; never resume an older assistant projection." Why can't projection mindlessly append but must let a new turn override stale half-finished leftovers? Give a scenario that would break.</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="18-tool-calls-fiberset.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">工具调用与 FiberSet</span><span class="lang-en">Tool calls &amp; FiberSet</span></div></a><a class="next" href="20-steps-errors.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">有界步数与错误处理</span><span class="lang-en">Bounded steps &amp; errors</span></div></a></div>
 </div>
 <script>

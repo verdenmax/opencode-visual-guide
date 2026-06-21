@@ -831,6 +831,47 @@ QUIZZES = {
             {"zh": "ToolOutputStore 把超过 2000 行/50KB 的输出落盘、消息只存 outputPaths。这和第 14 课「Session 只装元数据、内容在 Message 那层」是同一种智慧吗？说说「轻身份/重内容分开存」这条原则在本书出现过的地方。", "en": "ToolOutputStore lands output over 2000 lines/50KB on disk, the message holding only outputPaths. Is this the same wisdom as Lesson 14's \"Session holds only metadata, content lives at the Message layer\"? Name where this \"separate light identity from heavy content\" principle has appeared in the book."},
         ],
     },
+    "19-projected-history.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode 会话存储「一份真相、两种形状」指的是？", "en": "What does opencode's session storage \"one truth, two shapes\" mean?"},
+                "opts": [
+                    {"zh": "写端用 append-only 事件（底账），读端用投影出的消息/部件表（报表）", "en": "Write end uses append-only events (ledger); read end uses projected message/part tables (statement)"},
+                    {"zh": "一份存数据库、一份存文件，内容相同", "en": "One copy in a database, one in a file, identical content"},
+                    {"zh": "中文一份、英文一份", "en": "One Chinese copy, one English copy"},
+                    {"zh": "压缩前一份、压缩后一份", "en": "One before compression, one after"},
+                ],
+                "answer": 0,
+                "why": {"zh": "写要 append-only/不可变/有序（崩不丢、可重放）；读要当下/干净/现成（模型一读即用）。两端诉求相反，故分两形状：事件是底账，投影消息是报表，由 SessionProjector 连接。即 CQRS/事件溯源读模型。", "en": "Writing wants append-only/immutable/ordered (crash-safe, replayable); reading wants current/clean/ready-made (model reads as-is). Opposite needs, so two shapes: events the ledger, projected messages the statement, linked by SessionProjector. I.e. CQRS / event-sourcing read model."},
+            },
+            {
+                "q": {"zh": "为什么不每次读历史就把事件从头重放一遍？", "en": "Why not replay events from scratch on every history read?"},
+                "opts": [
+                    {"zh": "agent 循环每轮都重读，重放代价随历史线性增长会拖垮高频读；维护投影=把贵活一次性付在写端", "en": "The agent loop rereads every round; replay cost grows linearly with history, dragging down high-frequency reads; a projection pays the expensive work once at the write end"},
+                    {"zh": "重放会改写事件", "en": "Replaying rewrites the events"},
+                    {"zh": "事件不能被读取", "en": "Events can't be read"},
+                    {"zh": "模型不支持事件", "en": "The model doesn't support events"},
+                ],
+                "answer": 0,
+                "why": {"zh": "第 17 课循环每轮重读历史，长会话上千事件。每轮全重放，代价越滚越大。维护投影=拿写端一次性成本换读端长久廉价（读时只 select）。同数据库物化视图/索引的算计：贵活挪到低频写端做一次。", "en": "Lesson 17's loop rereads each round; a long session has thousands of events. Replaying all each round snowballs. A projection trades a one-time write-end cost for lasting read-end cheapness (reads are just selects). Same as a DB's materialized views/indexes: move the expensive work to the low-frequency write end."},
+            },
+            {
+                "q": {"zh": "SessionHistory.load 读出的是什么？", "en": "What does SessionHistory.load read?"},
+                "opts": [
+                    {"zh": "投影好的、且被最近压缩+上下文纪元基线裁过边的一段「有界」历史窗口", "en": "Projected history, edge-trimmed by latest compaction + context epoch baseline — a \"bounded\" window"},
+                    {"zh": "开天辟地以来的全部消息", "en": "All messages since the dawn of time"},
+                    {"zh": "只有最后一条消息", "en": "Only the last message"},
+                    {"zh": "原始未处理的事件流", "en": "The raw unprocessed event stream"},
+                ],
+                "answer": 0,
+                "why": {"zh": "模型上下文窗口装不下无限历史。load 不读全部：久远部分由 compaction（第 51 课）概括、从它往后读，再叠加上下文纪元 baseline_seq（第 24 课）。「读历史」=「读当前该看的那一段」。读的是投影消息，不重放事件。", "en": "The model's context window can't hold infinite history. load reads not all: the old part is summarized by compaction (Lesson 51), read from it onward, layered with the context epoch baseline_seq (Lesson 24). \"Reading history\" = \"reading the slice you should see now.\" It reads projected messages, not replayed events."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说「报表丢了能照底账重投，底账改了才真失真」，所以权威放在不可变的事件端、便利放在可重建的投影端。用这副「底账 vs 报表」的眼镜，再举一个你熟悉的系统（如 git、缓存、数据库物化视图）说说同样的分工。", "en": "The lesson says \"lose the statement and it re-projects from the ledger; rewriting the ledger truly distorts,\" so authority sits at the immutable event end, convenience at the rebuildable projection end. With this \"ledger vs statement\" lens, name another system you know (git, caches, DB materialized views) with the same division."},
+            {"zh": "投影器有一行注释：「更新的回合取代过时残行，绝不接着投影一条更老的 assistant 记录」。为什么投影不能无脑追加、必须懂得让新回合盖过旧的半截残留？举一个会出问题的场景。", "en": "The projector has a comment: \"a newer turn supersedes stale incomplete rows; never resume an older assistant projection.\" Why can't projection mindlessly append but must let a new turn override stale half-finished leftovers? Give a scenario that would break."},
+        ],
+    },
 }
 
 def render(fname, lang):
