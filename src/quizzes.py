@@ -459,7 +459,7 @@ QUIZZES = {
         ],
         "open": [
             {"zh": "课里说 HttpApi 比 Hono 多了“先声明形状”的繁琐，却值得。结合 opencode 要同时喂养 TUI/网页/桌面/Slack 多个客户端，说说这点繁琐换来了什么。", "en": "The lesson says HttpApi's extra “declare the shape first” tedium is worth it. Given opencode feeds TUI/web/desktop/Slack at once, what does that tedium buy?"},
-            {"zh": "21 个路由组的名字本身就是一张 opencode 能力地图。挑其中 3 个组，猜一猜它们各自大概提供什么能力。", "en": "The 21 route-group names are themselves a map of opencode's abilities. Pick 3 groups and guess what each roughly provides."},
+            {"zh": "20 个路由组的名字本身就是一张 opencode 能力地图。挑其中 3 个组，猜一猜它们各自大概提供什么能力。", "en": "The 20 route-group names are themselves a map of opencode's abilities. Pick 3 groups and guess what each roughly provides."},
         ],
     },
     "10-route-groups.html": {
@@ -549,7 +549,7 @@ QUIZZES = {
             {
                 "q": {"zh": "opencode 的客户端 SDK 是怎么来的？", "en": "Where does opencode's client SDK come from?"},
                 "opts": [
-                    {"zh": "OpenApi.fromApi(PublicApi) 把 21 个组的类型读成 OpenAPI 规范，再由 @hey-api 自动生成", "en": "OpenApi.fromApi(PublicApi) reads the 21 groups' types into an OpenAPI spec, then @hey-api auto-generates it"},
+                    {"zh": "OpenApi.fromApi(PublicApi) 把 20 个组的类型读成 OpenAPI 规范，再由 @hey-api 自动生成", "en": "OpenApi.fromApi(PublicApi) reads the 20 groups' types into an OpenAPI spec, then @hey-api auto-generates it"},
                     {"zh": "由维护者手写并手动维护", "en": "Hand-written and manually maintained by maintainers"},
                     {"zh": "运行时反射动态构造", "en": "Built dynamically via runtime reflection"},
                     {"zh": "从数据库 schema 推导", "en": "Derived from the database schema"},
@@ -624,6 +624,47 @@ QUIZZES = {
         "open": [
             {"zh": "课里说 opencode「没有为 TUI 单独发明一套本地通信协议」，而是逼进程内也走完整的 Request→handler→Response。这比写一条「直接调内部函数」的捷径多花了功夫，它换来了什么？", "en": "The lesson says opencode “didn't invent a separate local protocol for the TUI” but forces the in-process path through the full Request→handler→Response. This costs more than a “call internal functions directly” shortcut — what does it buy?"},
             {"zh": "课里强调「边界越窄，可替换性越强」，fetch 窄到只剩进 Request 出 Response。结合你自己写过的代码，说一个你曾经把边界定得太宽、结果难以替换的例子。", "en": "The lesson stresses “the narrower the boundary, the stronger the replaceability,” with fetch narrowed to just Request in, Response out. From your own code, give one example where you made a boundary too wide and it became hard to replace."},
+        ],
+    },
+    "14-session-messages-parts.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode core 的三层基本数据结构是？", "en": "What are the three basic data layers of opencode's core?"},
+                "opts": [
+                    {"zh": "Session ⊃ Message ⊃ Part —— 会话装消息、消息装部件", "en": "Session ⊃ Message ⊃ Part — a session holds messages, a message holds parts"},
+                    {"zh": "Table ⊃ Row ⊃ Column", "en": "Table ⊃ Row ⊃ Column"},
+                    {"zh": "Request ⊃ Response ⊃ Body", "en": "Request ⊃ Response ⊃ Body"},
+                    {"zh": "Project ⊃ File ⊃ Line", "en": "Project ⊃ File ⊃ Line"},
+                ],
+                "answer": 0,
+                "why": {"zh": "TUI 每一行、SDK 每个对象、数据库每条记录、事件流每个更新，本质都是读写 Session/Message/Part 这三层嵌套结构。读懂它们=拿到理解整个 core 的坐标系。", "en": "Every TUI line, SDK object, DB record, and event-stream update is essentially reading/writing the nested Session/Message/Part structure. Understanding them = the coordinate system for the whole core."},
+            },
+            {
+                "q": {"zh": "为什么 Assistant 消息的 content 是一个 part 数组，而不是一个字符串？", "en": "Why is an Assistant message's content a part array, not a string?"},
+                "opts": [
+                    {"zh": "因为一条回复本就是交错的（思考/文字/工具），拆成有序 part 才能分别渲染、逐 part 增量更新", "en": "Because a reply is inherently interleaved (reasoning/text/tool); split into ordered parts, each can render separately and update incrementally"},
+                    {"zh": "因为字符串太占内存", "en": "Because strings use too much memory"},
+                    {"zh": "因为 JSON 不支持字符串", "en": "Because JSON doesn't support strings"},
+                    {"zh": "纯属历史包袱", "en": "Pure legacy baggage"},
+                ],
+                "answer": 0,
+                "why": {"zh": "回复真实形态是交错的：想一会儿(reasoning)→说两句(text)→调工具(tool)→接着说。拆成 part 数组，系统能折叠思考、显示文字、把工具画成带状态的卡片——第 11 课实时 UI 的根。形状压扁了，结构就找不回来了。", "en": "A reply is interleaved: think (reasoning) → speak (text) → call a tool → continue. As a part array, the system folds thinking, shows text, draws tools as status cards — the root of Lesson 11's live UI. Flatten the shape and the structure is unrecoverable."},
+            },
+            {
+                "q": {"zh": "tool part 内部的 ToolState 是什么？", "en": "What is the ToolState inside a tool part?"},
+                "opts": [
+                    {"zh": "一个状态机：pending→running→completed/error，信息逐阶段递增", "en": "A state machine: pending→running→completed/error, info incremental by stage"},
+                    {"zh": "工具的名字", "en": "The tool's name"},
+                    {"zh": "一个布尔值：成功或失败", "en": "A boolean: success or failure"},
+                    {"zh": "工具的源代码", "en": "The tool's source code"},
+                ],
+                "answer": 0,
+                "why": {"zh": "把工具调用的「一生」编码进数据模型：pending 只有原始 input，running 加解析后 input 和流式 content，completed 再加 result/产物路径。于是「工具现在什么阶段」是一等可查事实，TUI 能实时画状态、历史能精确重放。", "en": "It encodes a tool call's whole life: pending has raw input, running adds parsed input and streaming content, completed adds result/output paths. So a tool's current stage is a first-class queryable fact — the TUI draws status live, history replays exactly."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说「换了模型」本身也是一条历史消息（ModelSwitched），而不是改 Session 上一个 currentModel 字段。这两种做法在「忠实重建过去任意一刻」上有什么本质差别？", "en": "The lesson says “switched model” is itself a history message (ModelSwitched), not editing a currentModel field on Session. What's the essential difference for “faithfully reconstructing any past moment”?"},
+            {"zh": "Session 只装元数据、不装对话内容（内容在 Message 那层）。结合 TUI 左边那列会话列表，说说这种「轻身份 / 重内容」分离带来的好处。", "en": "Session holds only metadata, not conversation content (that's at the Message layer). With the TUI's left-side session list in mind, what does this “light identity / heavy content” separation buy?"},
         ],
     },
 }

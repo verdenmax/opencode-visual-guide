@@ -32,15 +32,15 @@ LESSON_09 = {
 <div class="layers">
   <div class="layer l-app"><div class="lh"><span class="badge">客户端</span><span class="name">TUI / web / Slack…</span></div><div class="ld">发 HTTP Request（或进程内 RPC）</div></div>
   <div class="layer l-part"><div class="lh"><span class="badge">总处理器</span><span class="name">webHandler</span></div><div class="ld">(request) =&gt; Response，按路径分发</div></div>
-  <div class="layer l-main"><div class="lh"><span class="badge">路由组</span><span class="name">session / event / config… ×21</span></div><div class="ld">各领域的端点契约</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">路由组</span><span class="name">session / event / config… ×20</span></div><div class="ld">各领域的端点契约</div></div>
   <div class="layer l-core"><div class="lh"><span class="badge">handler</span><span class="name">handlers/*</span></div><div class="ld">调用 core 服务，干真正的活</div></div>
 </div>
 
 <p>"server 对外只是一个函数"这个事实，比它听起来更重要。正因为 handler 的形态如此标准、如此纯粹——进一个 Request、出一个 Response，没有任何对"真实网络"的硬依赖——它才能被随意<strong>嫁接到不同的传输上</strong>：架在 Node 的 HTTP 服务器上，它是个网络服务；塞进一个 worker 线程里直接调用，它就成了富 TUI 那套零网络的进程内通信。<strong>同一套业务逻辑、传输层可热插拔</strong>——这又是第 6 课"实现可整体替换"在 server 这一层的回响。</p>
 <p>那 handler 里到底装着什么？一个端点的 handler，干的就是"<strong>把校验过的输入，翻译成对 core 服务的调用，再把结果编码回去</strong>"——它是这扇门和门后真正干活的 core 之间<strong>薄薄的一层转接</strong>。理想情况下 handler 应该很薄：重活都在 core 的 Session、Tool 那些服务里，handler 只负责"在 HTTP 世界和 Effect 世界之间搬运"。下一课就专门拆开路由组与 handler，看这层转接具体长什么样。</p>
 
-<h2>21 个路由组：按领域切开</h2>
-<p>这张"服务清单"不是一长串扁平的路径，而是<strong>按领域切成了 21 个组</strong>，各管一摊：</p>
+<h2>20 个路由组：按领域切开</h2>
+<p>这张"服务清单"不是一长串扁平的路径，而是<strong>按领域切成了 20 个组</strong>，各管一摊：</p>
 <table class="t">
   <tr><th>组</th><th>管什么</th></tr>
   <tr><td><span class="mono">session</span></td><td>会话：创建、发 prompt、取历史——agent 的主战场</td></tr>
@@ -48,7 +48,7 @@ LESSON_09 = {
   <tr><td><span class="mono">config</span> · <span class="mono">provider</span></td><td>配置、模型 provider</td></tr>
   <tr><td><span class="mono">permission</span> · <span class="mono">question</span></td><td>权限确认、向用户提问</td></tr>
   <tr><td><span class="mono">file</span> · <span class="mono">project</span> · <span class="mono">pty</span></td><td>文件、项目、伪终端</td></tr>
-  <tr><td><span class="mono">mcp</span> · <span class="mono">tui</span> · <span class="mono">workspace</span> …</td><td>MCP、TUI 专用、工作区等（共 21 组）</td></tr>
+  <tr><td><span class="mono">mcp</span> · <span class="mono">tui</span> · <span class="mono">workspace</span> …</td><td>MCP、TUI 专用、工作区等（共 20 组）</td></tr>
 </table>
 <p>"按领域切组"是个很要紧的工程决定。它让庞大的 API 表面变得<strong>可导航</strong>：想找"发 prompt"的接口？去 <span class="mono">session</span> 组；想订阅实时事件？去 <span class="mono">event</span> 组。每个组是一个<strong>独立、内聚的契约单元</strong>，可以单独读、单独改、单独测。这和第二部分"小协作者"的气质一脉相承——<strong>大系统，由清晰分界的小块拼成</strong>。</p>
 <div class="flow">
@@ -61,7 +61,7 @@ LESSON_09 = {
   <div class="node hl"><div class="nt">handler</div><div class="nd">调 core → 编码 Response</div></div>
 </div>
 
-<p>顺带说，这 21 个组的名字本身，就是一张 opencode 能力的<strong>地图</strong>：<span class="mono">session</span> 是 agent 主战场，<span class="mono">event</span> 撑起实时性，<span class="mono">permission</span>/<span class="mono">question</span> 管"放手让 AI 干活但可控"，<span class="mono">pty</span>/<span class="mono">file</span> 让它能真的动你的项目，<span class="mono">mcp</span>/<span class="mono">workspace</span> 通向扩展与多实例。你几乎可以靠这份组清单，倒推出 opencode 大致能做哪些事。后面好几课会逐一深入其中的组——它们在 server 这一层的"门牌"，就挂在这里。换句话说，读 server 的路由组，就像读一份目录——你还没翻开任何一章，已经大致知道这本书讲些什么了。</p>
+<p>顺带说，这 20 个组的名字本身，就是一张 opencode 能力的<strong>地图</strong>：<span class="mono">session</span> 是 agent 主战场，<span class="mono">event</span> 撑起实时性，<span class="mono">permission</span>/<span class="mono">question</span> 管"放手让 AI 干活但可控"，<span class="mono">pty</span>/<span class="mono">file</span> 让它能真的动你的项目，<span class="mono">mcp</span>/<span class="mono">workspace</span> 通向扩展与多实例。你几乎可以靠这份组清单，倒推出 opencode 大致能做哪些事。后面好几课会逐一深入其中的组——它们在 server 这一层的"门牌"，就挂在这里。换句话说，读 server 的路由组，就像读一份目录——你还没翻开任何一章，已经大致知道这本书讲些什么了。</p>
 
 <h2>类型即契约：API 自己描述自己</h2>
 <p>HttpApi 最迷人的回报在这一行：</p>
@@ -81,14 +81,14 @@ LESSON_09 = {
 <p>server 启动时还带着两个小零件，先混个脸熟：</p>
 <div class="cols">
   <div class="col"><h4>MDNS（本地发现）</h4><p>在局域网里<strong>广播自己的存在</strong>，让同机/同网的客户端能自动发现这个 server，不用手填地址。</p></div>
-  <div class="col"><h4>WebSocketTracker</h4><p>跟踪当前的 WebSocket 连接——某些实时双向通道（如 LLM 流的一种传输）要用到。</p></div>
+  <div class="col"><h4>WebSocketTracker</h4><p>跟踪当前的 WebSocket 连接——给 pty 终端、工作区代理这类真正用到 WebSocket 的双向通道收尾用的。</p></div>
 </div>
 <p>它们不是主角，但点出了一件事：server 不只是"收 HTTP 请求"，它还要管<strong>发现、实时连接</strong>这些"活"的东西。把这些都收进同一个 server，正是第 1 课"server 拥有一切"的具体体现。</p>
 <p>把这两个零件和前面的 webHandler、路由组放一起看，server 的全貌就清楚了：它是一个<strong>常驻的、自描述的、可被多种方式连上的能力中枢</strong>。它不挑客户端——谁能说 HTTP、谁能连上来，就能调用它的全部本事。这种"<strong>一个中枢、广开门户</strong>"的姿态，正是 opencode 能长出 TUI、网页、桌面、Slack、ACP 这么多张脸的底层原因，也是下一课要深入的"路由组与 handler"所站立的地基。</p>
 
 <div class="card macro">
   <div class="tag">🌍 宏观理解</div>
-  opencode 的 server <strong>不是 Hono</strong>，而是架在 Effect <span class="mono">HttpApi</span> 上：你<strong>先用类型声明整套 API 的形状</strong>（每个端点的输入/输出/错误），编译器替你守契约，机器还能读懂它。对外它就是<strong>一个 <span class="mono">(request) =&gt; Response</span> 的 webHandler</strong>（所以能既走网络、又走进程内 RPC）；内部按领域切成 <strong>21 个路由组</strong>（session/event/config…）。最大的回报是 <span class="mono">OpenApi.fromApi</span>——<strong>API 自己描述自己</strong>，自动生成 SDK，让多个客户端的类型永远和 server 对齐。把这一课收进一句话：server 是 opencode <strong>自描述的能力中枢</strong>，所有客户端都顺着这份类型化的契约来和它对话——读懂了这扇门，就读懂了整个第三部分的入口。再往深一层，这个选择体现了 opencode 的一贯主张：宁可前期多花功夫把契约钉进类型，也不愿后期为"接口对不齐"反复买单。记住这条主线：客户端永远不直接碰 core，而是隔着这扇<strong>类型化的门</strong>说话；门后是 21 个分领域的房间，门本身则自动印出进门用的手册。把这扇门看清楚，第三部分后面几课（路由与 handler、事件流、SDK、多客户端传输）都只是在放大它的不同侧面。
+  opencode 的 server <strong>不是 Hono</strong>，而是架在 Effect <span class="mono">HttpApi</span> 上：你<strong>先用类型声明整套 API 的形状</strong>（每个端点的输入/输出/错误），编译器替你守契约，机器还能读懂它。对外它就是<strong>一个 <span class="mono">(request) =&gt; Response</span> 的 webHandler</strong>（所以能既走网络、又走进程内 RPC）；内部按领域切成 <strong>20 个路由组</strong>（session/event/config…）。最大的回报是 <span class="mono">OpenApi.fromApi</span>——<strong>API 自己描述自己</strong>，自动生成 SDK，让多个客户端的类型永远和 server 对齐。把这一课收进一句话：server 是 opencode <strong>自描述的能力中枢</strong>，所有客户端都顺着这份类型化的契约来和它对话——读懂了这扇门，就读懂了整个第三部分的入口。再往深一层，这个选择体现了 opencode 的一贯主张：宁可前期多花功夫把契约钉进类型，也不愿后期为"接口对不齐"反复买单。记住这条主线：客户端永远不直接碰 core，而是隔着这扇<strong>类型化的门</strong>说话；门后是 20 个分领域的房间，门本身则自动印出进门用的手册。把这扇门看清楚，第三部分后面几课（路由与 handler、事件流、SDK、多客户端传输）都只是在放大它的不同侧面。
 </div>
 
 <div class="card detail">
@@ -104,7 +104,7 @@ LESSON_09 = {
 
 <span class="cm">// API 自描述：从定义生成 OpenAPI → 用于生成 SDK（第 12 课）</span>
 <span class="kw">export const</span> openapi = () =&gt; OpenApi.<span class="fn">fromApi</span>(PublicApi)</pre>
-  路由组都在 <span class="mono">routes/instance/httpapi/groups/</span> 下（session.ts、event.ts、config.ts… 共 21 个），handler 在 <span class="mono">handlers/</span>，请求进组前还会先过一层 <span class="mono">middleware/</span> 统一鉴权、压缩、处理错误。
+  路由组都在 <span class="mono">routes/instance/httpapi/groups/</span> 下（session.ts、event.ts、config.ts… 20 个组、21 个 .ts 文件），handler 在 <span class="mono">handlers/</span>，请求进组前还会先过一层 <span class="mono">middleware/</span> 统一鉴权、压缩、处理错误。
 </div>
 
 <div class="card key">
@@ -112,7 +112,7 @@ LESSON_09 = {
   <ul>
     <li>server <strong>不是 Hono</strong>，而是 Effect 的 <span class="mono">HttpApi</span>：<strong>先用类型声明 API 形状</strong>，契约进类型。</li>
     <li>对外是<strong>一个 <span class="mono">(request) =&gt; Response</span> 的 webHandler</strong>——所以能既走网络、又走进程内 RPC（第 3、13 课）。</li>
-    <li>按领域切成 <strong>21 个路由组</strong>（session/event/config/provider/mcp…），各自内聚。</li>
+    <li>按领域切成 <strong>20 个路由组</strong>（session/event/config/provider/mcp…），各自内聚。</li>
     <li><span class="mono">OpenApi.fromApi(PublicApi)</span> 让 <strong>API 自己描述自己</strong>，自动生成 SDK（第 12 课）。</li>
     <li>还带 MDNS（本地发现）与 WebSocketTracker（实时连接）。</li>
   </ul>
@@ -147,14 +147,14 @@ LESSON_09 = {
 <div class="layers">
   <div class="layer l-app"><div class="lh"><span class="badge">Clients</span><span class="name">TUI / web / Slack…</span></div><div class="ld">send an HTTP Request (or in-process RPC)</div></div>
   <div class="layer l-part"><div class="lh"><span class="badge">Master handler</span><span class="name">webHandler</span></div><div class="ld">(request) =&gt; Response, dispatch by path</div></div>
-  <div class="layer l-main"><div class="lh"><span class="badge">Route groups</span><span class="name">session / event / config… ×21</span></div><div class="ld">per-domain endpoint contracts</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">Route groups</span><span class="name">session / event / config… ×20</span></div><div class="ld">per-domain endpoint contracts</div></div>
   <div class="layer l-core"><div class="lh"><span class="badge">handler</span><span class="name">handlers/*</span></div><div class="ld">call core services, do the real work</div></div>
 </div>
 <p>The fact "the server outward is just a function" matters more than it sounds. Precisely because the handler's form is so standard and pure — in a Request, out a Response, no hard dependency on a "real network" — it can be freely <strong>grafted onto different transports</strong>: on Node's HTTP server it's a network service; dropped into a worker thread and called directly, it becomes the rich TUI's zero-network in-process communication. <strong>One business logic, hot-swappable transport</strong> — again Lesson 6's "wholesale-swappable impl" echoing at the server layer.</p>
 <p>What's actually inside a handler? An endpoint's handler does "<strong>translate validated input into calls on core services, then encode the result back</strong>" — it's a <strong>thin layer of adaptation</strong> between this door and the core that does the real work behind it. Ideally a handler is thin: the heavy lifting is in core's Session, Tool services, and the handler only "ferries between the HTTP world and the Effect world." The next lesson takes route groups and handlers apart to see what this adaptation looks like.</p>
 
-<h2>21 route groups: cut by domain</h2>
-<p>This "service menu" isn't one long flat list of paths but <strong>cut into 21 groups by domain</strong>, each minding one area:</p>
+<h2>20 route groups: cut by domain</h2>
+<p>This "service menu" isn't one long flat list of paths but <strong>cut into 20 groups by domain</strong>, each minding one area:</p>
 <table class="t">
   <tr><th>Group</th><th>What it handles</th></tr>
   <tr><td><span class="mono">session</span></td><td>sessions: create, send a prompt, fetch history — the agent's main battlefield</td></tr>
@@ -162,7 +162,7 @@ LESSON_09 = {
   <tr><td><span class="mono">config</span> · <span class="mono">provider</span></td><td>config, model providers</td></tr>
   <tr><td><span class="mono">permission</span> · <span class="mono">question</span></td><td>permission confirmation, asking the user</td></tr>
   <tr><td><span class="mono">file</span> · <span class="mono">project</span> · <span class="mono">pty</span></td><td>files, projects, pseudo-terminal</td></tr>
-  <tr><td><span class="mono">mcp</span> · <span class="mono">tui</span> · <span class="mono">workspace</span> …</td><td>MCP, TUI-specific, workspaces, etc. (21 groups total)</td></tr>
+  <tr><td><span class="mono">mcp</span> · <span class="mono">tui</span> · <span class="mono">workspace</span> …</td><td>MCP, TUI-specific, workspaces, etc. (20 groups total)</td></tr>
 </table>
 <p>"Cut into groups by domain" is an important engineering decision. It makes a huge API surface <strong>navigable</strong>: want the "send a prompt" endpoint? Go to <span class="mono">session</span>; want to subscribe to live events? Go to <span class="mono">event</span>. Each group is an <strong>independent, cohesive contract unit</strong>, readable, changeable, testable on its own. This shares Part 2's "small collaborators" temperament — <strong>a big system built from clearly-bounded small pieces</strong>.</p>
 <div class="flow">
@@ -174,7 +174,7 @@ LESSON_09 = {
   <div class="arrow">-&gt;</div>
   <div class="node hl"><div class="nt">handler</div><div class="nd">call core → encode Response</div></div>
 </div>
-<p>Incidentally, these 21 groups' names are themselves a <strong>map</strong> of opencode's abilities: <span class="mono">session</span> is the agent's battlefield, <span class="mono">event</span> powers real-time, <span class="mono">permission</span>/<span class="mono">question</span> manage "let the AI work but stay in control," <span class="mono">pty</span>/<span class="mono">file</span> let it actually touch your project, <span class="mono">mcp</span>/<span class="mono">workspace</span> lead to extensibility and multi-instance. You could almost reverse-engineer roughly what opencode can do from this group list. Several later lessons dive into these groups — their "doorplate" at the server layer hangs right here. In other words, reading the server's route groups is like reading a table of contents — before opening any chapter you roughly know what the book is about.</p>
+<p>Incidentally, these 20 groups' names are themselves a <strong>map</strong> of opencode's abilities: <span class="mono">session</span> is the agent's battlefield, <span class="mono">event</span> powers real-time, <span class="mono">permission</span>/<span class="mono">question</span> manage "let the AI work but stay in control," <span class="mono">pty</span>/<span class="mono">file</span> let it actually touch your project, <span class="mono">mcp</span>/<span class="mono">workspace</span> lead to extensibility and multi-instance. You could almost reverse-engineer roughly what opencode can do from this group list. Several later lessons dive into these groups — their "doorplate" at the server layer hangs right here. In other words, reading the server's route groups is like reading a table of contents — before opening any chapter you roughly know what the book is about.</p>
 
 <h2>Types as contract: the API describes itself</h2>
 <p>HttpApi's most charming payoff is in this line:</p>
@@ -194,13 +194,13 @@ LESSON_09 = {
 <p>On startup the server carries two small parts — get acquainted:</p>
 <div class="cols">
   <div class="col"><h4>MDNS (local discovery)</h4><p><strong>Broadcasts its presence</strong> on the LAN so same-machine/same-network clients can auto-discover this server without typing an address.</p></div>
-  <div class="col"><h4>WebSocketTracker</h4><p>Tracks current WebSocket connections — needed by some real-time bidirectional channels (e.g. one transport for LLM streams).</p></div>
+  <div class="col"><h4>WebSocketTracker</h4><p>Tracks current WebSocket connections — used to shut down pty terminals and workspace-proxy channels, the parts that actually use WebSocket.</p></div>
 </div>
 <p>They aren't the stars, but they point out one thing: the server isn't just "take HTTP requests"; it also manages <strong>discovery and live connections</strong>, the "living" things. Folding these into the same server is the concrete embodiment of Lesson 1's "the server owns everything." Put these two with the earlier webHandler and route groups and the server's whole shape is clear: it's a <strong>resident, self-describing capability hub connectable many ways</strong>. It doesn't pick clients — whoever speaks HTTP and connects gets all its abilities. This "<strong>one hub, doors wide open</strong>" stance is the underlying reason opencode grows so many faces — TUI, web, desktop, Slack, ACP — and the ground the next lesson's "route groups and handlers" stands on.</p>
 
 <div class="card macro">
   <div class="tag">🌍 Big picture</div>
-  opencode's server is <strong>not Hono</strong> but built on Effect <span class="mono">HttpApi</span>: you <strong>declare the whole API's shape in types first</strong> (each endpoint's input/output/error), the compiler guards the contract, and a machine can read it. Outward it's <strong>one <span class="mono">(request) =&gt; Response</span> webHandler</strong> (so it runs over the network or in-process RPC); internally it's cut by domain into <strong>21 route groups</strong> (session/event/config…). The biggest payoff is <span class="mono">OpenApi.fromApi</span> — <strong>the API describes itself</strong>, auto-generating an SDK so many clients' types always align with the server. In one line: the server is opencode's self-describing capability hub; all clients talk to it along this typed contract — see this door clearly and the rest of Part 3 (routes, event stream, SDK, transport) just magnifies its sides.
+  opencode's server is <strong>not Hono</strong> but built on Effect <span class="mono">HttpApi</span>: you <strong>declare the whole API's shape in types first</strong> (each endpoint's input/output/error), the compiler guards the contract, and a machine can read it. Outward it's <strong>one <span class="mono">(request) =&gt; Response</span> webHandler</strong> (so it runs over the network or in-process RPC); internally it's cut by domain into <strong>20 route groups</strong> (session/event/config…). The biggest payoff is <span class="mono">OpenApi.fromApi</span> — <strong>the API describes itself</strong>, auto-generating an SDK so many clients' types always align with the server. In one line: the server is opencode's self-describing capability hub; all clients talk to it along this typed contract — see this door clearly and the rest of Part 3 (routes, event stream, SDK, transport) just magnifies its sides.
 </div>
 
 <div class="card detail">
@@ -216,7 +216,7 @@ LESSON_09 = {
 
 <span class="cm">// API self-describes: generate OpenAPI from the definition → used to generate the SDK (Lesson 12)</span>
 <span class="kw">export const</span> openapi = () =&gt; OpenApi.<span class="fn">fromApi</span>(PublicApi)</pre>
-  Route groups live under <span class="mono">routes/instance/httpapi/groups/</span> (session.ts, event.ts, config.ts… 21 total), handlers under <span class="mono">handlers/</span>, with a <span class="mono">middleware/</span> layer doing auth, compression, and error handling before a request reaches its group.
+  Route groups live under <span class="mono">routes/instance/httpapi/groups/</span> (session.ts, event.ts, config.ts… 20 groups across 21 files), handlers under <span class="mono">handlers/</span>, with a <span class="mono">middleware/</span> layer doing auth, compression, and error handling before a request reaches its group.
 </div>
 
 <div class="card key">
@@ -224,7 +224,7 @@ LESSON_09 = {
   <ul>
     <li>The server is <strong>not Hono</strong> but Effect's <span class="mono">HttpApi</span>: <strong>declare the API shape in types</strong>, contract in the type.</li>
     <li>Outward it's <strong>one <span class="mono">(request) =&gt; Response</span> webHandler</strong> — so it runs over network or in-process RPC (Lessons 3, 13).</li>
-    <li>Cut by domain into <strong>21 route groups</strong> (session/event/config/provider/mcp…), each cohesive.</li>
+    <li>Cut by domain into <strong>20 route groups</strong> (session/event/config/provider/mcp…), each cohesive.</li>
     <li><span class="mono">OpenApi.fromApi(PublicApi)</span> makes <strong>the API describe itself</strong>, auto-generating the SDK (Lesson 12).</li>
     <li>It also carries MDNS (local discovery) and WebSocketTracker (live connections).</li>
   </ul>
@@ -233,7 +233,7 @@ LESSON_09 = {
 }
 LESSON_10 = {
     "zh": r"""
-<p class="lead">上一课我们站在门口，看清了 server 这扇门的整体长相：一个 <span class="mono">webHandler</span>、背后挂着 <strong>21 个路由组</strong>。这一课我们<strong>推门进去</strong>，把镜头怼到<strong>其中一个组</strong>身上，看它到底由什么拼成。你会发现 opencode 的每个 API 端点都分成两半：<strong>「组」负责声明契约</strong>（这个端点叫什么、要什么、给什么、可能怎么错），<strong>「handler」负责照约办事</strong>（把校验过的输入翻译成对 core 的调用）。再加上裹在外面的一圈<strong>中间件</strong>，三者合起来，才是一个请求从进门到出门的完整旅程。读懂这一课，你就能拿着任何一个 API 路径，自己摸到它的声明在哪、实现在哪。</p>
+<p class="lead">上一课我们站在门口，看清了 server 这扇门的整体长相：一个 <span class="mono">webHandler</span>、背后挂着 <strong>20 个路由组</strong>。这一课我们<strong>推门进去</strong>，把镜头怼到<strong>其中一个组</strong>身上，看它到底由什么拼成。你会发现 opencode 的每个 API 端点都分成两半：<strong>「组」负责声明契约</strong>（这个端点叫什么、要什么、给什么、可能怎么错），<strong>「handler」负责照约办事</strong>（把校验过的输入翻译成对 core 的调用）。再加上裹在外面的一圈<strong>中间件</strong>，三者合起来，才是一个请求从进门到出门的完整旅程。读懂这一课，你就能拿着任何一个 API 路径，自己摸到它的声明在哪、实现在哪。</p>
 <p>为什么要把「声明」和「实现」拆成两半？这其实是第 5、6 课那套世界观的又一次兑现：<strong>把契约抬到显眼、机器可读的地方，把杂活留在实现里</strong>。组里全是类型，没有一行业务逻辑——正因为它「纯」，机器才能读它、据它生成 SDK（第 12 课）。handler 里全是干活的调用，但它<strong>不必再操心校验</strong>——输入合不合法，组的类型在它跑之前就替它把过关了。两边各司其职，这就是 opencode 路由层的基本骨法。</p>
 
 <div class="card analogy">
@@ -258,11 +258,11 @@ LESSON_10 = {
   <div class="arrow">.add →</div>
   <div class="node">HttpApiGroup<span class="sub">一个领域·如 session</span></div>
   <div class="arrow">.add →</div>
-  <div class="node">HttpApi<span class="sub">整张 API·21 组汇总</span></div>
+  <div class="node">HttpApi<span class="sub">整张 API·20 组汇总</span></div>
 </div>
 
-<h2>21 个组，就是一张能力地图</h2>
-<p>这 21 个组的<strong>名字本身</strong>，几乎就是 opencode 全部对外能力的目录。你不用读实现，光看组名就能猜个八九不离十：</p>
+<h2>20 个组，就是一张能力地图</h2>
+<p>这 20 个组的<strong>名字本身</strong>，几乎就是 opencode 全部对外能力的目录。你不用读实现，光看组名就能猜个八九不离十：</p>
 <div class="cellgroup">
   <div class="cell"><div class="k">session</div><div class="v">会话：列表/创建/发消息/中止/分享</div></div>
   <div class="cell"><div class="k">event</div><div class="v">事件流：SSE 实时推送（第 11 课）</div></div>
@@ -273,9 +273,9 @@ LESSON_10 = {
   <div class="cell"><div class="k">mcp</div><div class="v">MCP 外部工具服务器</div></div>
   <div class="cell"><div class="k">tui</div><div class="v">给富 TUI 的专用端点</div></div>
 </div>
-<p>（上面只列了 8 个，其余还有 instance、workspace、project、question、pty、sync、control、global 等，凑满 21 个。）这件事很值得停下来体会：<strong>当 API 是结构化声明时，它的「目录」是天然存在、可枚举的</strong>。你想知道 opencode 能干什么？不用读文档、不用问人，把 <span class="mono">groups/</span> 目录 <span class="mono">ls</span> 一遍，能力清单就在眼前。这是 Hono 那种「路由散落各处」的写法给不了的——在那里，没有人能一眼说清「这个服务总共开了哪些口」。声明式的代价是前期啰嗦，红利是<strong>系统永远能自己回答「我有哪些能力」</strong>。这种「可枚举性」还会一路传导：能力可枚举，文档就能自动生成、SDK 就能自动产出，连测试都能照着清单逐个覆盖——一份结构化的契约，喂饱了下游一整条工具链。</p>
+<p>（上面只列了 8 个，其余还有 instance、workspace、project、question、pty、sync、control、global 等，凑满 20 个组——groups/ 目录里其实有 21 个 .ts 文件，但 metadata.ts、query.ts 只是辅助模块，而 pty.ts 拆出 pty 与 pty-connect 两个组。）这件事很值得停下来体会：<strong>当 API 是结构化声明时，它的「目录」是天然存在、可枚举的</strong>。你想知道 opencode 能干什么？不用读文档、不用问人，把 <span class="mono">groups/</span> 目录 <span class="mono">ls</span> 一遍，能力清单就在眼前。这是 Hono 那种「路由散落各处」的写法给不了的——在那里，没有人能一眼说清「这个服务总共开了哪些口」。声明式的代价是前期啰嗦，红利是<strong>系统永远能自己回答「我有哪些能力」</strong>。这种「可枚举性」还会一路传导：能力可枚举，文档就能自动生成、SDK 就能自动产出，连测试都能照着清单逐个覆盖——一份结构化的契约，喂饱了下游一整条工具链。</p>
 <div class="cols">
-  <div class="col"><h4>组 = 契约（声明）</h4><p>groups/*.ts，21 个文件，全是类型。回答「有什么端点、各要什么」。机器可读 → 生成 SDK。</p></div>
+  <div class="col"><h4>组 = 契约（声明）</h4><p>groups/*.ts，20 个组，全是类型。回答「有什么端点、各要什么」。机器可读 → 生成 SDK。</p></div>
   <div class="col"><h4>handler = 实现（干活）</h4><p>handlers/*.ts，20 个文件。回答「这个端点具体怎么办」。调用 core 服务，把活真正干掉。</p></div>
 </div>
 
@@ -323,7 +323,7 @@ LESSON_10 = {
   <div class="tag">🗺️ 宏观图景</div>
   <p>把这一课拼回上一课：上一课的 <span class="mono">webHandler</span> 是「总台」，这一课拆开了总台背后的<strong>三件套</strong>——</p>
   <ul>
-    <li><strong>组（21 个，groups/）</strong>：声明契约，纯类型，喂养 SDK 生成。</li>
+    <li><strong>组（20 个，groups/）</strong>：声明契约，纯类型，喂养 SDK 生成。</li>
     <li><strong>handler（20 个，handlers/）</strong>：薄薄一层，把校验过的输入接到 core 服务。</li>
     <li><strong>中间件（9 个，middleware/）</strong>：套在外圈的横切关卡，鉴权/路由/压缩/错误兜底。</li>
   </ul>
@@ -351,14 +351,14 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
   <ul>
     <li>opencode 的每个 API 端点分两半：<strong>组声明契约</strong>（名字/参数/返回/错误，纯类型），<strong>handler 实现</strong>（调 core 干活）。</li>
     <li>端点的<strong>错误也是契约</strong>：可能返回什么错，写进类型，客户端的 SDK 据此都是类型已知的。</li>
-    <li><strong>21 个组的名字就是 opencode 的能力地图</strong>——结构化声明让系统永远能自己回答「我有哪些能力」。</li>
+    <li><strong>20 个组的名字就是 opencode 的能力地图</strong>——结构化声明让系统永远能自己回答「我有哪些能力」。</li>
     <li>handler 应当<strong>很薄</strong>：输入已被组的类型校验，它只负责「取干净输入 → 调 core → 返回」。<span class="mono">handleRaw</span> 用于需要手控 Response 的少数端点。</li>
     <li><strong>中间件</strong>是套在外圈的横切关卡；错误中间件「真相进日志、编号给客户端」，有类型的失败照常走正路。</li>
   </ul>
 </div>
 """,
     "en": r"""
-<p class="lead">Last lesson we stood at the door and saw the server's overall shape: one <span class="mono">webHandler</span>, with <strong>21 route groups</strong> behind it. This lesson we <strong>push the door open</strong> and zoom in on <strong>one group</strong> to see what it's made of. You'll find every opencode API endpoint splits in two: <strong>the "group" declares the contract</strong> (what this endpoint is called, what it wants, what it gives back, how it might fail), and <strong>the "handler" fulfils it</strong> (translating validated input into a call on core). Wrap a ring of <strong>middleware</strong> around them, and the three together make a request's full journey in and out. Grasp this lesson and you can take any API path and find, on your own, where it's declared and where it's implemented.</p>
+<p class="lead">Last lesson we stood at the door and saw the server's overall shape: one <span class="mono">webHandler</span>, with <strong>20 route groups</strong> behind it. This lesson we <strong>push the door open</strong> and zoom in on <strong>one group</strong> to see what it's made of. You'll find every opencode API endpoint splits in two: <strong>the "group" declares the contract</strong> (what this endpoint is called, what it wants, what it gives back, how it might fail), and <strong>the "handler" fulfils it</strong> (translating validated input into a call on core). Wrap a ring of <strong>middleware</strong> around them, and the three together make a request's full journey in and out. Grasp this lesson and you can take any API path and find, on your own, where it's declared and where it's implemented.</p>
 <p>Why split "declaration" from "implementation"? It's Lessons 5 and 6's worldview cashing out again: <strong>lift the contract to a visible, machine-readable place, and leave the chores in the implementation</strong>. The group is all types, not one line of business logic — because it's "pure," a machine can read it and generate the SDK from it (Lesson 12). The handler is all real calls, but it <strong>needn't worry about validation</strong> — whether input is legal, the group's types settle before the handler ever runs. Each side to its own job — that's the basic skeleton of opencode's routing layer.</p>
 
 <div class="card analogy">
@@ -383,11 +383,11 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
   <div class="arrow">.add →</div>
   <div class="node">HttpApiGroup<span class="sub">one domain · e.g. session</span></div>
   <div class="arrow">.add →</div>
-  <div class="node">HttpApi<span class="sub">whole API · 21 groups merged</span></div>
+  <div class="node">HttpApi<span class="sub">whole API · 20 groups merged</span></div>
 </div>
 
-<h2>21 groups are a map of capabilities</h2>
-<p>The <strong>names themselves</strong> of these 21 groups are almost a complete table of contents for everything opencode exposes. You needn't read the implementation; the group names alone tell you most of it:</p>
+<h2>20 groups are a map of capabilities</h2>
+<p>The <strong>names themselves</strong> of these 20 groups are almost a complete table of contents for everything opencode exposes. You needn't read the implementation; the group names alone tell you most of it:</p>
 <div class="cellgroup">
   <div class="cell"><div class="k">session</div><div class="v">sessions: list/create/prompt/abort/share</div></div>
   <div class="cell"><div class="k">event</div><div class="v">event stream: real-time SSE push (Lesson 11)</div></div>
@@ -398,9 +398,9 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
   <div class="cell"><div class="k">mcp</div><div class="v">MCP external tool servers</div></div>
   <div class="cell"><div class="k">tui</div><div class="v">endpoints dedicated to the rich TUI</div></div>
 </div>
-<p>(That lists only 8; the rest include instance, workspace, project, question, pty, sync, control, global and more, making 21.) This is worth pausing on: <strong>when the API is a structured declaration, its "directory" naturally exists and is enumerable</strong>. Want to know what opencode can do? No docs to read, no one to ask — <span class="mono">ls</span> the <span class="mono">groups/</span> directory and the capability list is right there. The Hono style of "routes scattered everywhere" can't give you this — there, no one can say at a glance "what ports does this service open in total." The declarative cost is up-front verbosity; the dividend is that <strong>the system can always answer "what capabilities do I have"</strong> by itself. This "enumerability" propagates downstream too: capabilities enumerable, docs auto-generate, SDKs auto-emit, even tests can cover the list one by one — one structured contract feeds a whole downstream toolchain.</p>
+<p>(That lists only 8; the rest include instance, workspace, project, question, pty, sync, control, global and more, making 20 groups — the groups/ dir actually has 21 .ts files, but metadata.ts and query.ts are just helpers, while pty.ts splits into pty and pty-connect.) This is worth pausing on: <strong>when the API is a structured declaration, its "directory" naturally exists and is enumerable</strong>. Want to know what opencode can do? No docs to read, no one to ask — <span class="mono">ls</span> the <span class="mono">groups/</span> directory and the capability list is right there. The Hono style of "routes scattered everywhere" can't give you this — there, no one can say at a glance "what ports does this service open in total." The declarative cost is up-front verbosity; the dividend is that <strong>the system can always answer "what capabilities do I have"</strong> by itself. This "enumerability" propagates downstream too: capabilities enumerable, docs auto-generate, SDKs auto-emit, even tests can cover the list one by one — one structured contract feeds a whole downstream toolchain.</p>
 <div class="cols">
-  <div class="col"><h4>group = contract (declaration)</h4><p>groups/*.ts, 21 files, all types. Answers "what endpoints exist, what each wants." Machine-readable → generates SDK.</p></div>
+  <div class="col"><h4>group = contract (declaration)</h4><p>groups/*.ts, 20 groups, all types. Answers "what endpoints exist, what each wants." Machine-readable → generates SDK.</p></div>
   <div class="col"><h4>handler = implementation (the work)</h4><p>handlers/*.ts, 20 files. Answers "how this endpoint actually does it." Calls core services, gets the work done.</p></div>
 </div>
 
@@ -448,7 +448,7 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
   <div class="tag">🗺️ The big picture</div>
   <p>Stitch this lesson back to the last: last lesson's <span class="mono">webHandler</span> is the "front desk," and this lesson opened the <strong>three-piece set</strong> behind it —</p>
   <ul>
-    <li><strong>groups (21, groups/)</strong>: declare contracts, pure types, feed SDK generation.</li>
+    <li><strong>groups (20, groups/)</strong>: declare contracts, pure types, feed SDK generation.</li>
     <li><strong>handlers (20, handlers/)</strong>: a thin layer wiring validated input to core services.</li>
     <li><strong>middleware (9, middleware/)</strong>: the cross-cutting checkpoints in the outer ring — auth/routing/compression/error catch-all.</li>
   </ul>
@@ -476,7 +476,7 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
   <ul>
     <li>Every opencode API endpoint splits in two: <strong>the group declares the contract</strong> (name/params/return/error, pure types), <strong>the handler implements</strong> (calls core for the work).</li>
     <li>An endpoint's <strong>errors are part of the contract</strong> too: what it might return is in the type, so the client's SDK knows it all by type.</li>
-    <li><strong>The 21 group names are opencode's capability map</strong> — structured declaration lets the system always answer "what capabilities do I have."</li>
+    <li><strong>The 20 group names are opencode's capability map</strong> — structured declaration lets the system always answer "what capabilities do I have."</li>
     <li>Handlers should be <strong>thin</strong>: input already validated by the group's types, it only "take clean input → call core → return." <span class="mono">handleRaw</span> is for the few endpoints needing manual Response control.</li>
     <li><strong>Middleware</strong> is the cross-cutting checkpoint ring; the error middleware does "truth into the log, an id to the client," while typed failures still take the main road.</li>
   </ul>
@@ -485,7 +485,7 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
 }
 LESSON_11 = {
     "zh": r"""
-<p class="lead">上一课的 21 个组里，大多数都是「你问一句、我答一句」的一次性买卖：GET 一下拿到会话列表，POST 一下创建会话。但有一个组特别不一样——<span class="mono">event</span>。它只有<strong>一个端点</strong>，可这个端点一旦连上就<strong>不挂断</strong>，而是变成一条<strong>持续往客户端推送</strong>的长河。这一课我们就解剖这条河：服务器内部状态一变（来了新消息、工具开始跑、会话状态变了），怎么<strong>实时</strong>告诉每一个正在看的客户端？答案是 <strong>SSE（Server-Sent Events，服务器推送事件）</strong>，而它的源头，是一条贯穿 core 的<strong>事件总线</strong>。</p>
+<p class="lead">上一课的 20 个组里，大多数都是「你问一句、我答一句」的一次性买卖：GET 一下拿到会话列表，POST 一下创建会话。但有一个组特别不一样——<span class="mono">event</span>。它只有<strong>一个端点</strong>，可这个端点一旦连上就<strong>不挂断</strong>，而是变成一条<strong>持续往客户端推送</strong>的长河。这一课我们就解剖这条河：服务器内部状态一变（来了新消息、工具开始跑、会话状态变了），怎么<strong>实时</strong>告诉每一个正在看的客户端？答案是 <strong>SSE（Server-Sent Events，服务器推送事件）</strong>，而它的源头，是一条贯穿 core 的<strong>事件总线</strong>。</p>
 <p>为什么这条河值得单独讲一课？因为它是 opencode「<strong>多端实时一致</strong>」的命脉。你在 TUI 里看到 AI 一个字一个字往外蹦、工具调用的状态实时翻牌——这些<strong>不是 TUI 自己算出来的</strong>，而是 server 通过这条 SSE 河推过来的。网页端、桌面端连的是<strong>同一条河</strong>，所以它们看到的画面天然同步。读懂这一课，你就明白了 opencode 那种「换个客户端、进度一模一样」的魔法，根在哪里。</p>
 
 <div class="card analogy">
@@ -599,7 +599,7 @@ HttpServerResponse.<span class="fn">stream</span>(
 </div>
 """,
     "en": r"""
-<p class="lead">Of the last lesson's 21 groups, most are one-shot "you ask, I answer" deals: GET the session list, POST to create a session. But one group is special — <span class="mono">event</span>. It has <strong>a single endpoint</strong>, yet once that endpoint connects it <strong>never hangs up</strong>, instead becoming a long river that <strong>continuously pushes to the client</strong>. This lesson dissects that river: when the server's internal state changes (a new message arrives, a tool starts running, a session's status flips), how does it tell every watching client <strong>in real time</strong>? The answer is <strong>SSE (Server-Sent Events)</strong>, and its headwater is an <strong>event bus</strong> running through core.</p>
+<p class="lead">Of the last lesson's 20 groups, most are one-shot "you ask, I answer" deals: GET the session list, POST to create a session. But one group is special — <span class="mono">event</span>. It has <strong>a single endpoint</strong>, yet once that endpoint connects it <strong>never hangs up</strong>, instead becoming a long river that <strong>continuously pushes to the client</strong>. This lesson dissects that river: when the server's internal state changes (a new message arrives, a tool starts running, a session's status flips), how does it tell every watching client <strong>in real time</strong>? The answer is <strong>SSE (Server-Sent Events)</strong>, and its headwater is an <strong>event bus</strong> running through core.</p>
 <p>Why does this river deserve its own lesson? Because it's the lifeline of opencode's <strong>multi-client real-time consistency</strong>. The AI spitting out one character at a time in your TUI, tool-call statuses flipping live — these <strong>aren't computed by the TUI itself</strong>; the server pushes them down this SSE river. The web and desktop clients connect to the <strong>same river</strong>, so what they see is naturally in sync. Grasp this lesson and you'll know where opencode's "switch clients, identical progress" magic is rooted.</p>
 
 <div class="card analogy">
@@ -715,12 +715,12 @@ HttpServerResponse.<span class="fn">stream</span>(
 }
 LESSON_12 = {
     "zh": r"""
-<p class="lead">第 9 课我们立了一个 flag：opencode 的 API「<strong>自己描述自己，进而自动生成 SDK</strong>」。第 10 课我们看清了这个「自己」是什么——21 个组、每个端点都是一份类型化的契约。这一课，我们终于<strong>兑现那个承诺</strong>：把「类型化的契约」真正变成「能 <span class="mono">import</span> 就用的客户端 SDK」，中间那台机器到底是怎么运转的。一句话剧透：核心只有一个函数 <span class="mono">OpenApi.fromApi(PublicApi)</span>——它读一遍整套 API 的类型，吐出一份标准 OpenAPI 规范；剩下的，就是让一台现成的代码生成器照着规范，把各端 SDK 一行行打印出来。</p>
+<p class="lead">第 9 课我们立了一个 flag：opencode 的 API「<strong>自己描述自己，进而自动生成 SDK</strong>」。第 10 课我们看清了这个「自己」是什么——20 个组、每个端点都是一份类型化的契约。这一课，我们终于<strong>兑现那个承诺</strong>：把「类型化的契约」真正变成「能 <span class="mono">import</span> 就用的客户端 SDK」，中间那台机器到底是怎么运转的。一句话剧透：核心只有一个函数 <span class="mono">OpenApi.fromApi(PublicApi)</span>——它读一遍整套 API 的类型，吐出一份标准 OpenAPI 规范；剩下的，就是让一台现成的代码生成器照着规范，把各端 SDK 一行行打印出来。</p>
 <p>为什么这件事值得专门花一课？因为它是 opencode「<strong>多端永不漂移</strong>」的终极保证。手写 SDK 的项目，永远在和一个幽灵搏斗：后端改了个字段，前端的类型忘了跟着改，于是某天线上突然 <span class="mono">undefined is not a function</span>。opencode 把这条搏斗线<strong>彻底删除了</strong>——SDK 不是人写的，是从 server 的类型机器生成的。server 一改、SDK 重新生成，类型对不上的地方<strong>编译期当场报错</strong>，根本活不到上线。读懂这一课，你就理解了为什么「契约先行」那点前期繁琐，最后变成了压倒性的工程红利。</p>
 
 <div class="card analogy">
   <div class="tag">🏭 生活类比</div>
-  把这套机制想成一座<strong>工厂的「蓝图→说明书」流水线</strong>。工程师手里有一张<strong>主蓝图</strong>（21 个组的类型化 API）——它精确、严谨，但满是只有内部人看得懂的专业符号。第一步，一台<strong>制版机</strong>（<span class="mono">OpenApi.fromApi</span>）扫描整张蓝图，把它翻译成一份<strong>行业标准规格书</strong>（OpenAPI JSON）——从此任何懂这套标准的下游机器都能读它。第二步，一条<strong>装订流水线</strong>（@hey-api 生成器）照着规格书，自动印出一本本<strong>即拿即用的工具手册</strong>（各端 SDK），手册里每个零件的名字、要填的参数、会得到的回执，全和主蓝图一字不差。最妙的是：<strong>改了主蓝图，重跑一遍流水线，所有手册自动更新</strong>。没人需要手抄、没人会抄错。流水线上甚至还有道<strong>质检工序</strong>，专门修掉一个已知的印刷瑕疵——因为再好的机器，也总有那么一两个需要人盯着的角落。
+  把这套机制想成一座<strong>工厂的「蓝图→说明书」流水线</strong>。工程师手里有一张<strong>主蓝图</strong>（20 个组的类型化 API）——它精确、严谨，但满是只有内部人看得懂的专业符号。第一步，一台<strong>制版机</strong>（<span class="mono">OpenApi.fromApi</span>）扫描整张蓝图，把它翻译成一份<strong>行业标准规格书</strong>（OpenAPI JSON）——从此任何懂这套标准的下游机器都能读它。第二步，一条<strong>装订流水线</strong>（@hey-api 生成器）照着规格书，自动印出一本本<strong>即拿即用的工具手册</strong>（各端 SDK），手册里每个零件的名字、要填的参数、会得到的回执，全和主蓝图一字不差。最妙的是：<strong>改了主蓝图，重跑一遍流水线，所有手册自动更新</strong>。没人需要手抄、没人会抄错。流水线上甚至还有道<strong>质检工序</strong>，专门修掉一个已知的印刷瑕疵——因为再好的机器，也总有那么一两个需要人盯着的角落。
 </div>
 
 <h2>第一步：fromApi，把类型读成规范</h2>
@@ -729,10 +729,10 @@ LESSON_12 = {
 <span class="kw">export async function</span> <span class="fn">openapi</span>() {
   <span class="kw">return</span> OpenApi.<span class="fn">fromApi</span>(PublicApi)
 }</pre>
-<p>就这么一行。<span class="mono">PublicApi</span> 是把 21 个组汇总后、再贴上标题/版本/描述注解的那个完整 API 对象（第 10 课的终点）。<span class="mono">OpenApi.fromApi</span> 把它<strong>当数据来读</strong>：遍历每个组、每个端点，把声明里的 params/query/payload/success/error 一一翻译成 OpenAPI 规范里的 paths、schemas、responses。这一步之所以可能，<strong>完全仰仗</strong>前几课那个反复强调的事实——API 是<strong>结构化的类型，而非散落各处的字符串</strong>。机器能遍历类型，却没法遍历你写在 Hono 里的一行行 <span class="mono">app.get("/x", fn)</span>。声明式那点前期繁琐，到这一步连本带利全赚了回来。</p>
+<p>就这么一行。<span class="mono">PublicApi</span> 是把 20 个组汇总后、再贴上标题/版本/描述注解的那个完整 API 对象（第 10 课的终点）。<span class="mono">OpenApi.fromApi</span> 把它<strong>当数据来读</strong>：遍历每个组、每个端点，把声明里的 params/query/payload/success/error 一一翻译成 OpenAPI 规范里的 paths、schemas、responses。这一步之所以可能，<strong>完全仰仗</strong>前几课那个反复强调的事实——API 是<strong>结构化的类型，而非散落各处的字符串</strong>。机器能遍历类型，却没法遍历你写在 Hono 里的一行行 <span class="mono">app.get("/x", fn)</span>。声明式那点前期繁琐，到这一步连本带利全赚了回来。</p>
 <p>停下来体会一下这件事有多不寻常：<strong>你写的类型，被当成可以遍历、可以转换的「数据」用了</strong>。在很多语言里，类型是编译期一写完就蒸发的影子，运行时啥也不剩。而在这里，整套 API 的类型不仅活到了运行时，还被一个函数<strong>逐字读出来、翻译成另一种格式</strong>。这正是 opencode 选择「声明式 HttpApi」最深的回报：当契约是数据，它就能被无限次地<strong>投影</strong>成别的东西——今天投影成 OpenAPI 规范喂 SDK，明天可以投影成校验器、投影成 mock server、投影成测试桩。一次声明，处处复用，靠的就是「类型即数据」这个支点。</p>
 <div class="flow">
-  <div class="node">PublicApi<span class="sub">21 组·类型化契约</span></div>
+  <div class="node">PublicApi<span class="sub">20 组·类型化契约</span></div>
   <div class="arrow">fromApi →</div>
   <div class="node">OpenAPI 规范<span class="sub">标准 JSON·机器可读</span></div>
   <div class="arrow">@hey-api →</div>
@@ -793,7 +793,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   <div class="tag">🗺️ 宏观图景</div>
   <p>这一课把第 9–12 课串成了一个<strong>闭环</strong>，也是整个第三部分的高潮：</p>
   <ul>
-    <li><strong>第 10 课</strong>：用类型把 21 个组的契约声明出来（结构化、机器可读）。</li>
+    <li><strong>第 10 课</strong>：用类型把 20 个组的契约声明出来（结构化、机器可读）。</li>
     <li><strong>第 12 课·这一课</strong>：<span class="mono">fromApi</span> 把类型读成 OpenAPI 规范 → generate 加料/格式化 → @hey-api 印成 SDK → 提交入库。</li>
     <li><strong>结果</strong>：客户端 <span class="mono">import</span> 即用，类型从 server 到调用点全程对齐，<strong>永不漂移</strong>。</li>
   </ul>
@@ -821,7 +821,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
 <div class="card key">
   <div class="tag">🎯 本课要点</div>
   <ul>
-    <li>SDK 生成的核心是 <span class="mono">OpenApi.fromApi(PublicApi)</span>：把 21 个组的<strong>类型</strong>读成一份标准 OpenAPI 规范——这一步只因 API 是结构化类型才可能。</li>
+    <li>SDK 生成的核心是 <span class="mono">OpenApi.fromApi(PublicApi)</span>：把 20 个组的<strong>类型</strong>读成一份标准 OpenAPI 规范——这一步只因 API 是结构化类型才可能。</li>
     <li><span class="mono">opencode generate</span> 给规范<strong>注入示例代码</strong>（x-codeSamples）并 <strong>prettier 格式化</strong>，保证产出逐字节可复现、可入库。</li>
     <li><span class="mono">@hey-api/openapi-ts</span> 按三个插件把规范印成 <strong>types.gen / sdk.gen / client.gen</strong>：类型、OpencodeClient 方法、fetch 客户端。</li>
     <li>端点名 → SDK 方法名，契约从 server <strong>类型安全地</strong>贯通到客户端每次调用；<strong>永不漂移</strong>，对不上当场编译报错。</li>
@@ -830,12 +830,12 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
 </div>
 """,
     "en": r"""
-<p class="lead">In Lesson 9 we planted a flag: opencode's API "<strong>describes itself, and so auto-generates an SDK</strong>." In Lesson 10 we saw what that "itself" is — 21 groups, each endpoint a typed contract. This lesson finally <strong>cashes that promise</strong>: how the machine that turns "typed contracts" into "an importable client SDK" actually runs. One-line spoiler: the core is a single function <span class="mono">OpenApi.fromApi(PublicApi)</span> — it reads the whole API's types once and emits a standard OpenAPI spec; the rest is letting an off-the-shelf code generator print each client's SDK line by line from that spec.</p>
+<p class="lead">In Lesson 9 we planted a flag: opencode's API "<strong>describes itself, and so auto-generates an SDK</strong>." In Lesson 10 we saw what that "itself" is — 20 groups, each endpoint a typed contract. This lesson finally <strong>cashes that promise</strong>: how the machine that turns "typed contracts" into "an importable client SDK" actually runs. One-line spoiler: the core is a single function <span class="mono">OpenApi.fromApi(PublicApi)</span> — it reads the whole API's types once and emits a standard OpenAPI spec; the rest is letting an off-the-shelf code generator print each client's SDK line by line from that spec.</p>
 <p>Why does this deserve a whole lesson? Because it's the ultimate guarantee of opencode's <strong>never-drifting multi-client consistency</strong>. Projects with a hand-written SDK forever fight a ghost: the backend changes a field, the frontend's type forgets to follow, and one day production throws <span class="mono">undefined is not a function</span>. opencode <strong>deletes this fight entirely</strong> — the SDK isn't written by a person, it's generated from the server's types. Change the server, regenerate the SDK, and any mismatch <strong>fails at compile time on the spot</strong>, never living to reach production. Grasp this lesson and you understand why that bit of "contract-first" up-front tedium turns into an overwhelming engineering dividend.</p>
 
 <div class="card analogy">
   <div class="tag">🏭 Analogy</div>
-  Think of this as a factory's <strong>"blueprint → manual" assembly line</strong>. The engineer holds a <strong>master blueprint</strong> (the typed API of 21 groups) — precise and rigorous, but full of professional symbols only insiders read. Step one, a <strong>platemaker</strong> (<span class="mono">OpenApi.fromApi</span>) scans the whole blueprint and translates it into an <strong>industry-standard spec sheet</strong> (OpenAPI JSON) — now any downstream machine that knows the standard can read it. Step two, a <strong>binding line</strong> (the @hey-api generator) follows the spec sheet and auto-prints <strong>ready-to-use toolkit manuals</strong> (each client's SDK), where every part's name, the params to fill, the receipt you'll get, all match the master blueprint to the letter. Best of all: <strong>change the master blueprint, rerun the line, and every manual updates automatically</strong>. No one transcribes, no one mistranscribes. The line even has a <strong>QA station</strong> that fixes one known misprint — because even the best machine always has a corner or two needing a human's eye.
+  Think of this as a factory's <strong>"blueprint → manual" assembly line</strong>. The engineer holds a <strong>master blueprint</strong> (the typed API of 20 groups) — precise and rigorous, but full of professional symbols only insiders read. Step one, a <strong>platemaker</strong> (<span class="mono">OpenApi.fromApi</span>) scans the whole blueprint and translates it into an <strong>industry-standard spec sheet</strong> (OpenAPI JSON) — now any downstream machine that knows the standard can read it. Step two, a <strong>binding line</strong> (the @hey-api generator) follows the spec sheet and auto-prints <strong>ready-to-use toolkit manuals</strong> (each client's SDK), where every part's name, the params to fill, the receipt you'll get, all match the master blueprint to the letter. Best of all: <strong>change the master blueprint, rerun the line, and every manual updates automatically</strong>. No one transcribes, no one mistranscribes. The line even has a <strong>QA station</strong> that fixes one known misprint — because even the best machine always has a corner or two needing a human's eye.
 </div>
 
 <h2>Step 1: fromApi, reading types into a spec</h2>
@@ -844,9 +844,9 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
 <span class="kw">export async function</span> <span class="fn">openapi</span>() {
   <span class="kw">return</span> OpenApi.<span class="fn">fromApi</span>(PublicApi)
 }</pre>
-<p>Just that one line. <span class="mono">PublicApi</span> is the complete API object after merging the 21 groups and tagging on title/version/description annotations (Lesson 10's endpoint). <span class="mono">OpenApi.fromApi</span> <strong>reads it as data</strong>: it walks each group and endpoint, translating the declared params/query/payload/success/error into the spec's paths, schemas, responses. This step is possible <strong>entirely thanks to</strong> the fact the past lessons kept stressing — the API is <strong>structured types, not strings scattered everywhere</strong>. A machine can walk types; it cannot walk your line-by-line <span class="mono">app.get("/x", fn)</span> in Hono. The declarative style's up-front tedium is repaid here with interest.</p>
+<p>Just that one line. <span class="mono">PublicApi</span> is the complete API object after merging the 20 groups and tagging on title/version/description annotations (Lesson 10's endpoint). <span class="mono">OpenApi.fromApi</span> <strong>reads it as data</strong>: it walks each group and endpoint, translating the declared params/query/payload/success/error into the spec's paths, schemas, responses. This step is possible <strong>entirely thanks to</strong> the fact the past lessons kept stressing — the API is <strong>structured types, not strings scattered everywhere</strong>. A machine can walk types; it cannot walk your line-by-line <span class="mono">app.get("/x", fn)</span> in Hono. The declarative style's up-front tedium is repaid here with interest.</p>
 <div class="flow">
-  <div class="node">PublicApi<span class="sub">21 groups · typed contracts</span></div>
+  <div class="node">PublicApi<span class="sub">20 groups · typed contracts</span></div>
   <div class="arrow">fromApi →</div>
   <div class="node">OpenAPI spec<span class="sub">standard JSON · machine-readable</span></div>
   <div class="arrow">@hey-api →</div>
@@ -908,7 +908,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   <div class="tag">🗺️ The big picture</div>
   <p>This lesson ties Lessons 9–12 into a <strong>closed loop</strong>, the climax of all of Part 3:</p>
   <ul>
-    <li><strong>Lesson 10</strong>: declare the 21 groups' contracts in types (structured, machine-readable).</li>
+    <li><strong>Lesson 10</strong>: declare the 20 groups' contracts in types (structured, machine-readable).</li>
     <li><strong>Lesson 12 · this one</strong>: <span class="mono">fromApi</span> reads the types into an OpenAPI spec → generate seasons/formats → @hey-api prints the SDK → committed to the repo.</li>
     <li><strong>Result</strong>: clients <span class="mono">import</span> and use it, types aligned from server to call site, <strong>never drifting</strong>.</li>
   </ul>
@@ -936,7 +936,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
 <div class="card key">
   <div class="tag">🎯 Key points</div>
   <ul>
-    <li>The core of SDK generation is <span class="mono">OpenApi.fromApi(PublicApi)</span>: it reads the 21 groups' <strong>types</strong> into a standard OpenAPI spec — possible only because the API is structured types.</li>
+    <li>The core of SDK generation is <span class="mono">OpenApi.fromApi(PublicApi)</span>: it reads the 20 groups' <strong>types</strong> into a standard OpenAPI spec — possible only because the API is structured types.</li>
     <li><span class="mono">opencode generate</span> <strong>injects code samples</strong> (x-codeSamples) into the spec and <strong>prettier-formats</strong> it, ensuring byte-reproducible, committable output.</li>
     <li><span class="mono">@hey-api/openapi-ts</span> prints the spec into <strong>types.gen / sdk.gen / client.gen</strong> via three plugins: types, OpencodeClient methods, fetch client.</li>
     <li>Endpoint name → SDK method name; the contract runs <strong>type-safely</strong> from server to every client call; <strong>never drifts</strong>, mismatch fails compile on the spot.</li>
@@ -1042,7 +1042,7 @@ GlobalBus.<span class="fn">on</span>(<span class="st">"event"</span>, (event) =&
   <p>这一课让整个「客户端/服务器」部分（第 9–13 课）<strong>合龙</strong>了。回望这条主线：</p>
   <ul>
     <li><strong>第 9 课</strong>：server = 一个 <span class="mono">(request)=&gt;Response</span> 的纯函数，建在类型化的 HttpApi 上。</li>
-    <li><strong>第 10 课</strong>：21 个组声明契约，handler 接到 core，中间件成环。</li>
+    <li><strong>第 10 课</strong>：20 个组声明契约，handler 接到 core，中间件成环。</li>
     <li><strong>第 11 课</strong>：event 组用 SSE 把事件总线推成实时流。</li>
     <li><strong>第 12 课</strong>：fromApi 把类型读成规范，自动生成吃 <span class="mono">fetch</span> 的 SDK。</li>
     <li><strong>第 13 课·本课</strong>：换掉那个 <span class="mono">fetch</span>，同一套 server + SDK 就在「网络」与「进程内」两种传输间自由切换。</li>
@@ -1169,7 +1169,7 @@ GlobalBus.<span class="fn">on</span>(<span class="st">"event"</span>, (event) =&
   <p>This lesson makes the whole "client/server" part (Lessons 9–13) <strong>close up</strong>. Look back along the main line:</p>
   <ul>
     <li><strong>Lesson 9</strong>: server = a <span class="mono">(request)=&gt;Response</span> pure function, built on the typed HttpApi.</li>
-    <li><strong>Lesson 10</strong>: 21 groups declare contracts, handlers wire to core, middleware forms a ring.</li>
+    <li><strong>Lesson 10</strong>: 20 groups declare contracts, handlers wire to core, middleware forms a ring.</li>
     <li><strong>Lesson 11</strong>: the event group pushes the event bus into a real-time stream via SSE.</li>
     <li><strong>Lesson 12</strong>: fromApi reads types into a spec, auto-generating an SDK that eats a <span class="mono">fetch</span>.</li>
     <li><strong>Lesson 13 · this one</strong>: swap that <span class="mono">fetch</span> and the same server + SDK move freely between "network" and "in-process" transports.</li>

@@ -4,7 +4,7 @@
 
 - opencode 的 server **不是 Hono/Express**，而是建在 `effect/unstable/httpapi` 的 **HttpApi** 上：先用类型声明整套 API 的"形状"（输入/输出/错误），编译器守契约，机器可据此生成 SDK。
 - 对外其实就是**一个函数**：`HttpApiApp.webHandler().handler`，形态 `(request) => Response`。正因这么标准纯粹，既能架在 `NodeHttpServer` 上，也能塞进进程内 worker 直接调（L13 的根）。
-- 整张 API 由 **21 个路由组**汇总而成（`routes/instance/httpapi/groups/`）；每个组是一个领域。
+- 整张 API 由 **20 个路由组**汇总而成（`routes/instance/httpapi/groups/`，目录下 21 个 .ts 文件——`metadata.ts`/`query.ts` 是辅助模块，`pty.ts` 含 pty + pty-connect 两个组）；每个组是一个领域。
 - `OpenApi.fromApi(PublicApi)`：API 自己描述自己 → OpenAPI 规范 → 自动生成 SDK，客户端类型永远和 server 对齐（L12 展开）。
 
 ## L10 路由组与 handler
@@ -12,7 +12,7 @@
 - 每个 API 端点分两半：**组声明契约**（`groups/*.ts`，纯类型：name/params/query/payload/success/error），**handler 实现**（`handlers/*.ts`，调 core）。
 - 端点用 `HttpApiEndpoint.get/post(name, path, {…}).annotateMerge(OpenApi.annotations(…))` 写成；`.add` 串成 `HttpApiGroup`，再 `.add` 进 `HttpApi.make`。
 - **错误也是契约**：`error: [BadRequest, ApiNotFoundError]` 写进类型，SDK 据此类型已知。
-- **21 个组的名字 = opencode 能力地图**；结构化声明让系统能自己回答"我有哪些能力"。
+- **20 个组的名字 = opencode 能力地图**；结构化声明让系统能自己回答"我有哪些能力"。
 - handler 用 `HttpApiBuilder.group(InstanceHttpApi, "session", h => …).handle("list", list)` 认领；名字必须和组对齐，错一个编译报错。输入已被组的类型校验，**handler 应当很薄**；`handleRaw` 用于需手控 Response 的少数端点。
 - **中间件**（`middleware/`，9 个）是外圈横切关卡（鉴权/路由/压缩/错误）；像洋葱，进出经同一批、方向相反。错误中间件"真相进日志、编号(ref)给客户端"，有类型的失败照常走正路。
 
@@ -26,7 +26,7 @@
 
 ## L12 SDK 生成
 
-- 核心一行：`OpenApi.fromApi(PublicApi)`（`server.ts` 的 `Server.openapi()`）——把 21 组的**类型当数据读**，吐出标准 OpenAPI 规范。只因 API 是结构化类型才可能；`/doc` 端点惰性计算（fromApi 非平凡）。
+- 核心一行：`OpenApi.fromApi(PublicApi)`（`server.ts` 的 `Server.openapi()`）——把 20 组的**类型当数据读**，吐出标准 OpenAPI 规范。只因 API 是结构化类型才可能；`/doc` 端点惰性计算（fromApi 非平凡）。
 - `opencode generate`（`cli/cmd/generate.ts`）：给每个 operation 注入 **`x-codeSamples`**（JS 用法示例）+ 过 **prettier** 格式化（保证逐字节可复现、可入库）。
 - `packages/sdk/js/script/build.ts`：`bun dev generate > openapi.json` → `createClient`（**@hey-api/openapi-ts**）按三插件产出 **types.gen / sdk.gen(OpencodeClient) / client.gen(fetch)**；`clean:true` 保证纯函数式产物。
 - 端点名 → SDK 方法名，契约从 server **类型安全**贯通到客户端每次调用；**永不漂移**（两份副本→同一源头的两次投影）。
