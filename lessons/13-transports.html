@@ -328,8 +328,356 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第三部分 · 客户端/服务器</span><span class="lang-en">Part 3 · Client/Server</span></div>
     <h1><span class="lang-zh">多客户端传输</span><span class="lang-en">Multi-client transports</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《多客户端传输》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“多客户端传输”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Multi-client transports" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Multi-client transports" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">第 9 课我们埋了一个伏笔：server 对外只是一个 <span class="mono">(request) =&gt; Response</span> 的函数，「正因为这么标准，它既能架在网络服务器上，也能塞进进程内 worker 直接调」。第 12 课又给了我们一把<strong>以 <span class="mono">fetch</span> 为参数</strong>的 SDK。这一课，是第三部分的<strong>收官与高潮</strong>：我们把这两块拼在一起，亲眼看富 TUI 怎么用<strong>零网络</strong>的方式，调用那个和网页端<strong>一模一样</strong>的 server。谜底就藏在一个函数里——<span class="mono">createWorkerFetch</span>，它造出一个长得和标准 <span class="mono">fetch</span> 分毫不差、却根本不碰网络的「假 fetch」。</p>
+<p>为什么这是整个第三部分的题眼？因为它把前面所有的伏笔一次性收拢：server 是纯函数（第 9 课）、SDK 吃一个 <span class="mono">fetch</span>（第 12 课）、事件靠 SSE 流（第 11 课）——这三件事拼起来，就得到一个惊人的结论：<strong>同一套业务逻辑、同一套 SDK，传输层可以随意热插拔</strong>。换个 <span class="mono">fetch</span>，TUI 就从「网络客户端」变成了「进程内客户端」，而 server 和 SDK<strong>一个字都不用改</strong>。这正是第 6 课「实现可整体替换」那条原则，在整个系统最外层的终极兑现。</p>
+
+<div class="card analogy">
+  <div class="tag">🏨 生活类比</div>
+  还记得第 9 课那家酒店的总服务台吗？总台只会干一件事：<strong>收一张点单、办成一件事、递回一张回执</strong>——它根本不关心这张点单是<strong>怎么</strong>送到它面前的。一位住在楼里的客人（富 TUI），不必跑到大门外用公用电话打进来，而是直接走到台前、或用楼内的<strong>气动传送管</strong>把单子「嗖」地送到台上——这就是 <span class="mono">createWorkerFetch</span>：楼内直送，不出大楼、不碰电话网。而一位外地客人（网页/桌面端），只能<strong>打电话</strong>进来（真正的网络 HTTP）。两位客人，<strong>同一个总台、同一张服务清单、同一本对客手册</strong>（SDK），唯一的差别只是「单子怎么送到台前」。把「送单方式」抽象成一个可替换的零件，同一个总台就能同时服务楼内楼外——这就是这一课的全部魔法。
+</div>
+
+<h2>缝在哪里：fetch 这道接缝</h2>
+<p>要理解传输能热插拔，先得看清「接缝」开在哪。回顾两个事实：server 是 <span class="mono">app.fetch(request)</span>——进一个 <span class="mono">Request</span>、出一个 <span class="mono">Response</span>；而 SDK 在第 12 课里是用 <span class="mono">@hey-api/client-fetch</span> 生成的，它内部<strong>所有的网络调用，都通过一个可配置的 <span class="mono">fetch</span> 函数</strong>发出去。两头都以 <span class="mono">fetch</span> 这个标准形态为界面——<strong>这就是那道接缝</strong>。只要你能提供一个「形状是 <span class="mono">fetch</span>、但内部爱干嘛干嘛」的函数，就能把 SDK 的请求<strong>导向任何你想要的地方</strong>。</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">调用</span><span class="name">client.session.list()</span></div><div class="ld">SDK 方法（第 12 课生成）</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">接缝</span><span class="name">fetch(request) =&gt; Response</span></div><div class="ld">★ 可替换的那道缝 ★</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">传输</span><span class="name">真 fetch ╱ createWorkerFetch</span></div><div class="ld">网络 HTTP，或进程内 RPC</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">处理</span><span class="name">app.fetch(request)</span></div><div class="ld">同一个 webHandler（第 9 课）</div></div>
+</div>
+<p>看清这张图，整一课就通了七成：最上和最下两层是<strong>雷打不动</strong>的——SDK 方法不变、server 处理器不变。能换的只有中间那层<strong>「传输」</strong>。网页端往这层填真正的 <span class="mono">fetch</span>，请求就走网络；富 TUI 往这层填 <span class="mono">createWorkerFetch</span>，请求就走进程内。<strong>接缝以上、接缝以下都原封不动，只把接缝处插的零件一换</strong>，传输方式就彻底变了。这就是「面向接口、而非面向实现」最干净利落的一次实战。</p>
+<p>这道接缝之所以能开得这么干净，靠的是一个常被低估的设计眼光：<strong>选一个「窄到极致、却又标准到极致」的边界</strong>。<span class="mono">fetch</span> 的形态简单得只剩「进 Request、出 Response」——正因为窄，任何人都能轻松实现一个；又因为它是 Web 标准，SDK、浏览器、运行时早就都认它。假如当初 server 对外暴露的是一个臃肿的、带几十个方法的客户端接口，想换传输就得把那几十个方法全重写一遍；而压缩成单一的 <span class="mono">fetch</span>，换传输就只剩「实现一个函数」。<strong>边界越窄，可替换性越强</strong>——这是贯穿 opencode 的审美，在这一课被推到了极致。</p>
+
+<h2>传输 A：真 fetch，走网络</h2>
+<p>这条路最直白，也是大多数客户端走的路。网页端、桌面端、远程连接的客户端，离 server 进程<strong>有真正的距离</strong>——它们和 server 之间隔着一条真实的网络。于是 SDK 里填的就是浏览器/运行时<strong>原生的那个 <span class="mono">fetch</span></strong>：请求被序列化成 HTTP 报文，经 TCP 发到 server 监听的端口（默认 4096），server 的 <span class="mono">NodeHttpServer</span> 收下、交给 webHandler 处理，再把 <span class="mono">Response</span> 序列化回来。一切都是标准的 HTTP，没有任何花招。这条路的好处是<strong>通用</strong>：任何能发 HTTP 的东西都能当 opencode 的客户端。代价是<strong>有网络开销</strong>：序列化、TCP、反序列化，每一跳都要钱。</p>
+<div class="cols">
+  <div class="col"><h4>传输 A · 网络 fetch</h4><p>真 fetch → HTTP/TCP → 端口 4096。<strong>通用</strong>：浏览器、桌面、远程都能连。<strong>代价</strong>：序列化 + 网络往返。</p></div>
+  <div class="col"><h4>传输 B · worker fetch</h4><p>createWorkerFetch → RPC → 隔壁线程。<strong>极快</strong>：零网络、零序列化成 HTTP。<strong>限制</strong>：只适用于同进程的富 TUI。</p></div>
+</div>
+
+<h2>传输 B：createWorkerFetch，零网络</h2>
+<p>富 TUI 的处境完全不同：它和 server <strong>跑在同一个进程里</strong>——只不过分在两个线程。主线程负责画界面（要快、要跟手），server 的重活（调模型、跑工具）则被放进一个 <strong>Worker 线程</strong>。两个线程之间，隔的不是网络，而是一条进程内的消息通道。既然 server 就在隔壁线程，何必把请求序列化成 HTTP、绕一圈网络再回来？<span class="mono">createWorkerFetch</span> 就是来抄这条近路的：</p>
+<pre class="code"><span class="cm">// 简化自 cli/cmd/tui.ts —— 一个长得像 fetch、却走 RPC 的函数</span>
+<span class="kw">function</span> <span class="fn">createWorkerFetch</span>(client: RpcClient): <span class="kw">typeof</span> fetch {
+  <span class="kw">const</span> fn = <span class="kw">async</span> (input, init) =&gt; {
+    <span class="kw">const</span> result = <span class="kw">await</span> client.<span class="fn">call</span>(<span class="st">"fetch"</span>, {  <span class="cm">// ← RPC 到 worker，不走网络</span>
+      url: ..., method: ..., headers: ..., body: ...,
+    })
+    <span class="kw">return new</span> <span class="fn">Response</span>(result.body, { status: result.status, ... })
+  }
+  <span class="kw">return</span> fn <span class="kw">as typeof</span> fetch  <span class="cm">// ← 对外伪装成标准 fetch</span>
+}</pre>
+<p>看它的两端：<strong>对外</strong>，它的签名被断言成 <span class="mono">typeof fetch</span>——在 SDK 眼里，它和真 <span class="mono">fetch</span> 没有任何区别，SDK 浑然不觉自己其实没在上网。<strong>对内</strong>，它没有发任何 HTTP，而是把请求的四要素（url/method/headers/body）打包，通过 <span class="mono">client.call("fetch", ...)</span> 用 RPC 发给 Worker 线程，再把 worker 回传的 <span class="mono">{status, headers, body}</span> <strong>重新拼成一个 <span class="mono">Response</span></strong> 交还给 SDK。一进一出，形态和真 fetch 一模一样，中间却没碰一下网卡。</p>
+<div class="flow">
+  <div class="node">主线程<span class="sub">client.session.list()</span></div>
+  <div class="arrow">→</div>
+  <div class="node">createWorkerFetch<span class="sub">假 fetch·打包请求</span></div>
+  <div class="arrow">RPC →</div>
+  <div class="node">Worker 线程<span class="sub">rpc.fetch 收下</span></div>
+  <div class="arrow">→</div>
+  <div class="node">app.fetch<span class="sub">同一个 webHandler</span></div>
+</div>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">主线程：SDK 调 client.session.list()，内部调那个「假 fetch」</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">createWorkerFetch 把 url/method/headers/body 打包，client.call("fetch", ...)</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">RPC 消息跨线程送到 Worker —— 不经网卡，不走 TCP</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">worker 的 rpc.fetch 重建 Request，调 Server.Default().app.fetch</span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">回传 {status, headers, body}，主线程拼回 Response 交给 SDK</span></div>
+</div>
+
+<h2>Worker 那头：同一个 handler</h2>
+<p>RPC 消息飞到 Worker 线程，落在 <span class="mono">cli/tui/worker.ts</span> 暴露的 <span class="mono">rpc.fetch</span> 上。这里是全课最值得拍案的一行——worker 收到请求后，干的事情是：</p>
+<pre class="code"><span class="cm">// 简化自 cli/tui/worker.ts —— worker 侧的 fetch 实现</span>
+<span class="kw">async</span> <span class="fn">fetch</span>(input) {
+  <span class="kw">const</span> request = <span class="kw">new</span> <span class="fn">Request</span>(input.url, {
+    method: input.method, headers, body: input.body })
+  <span class="kw">const</span> response = <span class="kw">await</span> Server.<span class="fn">Default</span>().app.<span class="fn">fetch</span>(request)  <span class="cm">// ← 就是第 9 课那个 handler！</span>
+  <span class="kw">return</span> { status: response.status,
+    headers: Object.<span class="fn">fromEntries</span>(response.headers.<span class="fn">entries</span>()),
+    body: <span class="kw">await</span> response.<span class="fn">text</span>() }
+}</pre>
+<p><span class="mono">Server.Default().app.fetch(request)</span>——这正是第 9 课里那个「收下所有请求」的 webHandler，<strong>一字不差</strong>。绕了这么一大圈，worker 最终调的，和网络客户端最终触达的，是<strong>同一个处理器、同一套路由组、同一批 handler</strong>。网络那条路只是在它前面多套了「序列化→TCP→反序列化」几层壳；进程内这条路把那几层壳全省了，直接把 <span class="mono">Request</span> 递到 handler 嘴边。<strong>业务逻辑只有一份，且只写了一遍</strong>——这就是「server 是纯函数」这个朴素事实，所兑换来的全部红利。</p>
+<div class="cols">
+  <div class="col"><h4>为什么要分两个线程</h4><p>主线程要专心渲染 TUI、保持跟手；模型调用、工具执行这些重活塞进 worker，免得卡住界面。</p></div>
+  <div class="col"><h4>为什么不直接函数调用</h4><p>跨线程不能共享内存对象，只能传消息。RPC 就是把「跨线程调函数」包装成了类型安全的消息往返。</p></div>
+</div>
+<p>顺带一提，worker 暴露的 RPC 接口远不止 <span class="mono">fetch</span> 一个方法——它是富 TUI 操纵这个「隔壁大脑」的整套遥控器。瞥一眼这些方法名，你就能感到进程内这条路的便利：很多在网络端要专门设端点的事，在这里只是 worker 对象上的一个普通方法。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">fetch</div><div class="v">本课主角：把请求转交给 app.fetch，零网络</div></div>
+  <div class="cell"><div class="k">server</div><div class="v">按需真的起一个网络 server（让别的客户端也能连进来）</div></div>
+  <div class="cell"><div class="k">reload</div><div class="v">让 worker 重新加载配置，热更新</div></div>
+  <div class="cell"><div class="k">snapshot</div><div class="v">写一份堆快照，给内存调试用</div></div>
+</div>
+<p>这里藏着一个很妙的细节：worker 上有个 <span class="mono">server</span> 方法，能<strong>按需把网络 server 也启动起来</strong>。也就是说，富 TUI 平时自己走零网络的进程内通道，但只要你需要，它能<strong>顺手把大门也打开</strong>，让网页端、远程客户端同时连进<strong>同一个大脑</strong>。两种传输不是二选一，而是能<strong>叠加共存</strong>——同一个 server 实例，既服务楼内的 TUI，又服务楼外打电话进来的客人。这正是「传输与逻辑解耦」最实在的好处：加一种访问方式，不是重写一个系统，只是多开一扇门。</p>
+
+<h2>连事件也走这条管道</h2>
+<p>还有一处优雅得容易被错过：<strong>第 11 课那条 SSE 事件流，在进程内模式下也照样工作</strong>，只不过换了运力。看 worker 启动时的这几行：它订阅全局事件总线，每来一个事件，就用 <span class="mono">Rpc.emit</span> 沿 RPC 通道<strong>主动推</strong>给主线程：</p>
+<pre class="code"><span class="cm">// cli/tui/worker.ts —— 把全局事件经 RPC 转发给主线程</span>
+GlobalBus.<span class="fn">on</span>(<span class="st">"event"</span>, (event) =&gt; {
+  Rpc.<span class="fn">emit</span>(<span class="st">"global.event"</span>, event)  <span class="cm">// ← 不经 SSE/HTTP，直接走 RPC</span>
+})</pre>
+<p>于是无论走哪条传输，<strong>客户端拿到的「世界」是一致的</strong>：网络客户端通过 SSE 长连接收事件，进程内 TUI 通过 RPC 收事件，但两者收到的是<strong>同一条总线上的同一批事件</strong>。第 9 到 13 课构建的整个 server 表面——请求端点、事件流——在两种传输下都<strong>完整可用</strong>。这就是为什么你在 TUI 里和在网页里，看到的会话、消息、实时进度会<strong>分毫不差</strong>：它们面对的本就是同一个大脑，只是有人打电话、有人走楼内传送管而已。</p>
+<p>把这件事想透，你会发现 opencode 在这里做了一个很高明的归一：<strong>它没有为 TUI 单独发明一套「本地通信协议」</strong>。最偷懒也最常见的做法，是给进程内场景写一条捷径——TUI 直接调内部函数拿数据、内部回调收事件，绕开整个 HTTP/SSE 表面。可那样一来，TUI 和网页端就成了<strong>两套并行演化的代码</strong>，迟早各长各的、行为漂移。opencode 偏不：它逼着进程内这条路也<strong>老老实实走完 Request→handler→Response、走完事件总线→推送</strong>，只是把「运力」从网络换成了 RPC。代价是多搭了 <span class="mono">createWorkerFetch</span> 这层薄薄的转接，收益却是<strong>所有客户端共享唯一一套语义</strong>——这笔账，和第 12 课「宁可生成也不手写 SDK」算的是同一本。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景·第三部分收官</div>
+  <p>这一课让整个「客户端/服务器」部分（第 9–13 课）<strong>合龙</strong>了。回望这条主线：</p>
+  <ul>
+    <li><strong>第 9 课</strong>：server = 一个 <span class="mono">(request)=&gt;Response</span> 的纯函数，建在类型化的 HttpApi 上。</li>
+    <li><strong>第 10 课</strong>：21 个组声明契约，handler 接到 core，中间件成环。</li>
+    <li><strong>第 11 课</strong>：event 组用 SSE 把事件总线推成实时流。</li>
+    <li><strong>第 12 课</strong>：fromApi 把类型读成规范，自动生成吃 <span class="mono">fetch</span> 的 SDK。</li>
+    <li><strong>第 13 课·本课</strong>：换掉那个 <span class="mono">fetch</span>，同一套 server + SDK 就在「网络」与「进程内」两种传输间自由切换。</li>
+  </ul>
+  <p>一句话总结整个第三部分：<strong>opencode 把「能力」「契约」「事件」「客户端」彻底解耦，让同一个大脑，能被任意数量、任意距离的客户端，以最合适的方式访问。</strong>下一部分（第四部分）我们将<strong>推门走进这个大脑</strong>——看一个 prompt 进来后，会话、消息、Agent 循环、工具调用是怎么一步步把它变成回答的。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>传输的切换，落到代码上只是<strong>填进去的 <span class="mono">fetch</span> 不同</strong>而已。看 tui.ts 里组装 SDK 时那一念之差：</p>
+  <pre class="code"><span class="cm">// cli/cmd/tui.ts —— 同一个 SDK，喂不同的 fetch</span>
+<span class="cm">// 富 TUI：进程内，喂 worker fetch</span>
+{ fetch: <span class="fn">createWorkerFetch</span>(client) }   <span class="cm">// → RPC → worker → app.fetch</span>
+
+<span class="cm">// 其它客户端：喂真正的 transport.fetch</span>
+{ fetch: transport.fetch }              <span class="cm">// → 网络 HTTP → app.fetch</span></pre>
+  <p>两行的差别，就是「打电话」和「走楼内传送管」的差别。但请注意：<strong>差别仅此一处</strong>。SDK 的方法、server 的逻辑、事件的语义，全都共享、全都只写了一遍。把一个系统最易变的维度（部署/传输）压缩成「换一个参数」，是架构设计能达到的相当优雅的境界。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li>「同一 handler、两种传输」在这一课兑现：<strong>接缝就是 <span class="mono">fetch</span></strong>——server 进出是 <span class="mono">Request/Response</span>，SDK 的所有调用都经一个可配置的 <span class="mono">fetch</span>。</li>
+    <li><strong>传输 A（网络）</strong>：填原生 <span class="mono">fetch</span> → HTTP/TCP → NodeHttpServer → webHandler。通用，但有网络开销。</li>
+    <li><strong>传输 B（进程内）</strong>：<span class="mono">createWorkerFetch</span> 对外伪装成 <span class="mono">fetch</span>，对内把请求经 RPC 发给 Worker 线程，worker 直接调 <span class="mono">Server.Default().app.fetch</span>——同一个 handler，零网络。</li>
+    <li>分两线程是为<strong>主线程渲染不被重活拖卡</strong>；跨线程不能共享内存，故用<strong>类型安全的 RPC</strong> 传消息。</li>
+    <li>连<strong>事件流</strong>也复用这条管道：worker 把 GlobalBus 事件经 <span class="mono">Rpc.emit</span> 推给主线程，等价于网络端的 SSE。整个 server 表面在两种传输下都完整可用。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. 「同一 handler、两种传输」之所以可能，关键的「接缝」是什么？</div>
+  <ol class="opts">
+    <li>fetch——server 进出是 Request/Response，SDK 所有调用都经一个可配置的 fetch 函数</li>
+    <li>一个共享的全局变量</li>
+    <li>环境变量</li>
+    <li>数据库连接池</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。两头都以标准 fetch 形态为界面：server 是 app.fetch(request)，SDK 用可配置 fetch 发请求。只要提供一个「形状是 fetch、内部随意」的函数，就能把请求导向任何地方。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. 富 TUI 用 createWorkerFetch 时，Worker 线程最终调用的是什么？</div>
+  <ol class="opts">
+    <li>一个为 TUI 专写的本地数据访问层</li>
+    <li>直接读数据库</li>
+    <li>Server.Default().app.fetch(request)——就是第 9 课那个 webHandler，零网络</li>
+    <li>通过 localhost HTTP 再发一次请求</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。createWorkerFetch 对外伪装成 fetch，对内把请求经 RPC 发给 worker；worker 的 rpc.fetch 重建 Request 后调同一个 app.fetch。绕一圈最终触达的，和网络客户端是同一个 handler。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. 为什么富 TUI 要把 server 放进一个 Worker 线程，而不是主线程直接函数调用？</div>
+  <ol class="opts">
+    <li>为了绕过 TypeScript 的类型检查</li>
+    <li>纯粹是历史遗留，没有理由</li>
+    <li>因为 Effect 不能在主线程运行</li>
+    <li>主线程要专心渲染保持跟手，重活放 worker；跨线程不能共享内存，只能用类型安全 RPC 传消息</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。模型调用、工具执行是重活，留在主线程会卡住 TUI 渲染，所以塞进 worker。而 Worker 线程间不能共享内存对象，只能传消息——RPC 把「跨线程调函数」包成了类型安全的消息往返。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里说 opencode「没有为 TUI 单独发明一套本地通信协议」，而是逼进程内也走完整的 Request→handler→Response。这比写一条「直接调内部函数」的捷径多花了功夫，它换来了什么？</li>
+    <li>课里强调「边界越窄，可替换性越强」，fetch 窄到只剩进 Request 出 Response。结合你自己写过的代码，说一个你曾经把边界定得太宽、结果难以替换的例子。</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">In Lesson 9 we laid a hook: the server is outwardly just a <span class="mono">(request) =&gt; Response</span> function, and "because it's so standard, it runs on a network server and can also be called inside an in-process worker." In Lesson 12 we got an SDK <strong>parameterized by <span class="mono">fetch</span></strong>. This lesson is Part 3's <strong>finale and climax</strong>: we snap these two pieces together and watch the rich TUI call — with <strong>zero network</strong> — the very same server the web client uses. The answer hides in one function: <span class="mono">createWorkerFetch</span>, which builds a "fake fetch" indistinguishable in shape from the standard <span class="mono">fetch</span>, yet touching no network at all.</p>
+<p>Why is this the keystone of all of Part 3? Because it gathers every earlier hook at once: the server is a pure function (Lesson 9), the SDK eats a <span class="mono">fetch</span> (Lesson 12), events ride an SSE stream (Lesson 11) — snap these three together and you reach a striking conclusion: <strong>the same business logic, the same SDK, with a hot-swappable transport layer</strong>. Swap the <span class="mono">fetch</span> and the TUI turns from a "network client" into an "in-process client," while the server and SDK <strong>change not a single character</strong>. This is Lesson 6's "implementation replaceable wholesale," cashed out at the system's very outermost layer.</p>
+
+<div class="card analogy">
+  <div class="tag">🏨 Analogy</div>
+  Remember Lesson 9's hotel front desk? The desk does only one thing: <strong>take an order ticket, get it done, hand back a receipt</strong> — it doesn't care <strong>how</strong> the ticket reached it. A guest staying in the building (the rich TUI) needn't run outside to a payphone to call in; they walk up to the desk, or use the building's <strong>pneumatic tube</strong> to whoosh the ticket onto the counter — that's <span class="mono">createWorkerFetch</span>: in-building delivery, never leaving the building, never touching the phone network. A guest in another city (web/desktop) can only <strong>phone in</strong> (real network HTTP). Two guests, <strong>same desk, same service menu, same guidebook</strong> (SDK); the only difference is "how the ticket gets to the counter." Abstract "how the ticket arrives" into a replaceable part, and the one desk can serve inside and outside at once — that's all the magic of this lesson.
+</div>
+
+<h2>Where's the seam: fetch is the joint</h2>
+<p>To see why transport is hot-swappable, first spot where the "seam" is cut. Recall two facts: the server is <span class="mono">app.fetch(request)</span> — in a <span class="mono">Request</span>, out a <span class="mono">Response</span>; and the SDK in Lesson 12 was generated with <span class="mono">@hey-api/client-fetch</span>, so <strong>all its network calls go out through one configurable <span class="mono">fetch</span> function</strong>. Both ends meet at the standard <span class="mono">fetch</span> shape — <strong>that's the seam</strong>. As long as you can supply a function "shaped like <span class="mono">fetch</span> but doing whatever it likes inside," you can steer the SDK's requests <strong>anywhere you want</strong>.</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">call</span><span class="name">client.session.list()</span></div><div class="ld">SDK method (generated in Lesson 12)</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">seam</span><span class="name">fetch(request) =&gt; Response</span></div><div class="ld">★ the replaceable joint ★</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">transport</span><span class="name">real fetch ╱ createWorkerFetch</span></div><div class="ld">network HTTP, or in-process RPC</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">handle</span><span class="name">app.fetch(request)</span></div><div class="ld">the same webHandler (Lesson 9)</div></div>
+</div>
+<p>Grasp this diagram and 70% of the lesson clicks: the top and bottom layers are <strong>immovable</strong> — the SDK method doesn't change, the server handler doesn't change. The only swappable thing is the middle <strong>"transport"</strong> layer. The web fills it with the real <span class="mono">fetch</span> and requests go over the network; the rich TUI fills it with <span class="mono">createWorkerFetch</span> and requests go in-process. <strong>Everything above and below the seam stays untouched; swap only the part plugged into the seam</strong>, and the transport changes completely. This is "program to an interface, not an implementation" in its cleanest field test.</p>
+<p>This seam can be cut so cleanly thanks to an often-underrated design eye: <strong>pick a boundary that's "extremely narrow yet extremely standard."</strong> The <span class="mono">fetch</span> shape is so simple it's down to "in Request, out Response" — being narrow, anyone can implement one; being a Web standard, the SDK, browsers, and runtimes all already recognize it. Had the server exposed a bloated client interface with dozens of methods, swapping transport would mean rewriting all dozens; compressed to a single <span class="mono">fetch</span>, swapping transport is just "implement one function." <strong>The narrower the boundary, the stronger the replaceability</strong> — an aesthetic running through opencode, pushed to its extreme in this lesson.</p>
+
+<h2>Transport A: real fetch, over the network</h2>
+<p>This road is the most straightforward, and the one most clients take. Web, desktop, and remote clients are at a <strong>real distance</strong> from the server process — a real network sits between them. So the SDK is filled with the browser/runtime's <strong>native <span class="mono">fetch</span></strong>: the request is serialized to an HTTP message, sent over TCP to the server's listening port (default 4096), the server's <span class="mono">NodeHttpServer</span> receives it, hands it to the webHandler, then serializes the <span class="mono">Response</span> back. It's all standard HTTP, no tricks. This road's upside is <strong>universality</strong>: anything that can send HTTP can be an opencode client. The cost is <strong>network overhead</strong>: serialization, TCP, deserialization, every hop costs.</p>
+<div class="cols">
+  <div class="col"><h4>Transport A · network fetch</h4><p>real fetch → HTTP/TCP → port 4096. <strong>Universal</strong>: browser, desktop, remote all connect. <strong>Cost</strong>: serialization + network round-trip.</p></div>
+  <div class="col"><h4>Transport B · worker fetch</h4><p>createWorkerFetch → RPC → the next thread over. <strong>Very fast</strong>: zero network, zero HTTP serialization. <strong>Limit</strong>: only for the same-process rich TUI.</p></div>
+</div>
+
+<h2>Transport B: createWorkerFetch, zero network</h2>
+<p>The rich TUI's situation is entirely different: it runs <strong>in the same process</strong> as the server — just split across two threads. The main thread renders the UI (must be fast, must feel responsive), while the server's heavy work (calling models, running tools) is placed in a <strong>Worker thread</strong>. Between the two threads is not a network but an in-process message channel. Since the server is right next door in another thread, why serialize the request to HTTP and loop around the network and back? <span class="mono">createWorkerFetch</span> is here to take that shortcut:</p>
+<pre class="code"><span class="cm">// simplified from cli/cmd/tui.ts — a function shaped like fetch but riding RPC</span>
+<span class="kw">function</span> <span class="fn">createWorkerFetch</span>(client: RpcClient): <span class="kw">typeof</span> fetch {
+  <span class="kw">const</span> fn = <span class="kw">async</span> (input, init) =&gt; {
+    <span class="kw">const</span> result = <span class="kw">await</span> client.<span class="fn">call</span>(<span class="st">"fetch"</span>, {  <span class="cm">// ← RPC to the worker, no network</span>
+      url: ..., method: ..., headers: ..., body: ...,
+    })
+    <span class="kw">return new</span> <span class="fn">Response</span>(result.body, { status: result.status, ... })
+  }
+  <span class="kw">return</span> fn <span class="kw">as typeof</span> fetch  <span class="cm">// ← disguised outwardly as the standard fetch</span>
+}</pre>
+<p>Look at its two ends: <strong>outwardly</strong>, its signature is asserted as <span class="mono">typeof fetch</span> — in the SDK's eyes it's indistinguishable from real <span class="mono">fetch</span>; the SDK is blissfully unaware it isn't on the network. <strong>Inwardly</strong>, it sends no HTTP at all; it packs the request's four essentials (url/method/headers/body) and ships them via <span class="mono">client.call("fetch", ...)</span> over RPC to the Worker thread, then <strong>reassembles a <span class="mono">Response</span></strong> from the worker's returned <span class="mono">{status, headers, body}</span> and hands it back to the SDK. In and out, the shape is identical to real fetch, yet the network card was never touched.</p>
+<div class="flow">
+  <div class="node">main thread<span class="sub">client.session.list()</span></div>
+  <div class="arrow">→</div>
+  <div class="node">createWorkerFetch<span class="sub">fake fetch · packs request</span></div>
+  <div class="arrow">RPC →</div>
+  <div class="node">Worker thread<span class="sub">rpc.fetch receives</span></div>
+  <div class="arrow">→</div>
+  <div class="node">app.fetch<span class="sub">the same webHandler</span></div>
+</div>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">main thread: SDK calls client.session.list(), internally calling the "fake fetch"</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">createWorkerFetch packs url/method/headers/body, client.call("fetch", ...)</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">the RPC message crosses threads to the Worker — no NIC, no TCP</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">the worker's rpc.fetch rebuilds the Request, calls Server.Default().app.fetch</span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">returns {status, headers, body}; the main thread reassembles a Response for the SDK</span></div>
+</div>
+
+<h2>The worker side: the same handler</h2>
+<p>The RPC message flies to the Worker thread and lands on the <span class="mono">rpc.fetch</span> exposed by <span class="mono">cli/tui/worker.ts</span>. Here is the lesson's most applause-worthy line — on receiving the request, the worker does this:</p>
+<pre class="code"><span class="cm">// simplified from cli/tui/worker.ts — the worker-side fetch impl</span>
+<span class="kw">async</span> <span class="fn">fetch</span>(input) {
+  <span class="kw">const</span> request = <span class="kw">new</span> <span class="fn">Request</span>(input.url, {
+    method: input.method, headers, body: input.body })
+  <span class="kw">const</span> response = <span class="kw">await</span> Server.<span class="fn">Default</span>().app.<span class="fn">fetch</span>(request)  <span class="cm">// ← it's Lesson 9's handler!</span>
+  <span class="kw">return</span> { status: response.status,
+    headers: Object.<span class="fn">fromEntries</span>(response.headers.<span class="fn">entries</span>()),
+    body: <span class="kw">await</span> response.<span class="fn">text</span>() }
+}</pre>
+<p><span class="mono">Server.Default().app.fetch(request)</span> — this is exactly Lesson 9's "receive every request" webHandler, <strong>character for character</strong>. After this whole loop, what the worker ultimately calls, and what the network client ultimately reaches, is the <strong>same handler, same route groups, same handlers</strong>. The network road just wraps a few extra shells in front of it — "serialize → TCP → deserialize"; the in-process road drops all those shells and hands the <span class="mono">Request</span> straight to the handler's lips. <strong>There's only one copy of the business logic, written only once</strong> — that's the entire dividend bought by the plain fact that "the server is a pure function."</p>
+<div class="cols">
+  <div class="col"><h4>Why two threads</h4><p>The main thread must focus on rendering the TUI and staying responsive; heavy work like model calls and tool execution goes into the worker, lest the UI stall.</p></div>
+  <div class="col"><h4>Why not a direct function call</h4><p>Threads can't share memory objects, only pass messages. RPC wraps "call a function across threads" into a type-safe message round-trip.</p></div>
+</div>
+<p>By the way, the worker's RPC interface has far more than just <span class="mono">fetch</span> — it's the rich TUI's full remote control for this "brain next door." Glance at the method names and you feel the convenience of the in-process road: many things that need a dedicated endpoint on the network side are, here, just an ordinary method on the worker object.</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">fetch</div><div class="v">this lesson's star: hand the request to app.fetch, zero network</div></div>
+  <div class="cell"><div class="k">server</div><div class="v">on demand, actually start a network server (so other clients can connect too)</div></div>
+  <div class="cell"><div class="k">reload</div><div class="v">make the worker reload config, hot-update</div></div>
+  <div class="cell"><div class="k">snapshot</div><div class="v">write a heap snapshot for memory debugging</div></div>
+</div>
+<p>A neat detail hides here: the worker has a <span class="mono">server</span> method that can <strong>start the network server on demand</strong>. That is, the rich TUI normally rides its own zero-network in-process channel, but whenever you need it, it can <strong>open the front door too</strong>, letting web and remote clients connect into the <strong>same brain</strong> at the same time. The two transports aren't either-or; they can <strong>coexist, stacked</strong> — one server instance serving both the in-building TUI and the guests phoning in from outside. This is the most concrete benefit of "decoupling transport from logic": adding an access method isn't rewriting a system, just opening one more door.</p>
+
+<h2>Even events ride this pipe</h2>
+<p>One more elegance easily missed: <strong>Lesson 11's SSE event stream works just as well in in-process mode</strong>, only on different haulage. Look at these lines at worker startup: it subscribes to the global event bus, and on each event <strong>actively pushes</strong> it to the main thread over the RPC channel via <span class="mono">Rpc.emit</span>:</p>
+<pre class="code"><span class="cm">// cli/tui/worker.ts — forward global events to the main thread over RPC</span>
+GlobalBus.<span class="fn">on</span>(<span class="st">"event"</span>, (event) =&gt; {
+  Rpc.<span class="fn">emit</span>(<span class="st">"global.event"</span>, event)  <span class="cm">// ← not via SSE/HTTP, straight over RPC</span>
+})</pre>
+<p>So whichever transport is taken, <strong>the "world" the client receives is identical</strong>: the network client receives events over an SSE long connection, the in-process TUI receives events over RPC, but both get the <strong>same events from the same bus</strong>. The whole server surface built across Lessons 9–13 — request endpoints, event stream — is <strong>fully usable</strong> under both transports. That's why the sessions, messages, and live progress you see in the TUI versus in the web are <strong>identical to the letter</strong>: they face the same brain all along; some just phone in while others use the building's tube.</p>
+<p>Think this through and you'll see opencode made a clever unification here: <strong>it didn't invent a separate "local communication protocol" just for the TUI</strong>. The laziest and most common move would be to write a shortcut for the in-process case — the TUI directly calling internal functions for data and internal callbacks for events, bypassing the whole HTTP/SSE surface. But then the TUI and the web become <strong>two codebases evolving in parallel</strong>, sooner or later growing apart and drifting in behavior. opencode refuses: it forces the in-process road to also <strong>faithfully run the full Request→handler→Response and the full event bus→push</strong>, only swapping the "haulage" from network to RPC. The cost is the thin <span class="mono">createWorkerFetch</span> adapter; the payoff is <strong>all clients sharing one and only one set of semantics</strong> — the same ledger Lesson 12 balanced with "generate rather than hand-write the SDK."</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture · Part 3 finale</div>
+  <p>This lesson makes the whole "client/server" part (Lessons 9–13) <strong>close up</strong>. Look back along the main line:</p>
+  <ul>
+    <li><strong>Lesson 9</strong>: server = a <span class="mono">(request)=&gt;Response</span> pure function, built on the typed HttpApi.</li>
+    <li><strong>Lesson 10</strong>: 21 groups declare contracts, handlers wire to core, middleware forms a ring.</li>
+    <li><strong>Lesson 11</strong>: the event group pushes the event bus into a real-time stream via SSE.</li>
+    <li><strong>Lesson 12</strong>: fromApi reads types into a spec, auto-generating an SDK that eats a <span class="mono">fetch</span>.</li>
+    <li><strong>Lesson 13 · this one</strong>: swap that <span class="mono">fetch</span> and the same server + SDK move freely between "network" and "in-process" transports.</li>
+  </ul>
+  <p>One line for all of Part 3: <strong>opencode fully decouples "capability," "contract," "events," and "client," so one brain can be accessed by any number of clients, at any distance, in the most fitting way.</strong> Next part (Part 4) we <strong>push the door open into this brain</strong> — watching how, after a prompt comes in, the session, messages, Agent loop, and tool calls turn it step by step into an answer.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p>Switching transport, landed in code, is merely <strong>a different <span class="mono">fetch</span> filled in</strong>. See the one-thought difference when tui.ts assembles the SDK:</p>
+  <pre class="code"><span class="cm">// cli/cmd/tui.ts — same SDK, fed a different fetch</span>
+<span class="cm">// rich TUI: in-process, feed the worker fetch</span>
+{ fetch: <span class="fn">createWorkerFetch</span>(client) }   <span class="cm">// → RPC → worker → app.fetch</span>
+
+<span class="cm">// other clients: feed the real transport.fetch</span>
+{ fetch: transport.fetch }              <span class="cm">// → network HTTP → app.fetch</span></pre>
+  <p>The difference between the two lines is the difference between "phoning in" and "using the building's tube." But note: <strong>the difference is only here</strong>. The SDK's methods, the server's logic, the events' semantics are all shared, all written once. Compressing a system's most volatile dimension (deployment/transport) into "swap one argument" is a fairly elegant height for architecture to reach.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li>"One handler, two transports" is cashed out here: <strong>the seam is <span class="mono">fetch</span></strong> — the server's in/out is <span class="mono">Request/Response</span>, and all SDK calls go through one configurable <span class="mono">fetch</span>.</li>
+    <li><strong>Transport A (network)</strong>: fill in the native <span class="mono">fetch</span> → HTTP/TCP → NodeHttpServer → webHandler. Universal, but with network overhead.</li>
+    <li><strong>Transport B (in-process)</strong>: <span class="mono">createWorkerFetch</span> disguises as <span class="mono">fetch</span> outwardly, inwardly ships the request via RPC to the Worker thread, which calls <span class="mono">Server.Default().app.fetch</span> directly — the same handler, zero network.</li>
+    <li>Two threads exist so the <strong>main thread's rendering isn't stalled by heavy work</strong>; threads can't share memory, so messages travel via <strong>type-safe RPC</strong>.</li>
+    <li>Even the <strong>event stream</strong> reuses this pipe: the worker pushes GlobalBus events to the main thread via <span class="mono">Rpc.emit</span>, equivalent to the network side's SSE. The whole server surface is fully usable under both transports.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. What is the key "seam" that makes "one handler, two transports" possible?</div>
+  <ol class="opts">
+    <li>fetch — the server's in/out is Request/Response, and all SDK calls go through one configurable fetch function</li>
+    <li>A shared global variable</li>
+    <li>Environment variables</li>
+    <li>A database connection pool</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. Both ends meet at the standard fetch shape: the server is app.fetch(request), the SDK sends via a configurable fetch. Supply a function shaped like fetch but free inside, and you can steer requests anywhere.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. When the rich TUI uses createWorkerFetch, what does the Worker thread ultimately call?</div>
+  <ol class="opts">
+    <li>A local data-access layer written specially for the TUI</li>
+    <li>Reads the database directly</li>
+    <li>Server.Default().app.fetch(request) — exactly Lesson 9's webHandler, zero network</li>
+    <li>Re-sends the request over localhost HTTP</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. createWorkerFetch disguises as fetch outwardly, ships the request via RPC inwardly; the worker's rpc.fetch rebuilds the Request and calls the same app.fetch. What it ultimately reaches is the same handler as the network client's.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. Why does the rich TUI put the server in a Worker thread instead of a direct main-thread function call?</div>
+  <ol class="opts">
+    <li>To bypass TypeScript's type checking</li>
+    <li>Pure legacy, no reason</li>
+    <li>Because Effect can't run on the main thread</li>
+    <li>The main thread must focus on rendering and stay responsive, heavy work goes to the worker; threads can't share memory, so type-safe RPC passes messages</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. Model calls and tool execution are heavy; left on the main thread they stall TUI rendering, so they go to the worker. Worker threads can't share memory objects, only pass messages — RPC wraps cross-thread calls into a type-safe message round-trip.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson says opencode “didn't invent a separate local protocol for the TUI” but forces the in-process path through the full Request→handler→Response. This costs more than a “call internal functions directly” shortcut — what does it buy?</li>
+    <li>The lesson stresses “the narrower the boundary, the stronger the replaceability,” with fetch narrowed to just Request in, Response out. From your own code, give one example where you made a boundary too wide and it became hard to replace.</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="12-sdk-generation.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">SDK 生成</span><span class="lang-en">Generating the SDK</span></div></a><a class="next" href="14-session-messages-parts.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">Session、消息与 part</span><span class="lang-en">Sessions, messages, parts</span></div></a></div>
 </div>
 <script>

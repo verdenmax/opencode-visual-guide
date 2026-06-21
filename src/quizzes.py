@@ -585,6 +585,47 @@ QUIZZES = {
             {"zh": "生成物（openapi.json、SDK 文件）是要提交进仓库的，所以 opencode 执着于「逐字节可复现」（prettier、clean:true）。说说如果产物不可复现，code review 和协作会遇到什么麻烦。", "en": "The artifacts (openapi.json, SDK files) are committed to the repo, so opencode insists on “byte-reproducibility” (prettier, clean:true). What trouble would code review and collaboration hit if the artifact weren't reproducible?"},
         ],
     },
+    "13-transports.html": {
+        "mcq": [
+            {
+                "q": {"zh": "「同一 handler、两种传输」之所以可能，关键的「接缝」是什么？", "en": "What is the key \"seam\" that makes \"one handler, two transports\" possible?"},
+                "opts": [
+                    {"zh": "fetch——server 进出是 Request/Response，SDK 所有调用都经一个可配置的 fetch 函数", "en": "fetch — the server's in/out is Request/Response, and all SDK calls go through one configurable fetch function"},
+                    {"zh": "一个共享的全局变量", "en": "A shared global variable"},
+                    {"zh": "数据库连接池", "en": "A database connection pool"},
+                    {"zh": "环境变量", "en": "Environment variables"},
+                ],
+                "answer": 0,
+                "why": {"zh": "两头都以标准 fetch 形态为界面：server 是 app.fetch(request)，SDK 用可配置 fetch 发请求。只要提供一个「形状是 fetch、内部随意」的函数，就能把请求导向任何地方。", "en": "Both ends meet at the standard fetch shape: the server is app.fetch(request), the SDK sends via a configurable fetch. Supply a function shaped like fetch but free inside, and you can steer requests anywhere."},
+            },
+            {
+                "q": {"zh": "富 TUI 用 createWorkerFetch 时，Worker 线程最终调用的是什么？", "en": "When the rich TUI uses createWorkerFetch, what does the Worker thread ultimately call?"},
+                "opts": [
+                    {"zh": "Server.Default().app.fetch(request)——就是第 9 课那个 webHandler，零网络", "en": "Server.Default().app.fetch(request) — exactly Lesson 9's webHandler, zero network"},
+                    {"zh": "一个为 TUI 专写的本地数据访问层", "en": "A local data-access layer written specially for the TUI"},
+                    {"zh": "通过 localhost HTTP 再发一次请求", "en": "Re-sends the request over localhost HTTP"},
+                    {"zh": "直接读数据库", "en": "Reads the database directly"},
+                ],
+                "answer": 0,
+                "why": {"zh": "createWorkerFetch 对外伪装成 fetch，对内把请求经 RPC 发给 worker；worker 的 rpc.fetch 重建 Request 后调同一个 app.fetch。绕一圈最终触达的，和网络客户端是同一个 handler。", "en": "createWorkerFetch disguises as fetch outwardly, ships the request via RPC inwardly; the worker's rpc.fetch rebuilds the Request and calls the same app.fetch. What it ultimately reaches is the same handler as the network client's."},
+            },
+            {
+                "q": {"zh": "为什么富 TUI 要把 server 放进一个 Worker 线程，而不是主线程直接函数调用？", "en": "Why does the rich TUI put the server in a Worker thread instead of a direct main-thread function call?"},
+                "opts": [
+                    {"zh": "主线程要专心渲染保持跟手，重活放 worker；跨线程不能共享内存，只能用类型安全 RPC 传消息", "en": "The main thread must focus on rendering and stay responsive, heavy work goes to the worker; threads can't share memory, so type-safe RPC passes messages"},
+                    {"zh": "为了绕过 TypeScript 的类型检查", "en": "To bypass TypeScript's type checking"},
+                    {"zh": "因为 Effect 不能在主线程运行", "en": "Because Effect can't run on the main thread"},
+                    {"zh": "纯粹是历史遗留，没有理由", "en": "Pure legacy, no reason"},
+                ],
+                "answer": 0,
+                "why": {"zh": "模型调用、工具执行是重活，留在主线程会卡住 TUI 渲染，所以塞进 worker。而 Worker 线程间不能共享内存对象，只能传消息——RPC 把「跨线程调函数」包成了类型安全的消息往返。", "en": "Model calls and tool execution are heavy; left on the main thread they stall TUI rendering, so they go to the worker. Worker threads can't share memory objects, only pass messages — RPC wraps cross-thread calls into a type-safe message round-trip."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说 opencode「没有为 TUI 单独发明一套本地通信协议」，而是逼进程内也走完整的 Request→handler→Response。这比写一条「直接调内部函数」的捷径多花了功夫，它换来了什么？", "en": "The lesson says opencode “didn't invent a separate local protocol for the TUI” but forces the in-process path through the full Request→handler→Response. This costs more than a “call internal functions directly” shortcut — what does it buy?"},
+            {"zh": "课里强调「边界越窄，可替换性越强」，fetch 窄到只剩进 Request 出 Response。结合你自己写过的代码，说一个你曾经把边界定得太宽、结果难以替换的例子。", "en": "The lesson stresses “the narrower the boundary, the stronger the replaceability,” with fetch narrowed to just Request in, Response out. From your own code, give one example where you made a boundary too wide and it became hard to replace."},
+        ],
+    },
 }
 
 def render(fname, lang):
