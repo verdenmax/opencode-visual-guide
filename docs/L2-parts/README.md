@@ -5,12 +5,12 @@
 
 | 文件 | 部分 | 课 | 状态 |
 | --- | --- | --- | --- |
-| `part-1.md` | 宏观全景 | L01–04 | 待填充 |
-| `part-2.md` | Effect 地基 | L05–08 | 待填充 |
-| `part-3.md` | 客户端/服务器 | L09–13 | 待填充 |
-| `part-4.md` | Session 与 agent 循环 | L14–20 | 待填充 |
-| `part-5.md` | Context Epoch 系统 | L21–27 | 待填充 |
-| `part-6.md` | LLM 协议层 | L28–35 | 待填充 |
+| `part-1.md` | 宏观全景 | L01–04 | 已完成 |
+| `part-2.md` | Effect 地基 | L05–08 | 已完成 |
+| `part-3.md` | 客户端/服务器 | L09–13 | 已完成 |
+| `part-4.md` | Session 与 agent 循环 | L14–20 | 已完成 |
+| `part-5.md` | Context Epoch 系统 | L21–27 | 已完成 |
+| `part-6.md` | LLM 协议层 | L28–35 | 已完成 |
 | `part-7.md` | 工具系统 | L36–43 | 待填充 |
 | `part-8.md` | 配置·Agents·Provider | L44–47 | 待填充 |
 | `part-9.md` | 持久化 | L48–51 | 待填充 |
