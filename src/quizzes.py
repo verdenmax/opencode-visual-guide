@@ -1446,6 +1446,47 @@ QUIZZES = {
             {"zh": "课里强调「正交不等于放任」：六个旋钮能自由组合，但类型参数 Frame 在 framing 和 protocol 的接缝处强制对齐（SSE 切出 string 帧，配它的 protocol.stream.event 就得是 Codec<Event, string>）。请谈谈「用类型系统在模块接缝处设防」相比「靠文档约定/代码评审来防止错配」的优势；你能想到自己项目里哪个接缝，也值得用类型（而非口头约定）来强制对齐？", "en": "The lesson stresses \"orthogonal doesn't mean lawless\": the six knobs combine freely, but the type parameter Frame forces alignment at the framing/protocol seam (SSE cuts string frames, so its protocol.stream.event must be Codec<Event, string>). Discuss the advantage of \"guarding a module seam with the type system\" over \"preventing mismatches via documentation/code review.\" Which seam in your own project also deserves type-enforced (not verbal) alignment?"},
         ],
     },
+    "34-streaming-cache.html": {
+        "mcq": [
+            {
+                "q": {"zh": "LLMEvent（schema/events.ts，17 个成员）在整套设计里扮演什么角色？", "en": "What role does LLMEvent (schema/events.ts, 17 members) play in the whole design?"},
+                "opts": [
+                    {"zh": "反腐层的「入站」规范词汇——六种协议的 stream.step 都把各自方言翻译成它，agent 循环只消费它，补全第 28 课「翻译墙」的回来一面", "en": "The anti-corruption layer's \"inbound\" canonical vocabulary — all six protocols' stream.step translate their dialect into it, the agent loop consumes only it, completing the inbound face of lesson 28's \"translation wall\""},
+                    {"zh": "只是 Anthropic 协议的内部事件类型", "en": "Just Anthropic's internal event type"},
+                    {"zh": "用于 UI 渲染的前端数据结构", "en": "A frontend data structure for UI rendering"},
+                    {"zh": "数据库里存事件日志的表", "en": "A DB table storing event logs"},
+                ],
+                "answer": 0,
+                "why": {"zh": "第 28 课的反腐层有一进一出：出去 LLMRequest、回来 LLMEvent 流。LLMEvent 是六种协议的「最大公约数」——Anthropic content_block_delta、OpenAI choices[].delta、Gemini part、Bedrock 二进制帧，都被 stream.step 翻译成这同一套 17 种事件。于是 agent 循环（L17）只认这 17 种就能驱动任何模型，新增第七家供应商它一行不改。", "en": "Lesson 28's anti-corruption layer has an out and a back: out LLMRequest, back the LLMEvent stream. LLMEvent is the six protocols' \"greatest common divisor\" — Anthropic's content_block_delta, OpenAI's choices[].delta, Gemini's parts, Bedrock's binary frames, all translated by stream.step into this same 17-event set. So the agent loop (L17) drives any model knowing only these 17, and adding a seventh provider changes not a line of it."},
+            },
+            {
+                "q": {"zh": "cache-policy 的 \"auto\" 默认把缓存断点打在「最后工具定义、最后系统提示、最新用户消息」三处，为什么是这三处？", "en": "cache-policy's \"auto\" default places breakpoints at \"last tool definition, last system part, latest user message.\" Why these three?"},
+                "opts": [
+                    {"zh": "这三处之前正好是「整回合不变的稳定前缀」；一个回合炸开成多次工具往返，每次都重发该前缀，打在「最新用户消息」边界让回合内每次往返都命中缓存", "en": "Up to these three is exactly the \"stable prefix unchanged through the turn\"; a turn explodes into many tool round-trips each resending that prefix, so marking the \"latest user message\" boundary makes every round-trip in the turn hit the cache"},
+                    {"zh": "随机选的三个位置", "en": "Three randomly chosen positions"},
+                    {"zh": "因为这三处内容最短", "en": "Because these three are the shortest"},
+                    {"zh": "为了凑满 4 个断点上限", "en": "To fill the 4-breakpoint cap"},
+                ],
+                "answer": 0,
+                "why": {"zh": "工具定义、系统提示通常整回合不变，直到「最新用户消息」为止的前缀也是。第 17 课的 agent 循环里，一条用户消息会炸开成许多次 assistant↔tool 往返，每次都重发整段前缀。把断点打在这条边界上，回合内每次往返的 API 调用都命中同一段缓存前缀——一次写入、N 次命中，省钱成倍。这正是第 24 课 Context Epoch 死守「基线前缀稳定」的真正目的。", "en": "Tool definitions and system prompts usually stay fixed all turn, as does the prefix up to the \"latest user message.\" In lesson 17's agent loop, one user message explodes into many assistant↔tool round-trips, each resending the whole prefix. Marking this boundary makes every round-trip's API call in the turn hit the same cached prefix — one write, N hits, multiplied savings. This is the true purpose of lesson 24's Context Epoch guarding \"baseline prefix stable.\""},
+            },
+            {
+                "q": {"zh": "applyCachePolicy 第一句就检查 RESPECTS_INLINE_HINTS，对 OpenAI/Gemini 整套策略跳过、原样返回。为什么？", "en": "applyCachePolicy's first line checks RESPECTS_INLINE_HINTS, skipping the whole policy for OpenAI/Gemini and returning as-is. Why?"},
+                "opts": [
+                    {"zh": "因为只有 Anthropic/Bedrock 认内联 cache_control 标记；OpenAI 用隐式前缀缓存、Gemini 用隐式+带外 CachedContent，给它们打内联标记「无害但无意义」", "en": "Because only Anthropic/Bedrock recognize inline cache_control markers; OpenAI uses implicit prefix caching, Gemini implicit + out-of-band CachedContent, so inline marks for them are \"harmless but pointless\""},
+                    {"zh": "因为 OpenAI/Gemini 不支持缓存", "en": "Because OpenAI/Gemini don't support caching"},
+                    {"zh": "因为 OpenAI/Gemini 的请求太大", "en": "Because OpenAI/Gemini requests are too big"},
+                    {"zh": "这是个 bug", "en": "It's a bug"},
+                ],
+                "answer": 0,
+                "why": {"zh": "各家缓存机制根本不同：Anthropic/Bedrock 要你显式在 part 上打 cache_control 内联标记；OpenAI 是隐式前缀缓存（自动，你不用标记）；Gemini 是隐式 + 带外 CachedContent API。cache-policy 这套「打内联标记」只对前两家有意义，对后两家无害但无意义，故整段跳过。这是很克制的设计——承认各家缓存哲学的差异，不硬塞进一个假装统一的抽象，正是 M6 的主旋律。", "en": "Cache mechanisms differ fundamentally: Anthropic/Bedrock want explicit inline cache_control marks on parts; OpenAI is implicit prefix caching (automatic, no marking); Gemini is implicit + out-of-band CachedContent API. cache-policy's \"inline marking\" matters only for the first two, harmless but pointless for the latter, so it skips entirely. A restrained design — acknowledging each vendor's caching philosophy rather than cramming into a fake-unified abstraction, exactly M6's main melody."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说 LLMEvent 把「会一点点来的内容」（正文/推理/工具参数）都拆成 start→delta…→end 三段式。请你想想：为什么流式 UI（边生成边显示）几乎必然要求事件被设计成这种「有头、有连续增量、有尾」的形状？如果只有一个「完整事件」、没有 delta，流式体验会损失什么？这种三段式还在你见过的哪些系统里出现过？", "en": "The lesson says LLMEvent splits \"content arriving bit by bit\" (body/reasoning/tool args) into a start→delta…→end triple. Consider: why does streaming UI (display-while-generating) almost necessarily require events shaped as \"a head, continuous deltas, a tail\"? If there were only one \"complete event\" and no deltas, what would the streaming experience lose? Where else have you seen this triple appear?"},
+            {"zh": "课里揭示一个跨课的「合谋」：cache-policy 在出站时把断点打在稳定前缀的边界（战略：缓存哪里最划算），protocol 的断点预算在更下层落实且不超 4 个名额（战术：硬约束内执行），而 Context Epoch（L24）在更上层死守前缀不变（保住命中）。请用你自己的话说清这三层各自的职责，并论证：为什么把「决定缓存哪里」「执行打标记」「维持前缀稳定」拆给三个不同的层，比揉成一坨更好？", "en": "The lesson reveals a cross-lesson \"conspiracy\": cache-policy marks breakpoints at the stable-prefix boundary on the way out (strategy: where caching pays most), the protocol's breakpoint budget enforces it lower down within the 4-slot cap (tactics: executing within the hard constraint), while Context Epoch (L24) guards the prefix unchanged higher up (preserving hits). In your own words, articulate each of these three layers' responsibilities, and argue: why is splitting \"decide where to cache,\" \"execute marking,\" and \"keep the prefix stable\" across three different layers better than mashing them into one?"},
+        ],
+    },
 }
 
 def render(fname, lang):

@@ -1250,5 +1250,210 @@ Route.<span class="fn">make</span>({
 </div>
 """,
 }
-LESSON_34 = wip('流式事件与缓存', 'Streaming & caching')
+LESSON_34 = {
+    "zh": r"""
+<p class="lead">这一课是 M6 的「打结」课——它把好几条横跨全书的伏线，在这里系成结实的扣。第一个结：第 28 课讲「反腐层」时，我们看了 core 送<strong>出去</strong>的规范语 <span class="mono">LLMRequest</span>；这一课补上回<strong>来</strong>的另一半——<strong>规范事件流 <span class="mono">LLMEvent</span></strong>，也就是六种协议的 <span class="mono">stream.step</span> 千辛万苦要翻<strong>译成</strong>的那套统一词汇，也是第 17 课 agent 循环真正<strong>消费</strong>的东西。第二个结更妙：第 24 课 Context Epoch 拼命维持「基线前缀稳定」，第 30 课 Anthropic 有「4 个缓存断点预算」——这一课的 <span class="mono">cache-policy.ts</span> 会告诉你，那 3 个自动缓存断点<strong>具体打在哪、为什么打在那</strong>，从而把「稳定前缀」和「省钱」之间最后一根线，<strong>当着你的面接通</strong>。</p>
+<p>所以这一课有两个主题，恰好对应一来一回：<strong>回来的「规范事件流」</strong>（LLMEvent，反腐层的入站半边）和<strong>出去时的「自动缓存策略」</strong>（cache-policy，把稳定前缀缓存住）。两者看似不相干，其实共享一个深层主题——<strong>把分散在各课的设计意图，收束到一处具体的代码里兑现</strong>。读完你会有种「原来前面那些苦心都是为了此刻」的畅快，也会更佩服这套设计在「分层埋线、最后收束」上的耐心。</p>
+
+<div class="card analogy">
+  <div class="tag">🎬 生活类比</div>
+  想象模型的回复是一场<strong>现场直播</strong>，而 <span class="mono">LLMEvent</span> 就是这场直播的<strong>标准化导播信号</strong>。无论后台用的是哪家的摄像机（协议），导播台打出来的信号格式永远统一：「正文开始」→「正文片段、片段、片段」→「正文结束」→「要调一个工具了」→「工具参数一段段来」→「工具调用完整了」→……→「全片完，附带用时统计」。楼上的总导演（agent 循环）只看这套标准信号，<strong>从不需要知道后台是索尼还是佳能的机器</strong>。而<strong>缓存</strong>这件事，就像直播前给场地<strong>布好的固定机位</strong>：开场那一大段背景介绍（系统提示、工具说明）每场都一样，与其每次重新架设，不如<strong>把这段固定机位缓存下来</strong>——一场直播里主持人来回走动（工具往返）很多次，可只要开头那段布景不变，就能一直复用，省下大把重新架设的成本。
+</div>
+
+<h2>回来的规范事件流：LLMEvent 的统一词汇</h2>
+<p>第 28 课我们说，反腐层有一进一出：出去的是 <span class="mono">LLMRequest</span>，回来的是 <span class="mono">LLMEvent</span> 流。前者第 28 课看过了，后者一直没正面展开——它就定义在 <span class="mono">schema/events.ts</span> 里。打开一看，<span class="mono">LLMEvent</span> 是一个<strong>有 17 个成员的标签联合</strong>，但它们其实归成几族，逻辑非常清晰：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">step-start / step-finish</div><div class="c-txt">一个推理步骤的边界（呼应第 20 课的有界步数）</div></div>
+  <div class="cell"><div class="c-tag">text-start / -delta / -end</div><div class="c-txt">正文文字：开始、一段段增量、结束</div></div>
+  <div class="cell"><div class="c-tag">reasoning-start / -delta / -end</div><div class="c-txt">推理过程：同样的 start/delta/end 三段式</div></div>
+  <div class="cell"><div class="c-tag">tool-input-start / -delta / -end</div><div class="c-txt">工具参数：跨帧到齐的那串 JSON（第 29 课的主角）</div></div>
+  <div class="cell"><div class="c-tag">tool-call / tool-result / tool-error</div><div class="c-txt">完整工具调用 / 结果 / 出错</div></div>
+  <div class="cell"><div class="c-tag">finish / provider-error</div><div class="c-txt">整轮结束（带 Usage 用量）/ 供应商错误</div></div>
+</div>
+<p>这套词汇的设计透着一股<strong>流式的味道</strong>：凡是会「一点点来」的东西（正文、推理、工具参数），都拆成 <span class="mono">start → delta…delta → end</span> 的三段式。这正是第 29 课那台状态机吐出的形态——还记得吗？工具参数通过一串 <span class="mono">tool-input-delta</span> 跨帧累积，攒齐了才有 <span class="mono">tool-call</span>。把一轮典型回复的事件流摊开，你会看到一条清晰的时间线：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">step-start</span><span class="t-txt">本步开始</span></div>
+  <div class="t-row"><span class="t-num">text-start → delta×N → text-end</span><span class="t-txt">模型先说一段话</span></div>
+  <div class="t-row"><span class="t-num">tool-input-start → delta×N → tool-input-end</span><span class="t-txt">参数 JSON 一段段到齐</span></div>
+  <div class="t-row"><span class="t-num">tool-call</span><span class="t-txt">一个完整工具调用成形</span></div>
+  <div class="t-row"><span class="t-num">step-finish</span><span class="t-txt">本步结束（可能进入下一步）</span></div>
+  <div class="t-row"><span class="t-num">finish</span><span class="t-txt">整轮结束，附 Usage（输入/输出/缓存 token）</span></div>
+</div>
+<p>关键认知：<strong>这 17 种事件，就是六种协议的「最大公约数」</strong>。Anthropic 的 <span class="mono">content_block_delta</span>、OpenAI 的 <span class="mono">choices[].delta</span>、Gemini 的流式 part、Bedrock 的二进制帧——千差万别，但 <span class="mono">stream.step</span> 最终都把它们翻译成<strong>这同一套 LLMEvent</strong>。于是楼上的 agent 循环（第 17 课）只需认识这 17 种事件，就能驱动任何一家模型。第 28 课画的那道「翻译墙」，出站一侧是 LLMRequest、入站一侧就是 LLMEvent——<strong>到这一课，墙的两面才算都看全了</strong>。墙内是清一色的规范事件，墙外是六种方言的喧哗，而那道墙，就是 <span class="mono">stream.step</span> 这台翻译机。也正因为楼上只认这 17 种事件，opencode 想接入「第七家、第八家」模型供应商时，agent 循环<strong>一行都不用改</strong>——新供应商只需把自己的流式输出翻译成这套既定词汇即可。统一的事件词汇，既是对内的契约，也是对外扩展的接口。</p>
+
+<h2>自动缓存：把那段「不变的开头」缓存住</h2>
+<p>第二个主题，是 <span class="mono">cache-policy.ts</span>——一个只有一百来行、却把好几课串起来的小文件。先回顾动机：第 30 课讲过 Anthropic 的提示缓存（在某些块上打 <span class="mono">cache_control</span>，缓存住从开头到该标记的前缀），还讲过「最多 4 个断点」的预算。但<strong>断点到底该打在哪几个位置？</strong>——这就是 cache-policy 要回答的。它的默认策略 <span class="mono">"auto"</span> 打三个断点：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">最后一个工具定义</div><div class="c-txt">markLastTool：工具列表通常整轮不变</div></div>
+  <div class="cell"><div class="c-tag">最后一段系统提示</div><div class="c-txt">markLastSystem：系统提示也通常整轮不变</div></div>
+  <div class="cell"><div class="c-tag">最新的用户消息</div><div class="c-txt">latest-user-message：一轮的「分水岭」</div></div>
+</div>
+<p>为什么偏偏是这三处？源码注释一语道破，而且这正是<strong>本课最该打通的那个结</strong>。想想第 17 课的 agent 循环：用户发一条消息后，<strong>一个回合会「炸开」成许多次 assistant↔tool 的往返</strong>——模型调工具、看结果、再调工具……每一次往返，都要把<strong>整段前缀</strong>（工具定义 + 系统提示 + 直到这条用户消息的全部历史）重新发给模型。这段前缀<strong>在整个回合里岿然不动</strong>。于是把缓存断点打在「最新用户消息」这个边界上，就意味着：<strong>这一回合内每一次工具往返的 API 调用，都命中同一段缓存前缀</strong>。一次缓存写入，被回合内 N 次往返反复命中——省的钱是成倍的。</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">用户消息</span><span class="t-txt">缓存断点打在这（前缀 = 工具+系统+历史，到此为止）</span></div>
+  <div class="t-row"><span class="t-num">往返1</span><span class="t-txt">模型调工具A → 重发整段前缀（命中缓存！）</span></div>
+  <div class="t-row"><span class="t-num">往返2</span><span class="t-txt">看到结果、调工具B → 又重发前缀（再次命中）</span></div>
+  <div class="t-row"><span class="t-num">往返N</span><span class="t-txt">…一个回合内反复命中同一段缓存前缀…</span></div>
+</div>
+<p>到这里，第 24 课那根线终于接通了：Context Epoch 拼死维持「基线前缀稳定」，<strong>图的就是让这段缓存前缀持续命中</strong>。前缀一旦被中途改写，缓存即刻失效，回合内后续每次往返都得按全价重算。所以「稳住前缀」不是洁癖，是<strong>真金白银的省钱手段</strong>——cache-policy 在这一层把断点打对位置，Context Epoch 在那一层把前缀守住不变，两者一上一下，合谋成就了 prompt 缓存的高命中率。<strong>一个在第 24 课埋下的「为什么要稳住前缀」，到第 34 课才图穷匕见。</strong></p>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>为什么缓存<strong>默认就开</strong>（<span class="mono">undefined → "auto"</span>）？注释给了一笔精算账：</p>
+  <pre class="code"><span class="cm">// 简化自 cache-policy.ts 的注释与默认</span>
+<span class="kw">const</span> AUTO = { tools: <span class="kw">true</span>, system: <span class="kw">true</span>, messages: <span class="st">"latest-user-message"</span> }
+
+<span class="cm">// 账：Anthropic 5 分钟缓存，写入 = 1.25x 基础价、读取 = 0.1x。</span>
+<span class="cm">// 只要 5 分钟内复用一次，就已经回本（1.25 + 0.1 &lt; 2）。</span>
+<span class="cm">// 而一个工具回合里要复用很多次 → 稳赚。所以默认就开。</span></pre>
+  <p>缓存写入比不缓存还贵一点点（1.25x），但读取便宜到几乎免费（0.1x）。<strong>只要前缀在 5 分钟内被复用哪怕一次，这笔买卖就划算</strong>；而一个工具回合动辄十几次往返，复用次数远不止一次——所以 opencode 把缓存<strong>设成默认开启</strong>，符合 LangChain 缓存中间件、kern-ai 等生产级 agent 框架的共识。还有个工程细节值得一提：<span class="mono">markMessageAt</span> 故意不用 <span class="mono">.map()</span> 而用 <span class="mono">slice + 下标赋值</span>，注释说得很实在——长对话每次请求都要跑它，<span class="mono">.map()</span> 的闭包派发和整数组复制「在性能剖析里会冒头」。<strong>连这种微小的热路径开销都被盯着</strong>，是生产级代码的底色，也是这套缓存逻辑敢于「默认开启」的底气所在。</p>
+</div>
+
+<h2>各家缓存机制不同：一个克制的「跳过」</h2>
+<p>最后一处巧思，藏在一行 <span class="mono">RESPECTS_INLINE_HINTS</span> 里。cache-policy 这套「在 part 上打内联标记」的玩法，<strong>只对 Anthropic 和 Bedrock 有效</strong>——因为只有它们的线缆格式认内联的 <span class="mono">cache_control</span> 标记。OpenAI 和 Gemini 的缓存机制<strong>根本不同</strong>：</p>
+<table class="t">
+  <tr><th>供应商</th><th>缓存机制</th><th>cache-policy 怎么做</th></tr>
+  <tr><td>Anthropic / Bedrock</td><td>显式内联标记 cache_control</td><td>打断点（本课主角）</td></tr>
+  <tr><td>OpenAI</td><td>隐式前缀缓存（自动，无需标记）</td><td>整段跳过</td></tr>
+  <tr><td>Gemini</td><td>隐式 + 带外 CachedContent API</td><td>整段跳过</td></tr>
+</table>
+<p>所以 <span class="mono">applyCachePolicy</span> 开头第一句就是：<strong>不在 <span class="mono">RESPECTS_INLINE_HINTS</span> 里的，直接原样返回、整套策略跳过</strong>。注释解释得很坦诚：给 OpenAI/Gemini 打内联标记「无害但无意义」——它们压根不看这些标记，自有一套隐式缓存。这是个很<strong>克制</strong>的设计：不强行用一套机制套所有人，而是<strong>承认各家缓存哲学的根本差异</strong>，该出手时（Anthropic/Bedrock）出手、该闭嘴时（OpenAI/Gemini）闭嘴。这恰好再次印证整个 M6 的主旋律——<strong>差异交给适配层吸收，而不是硬塞进一个统一抽象里假装它们都一样</strong>。真正好的抽象，懂得在哪里该统一、也懂得在哪里该放手。</p>
+<p>把 <span class="mono">applyCachePolicy</span> 的全过程画成流水线，它的「填空」本质就清楚了——它<strong>只填调用方留白的格子，不覆盖已有的手工标记</strong>：</p>
+<div class="flow">
+  <div class="f-node">LLMRequest<br><small>进来</small></div>
+  <div class="f-arrow">认 route？→</div>
+  <div class="f-node">非 inline 派<br><small>OpenAI/Gemini → 原样返回</small></div>
+  <div class="f-arrow">是 → resolve(auto)</div>
+  <div class="f-node">打 3 个断点<br><small>last tool/system/user</small></div>
+  <div class="f-arrow">→ 交给协议</div>
+  <div class="f-node">L30 断点预算<br><small>4 名额内裁剪</small></div>
+</div>
+<p>注意这条流水线和第 30 课的衔接：cache-policy 在<strong>协议编码之前</strong>跑一遍，把该缓存的 part 标上 <span class="mono">CacheHint</span>；然后协议的 lowering 层（第 30 课那个带 <span class="mono">Breakpoints{remaining,dropped}</span> 计数器的 <span class="mono">cacheControl</span>）再把这些 hint 落成真正的 <span class="mono">cache_control</span> 标记、并守住 4 个名额的上限。<strong>一个决定「打哪」、一个执行「打上且不超额」</strong>，职责分得干干净净——cache-policy 是战略（缓存哪几处最划算），protocol 的断点预算是战术（在硬约束内落实）。两课至此严丝合缝地咬合上。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这一课把 M6（乃至前几个 part）的几根线收成了扣：</p>
+  <ul>
+    <li><strong>LLMEvent = 反腐层的入站半边</strong>（<span class="mono">schema/events.ts</span>，17 成员）：step / text / reasoning / tool-input 的 start-delta-end 三段式 + tool-call/result/error + finish(带 Usage) + provider-error。六种协议的 stream.step 全翻译成它，第 17 课 agent 循环只消费它。补全了第 28 课「翻译墙」的入站一面。</li>
+    <li><strong>自动缓存的 3 个断点</strong>（<span class="mono">cache-policy.ts</span> 的 "auto"）：最后一个工具定义 + 最后一段系统提示 + 最新用户消息——把「整回合不变的稳定前缀」缓存住。</li>
+    <li><strong>接通第 24 课</strong>：断点打在「最新用户消息」边界，使回合内每次 assistant↔tool 往返都命中同一段缓存前缀；这正是 Context Epoch 死守「基线前缀稳定」的<strong>真正目的</strong>——稳定 = 可缓存 = 省钱。</li>
+    <li><strong>缓存默认开</strong>：写 1.25x、读 0.1x，5 分钟内复用一次即回本，工具回合复用多次稳赚。各家机制不同（Anthropic/Bedrock 显式内联；OpenAI/Gemini 隐式，cache-policy 整段跳过）。</li>
+  </ul>
+  <p>M6 至此只差最后一课。第 35 课讲<strong>模型解析与 GitHub Copilot provider</strong>：opencode 怎么从 models.dev 目录认出「某个模型该走哪条 Route、配哪组旋钮」，以及 Copilot 这个「既是供应商又自带认证体系」的特殊存在。讲完它，整个「core 说规范语 → 适配器翻方言 → 传输层送达 → 事件流回来 → 缓存省钱」的 LLM 闭环就彻底合龙了。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>LLMEvent（<span class="mono">schema/events.ts</span>，17 成员）</strong>是反腐层的入站规范词汇：step-start/finish、text/reasoning/tool-input 各自的 start-delta-end 三段式、tool-call/result/error、finish（带 Usage）、provider-error。六种协议 stream.step 都翻译成它，agent 循环（L17）只消费它——补全第 28 课「翻译墙」的入站半边。</li>
+    <li><strong>三段式反映流式</strong>：会「一点点来」的内容（正文/推理/工具参数）都拆成 start→delta…→end，正是第 29 课状态机的吐出形态。</li>
+    <li><strong>cache-policy.ts 的 "auto" 打 3 个断点</strong>：最后工具定义 + 最后系统提示 + 最新用户消息（<span class="mono">markLastTool/markLastSystem/markMessages</span>），缓存「整回合不变的稳定前缀」。</li>
+    <li><strong>接通 Context Epoch（L24）</strong>：断点打在「最新用户消息」边界，回合内每次 assistant↔tool 往返都命中同一前缀；故 Context Epoch 死守「基线前缀稳定」的真正目的就是<strong>保住缓存命中</strong>。缓存默认开（写 1.25x/读 0.1x，5 分钟内一次复用即回本）。</li>
+    <li><strong>RESPECTS_INLINE_HINTS = {anthropic-messages, bedrock-converse}</strong>：只有这俩认内联标记；OpenAI（隐式前缀缓存）、Gemini（隐式 + 带外 CachedContent）<strong>整段跳过</strong>策略。体现「差异交给适配层吸收，而非假装统一」。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">This lesson is M6's "knot-tying" lesson—it ties several threads running through the whole book into firm knots here. First knot: when lesson 28 covered the "anti-corruption layer," we saw the canonical language <span class="mono">LLMRequest</span> core sends <strong>out</strong>; this lesson fills in the other half coming <strong>back</strong>—the <strong>canonical event stream <span class="mono">LLMEvent</span></strong>, the unified vocabulary that the six protocols' <span class="mono">stream.step</span> labor to <strong>translate into</strong>, and exactly what lesson 17's agent loop actually <strong>consumes</strong>. The second knot is even neater: lesson 24's Context Epoch works hard to keep the "baseline prefix stable," lesson 30's Anthropic has a "4 cache-breakpoint budget"—this lesson's <span class="mono">cache-policy.ts</span> tells you <strong>exactly where those 3 auto cache breakpoints land and why</strong>, thereby <strong>connecting, right before your eyes</strong>, the last wire between "stable prefix" and "saving money."</p>
+<p>So this lesson has two themes, matching exactly one trip out and one back: the <strong>"canonical event stream" coming back</strong> (LLMEvent, the inbound half of the anti-corruption layer) and the <strong>"auto cache policy" going out</strong> (cache-policy, caching the stable prefix). The two seem unrelated, but share a deep theme—<strong>collecting design intentions scattered across lessons into one concrete place to cash in</strong>. After reading, you'll feel the satisfaction of "so all those earlier pains were for this moment."</p>
+
+<div class="card analogy">
+  <div class="tag">🎬 Analogy</div>
+  Imagine the model's reply is a <strong>live broadcast</strong>, and <span class="mono">LLMEvent</span> is this broadcast's <strong>standardized director's signal</strong>. Whatever cameras (protocols) the backstage uses, the signal the director's desk outputs is always uniform: "body starts" → "body fragment, fragment, fragment" → "body ends" → "about to call a tool" → "tool args arrive in segments" → "tool call complete" → … → "show over, with timing stats." The chief director upstairs (agent loop) watches only this standard signal, <strong>never needing to know if the backstage runs Sony or Canon</strong>. And <strong>caching</strong> is like <strong>fixed camera positions set up before the broadcast</strong>: the long opening backdrop (system prompt, tool descriptions) is the same every show, so rather than re-rigging each time, <strong>cache that fixed-position shot</strong>—within one broadcast the host walks back and forth (tool round-trips) many times, but as long as the opening backdrop is unchanged, it can be reused throughout, saving the cost of re-rigging.
+</div>
+
+<h2>The canonical event stream back: LLMEvent's unified vocabulary</h2>
+<p>Lesson 28 said the anti-corruption layer has an out and a back: out goes <span class="mono">LLMRequest</span>, back comes the <span class="mono">LLMEvent</span> stream. We saw the former in lesson 28; the latter was never directly unfolded—it's defined in <span class="mono">schema/events.ts</span>. Open it and <span class="mono">LLMEvent</span> is a <strong>tagged union with 17 members</strong>, but they group into a few families, very cleanly:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">step-start / step-finish</div><div class="c-txt">a reasoning step's boundary (echoing lesson 20's bounded steps)</div></div>
+  <div class="cell"><div class="c-tag">text-start / -delta / -end</div><div class="c-txt">body text: start, segment-by-segment delta, end</div></div>
+  <div class="cell"><div class="c-tag">reasoning-start / -delta / -end</div><div class="c-txt">reasoning: same start/delta/end triple</div></div>
+  <div class="cell"><div class="c-tag">tool-input-start / -delta / -end</div><div class="c-txt">tool args: the JSON arriving across frames (lesson 29's star)</div></div>
+  <div class="cell"><div class="c-tag">tool-call / tool-result / tool-error</div><div class="c-txt">complete tool call / result / error</div></div>
+  <div class="cell"><div class="c-tag">finish / provider-error</div><div class="c-txt">whole turn ends (with Usage) / provider error</div></div>
+</div>
+<p>This vocabulary's design has a distinctly <strong>streaming flavor</strong>: anything that "arrives bit by bit" (body, reasoning, tool args) is split into a <span class="mono">start → delta…delta → end</span> triple. This is exactly the shape lesson 29's state machine emits—remember? tool args accumulate across frames via a run of <span class="mono">tool-input-delta</span>, and only once assembled is there a <span class="mono">tool-call</span>. Lay out a typical turn's event stream and you'll see a clear timeline:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">step-start</span><span class="t-txt">this step begins</span></div>
+  <div class="t-row"><span class="t-num">text-start → delta×N → text-end</span><span class="t-txt">the model speaks first</span></div>
+  <div class="t-row"><span class="t-num">tool-input-start → delta×N → tool-input-end</span><span class="t-txt">arg JSON assembles segment by segment</span></div>
+  <div class="t-row"><span class="t-num">tool-call</span><span class="t-txt">a complete tool call takes shape</span></div>
+  <div class="t-row"><span class="t-num">step-finish</span><span class="t-txt">this step ends (may enter the next)</span></div>
+  <div class="t-row"><span class="t-num">finish</span><span class="t-txt">whole turn ends, with Usage (input/output/cache tokens)</span></div>
+</div>
+<p>Key realization: <strong>these 17 events are the "greatest common divisor" of the six protocols</strong>. Anthropic's <span class="mono">content_block_delta</span>, OpenAI's <span class="mono">choices[].delta</span>, Gemini's streaming parts, Bedrock's binary frames—wildly different, but <span class="mono">stream.step</span> ultimately translates them all into <strong>this same LLMEvent set</strong>. So the agent loop upstairs (lesson 17) need only know these 17 events to drive any model. The "translation wall" lesson 28 drew has LLMRequest on the outbound side and LLMEvent on the inbound side—<strong>only by this lesson are both faces of the wall fully seen</strong>. Inside the wall is uniform canonical events, outside is the clamor of six dialects, and the wall itself is the translation machine <span class="mono">stream.step</span>. Precisely because upstairs knows only these 17 events, when opencode wants to add a "seventh, eighth" model provider, the agent loop <strong>doesn't change a line</strong>—a new provider need only translate its streaming output into this established vocabulary. A unified event vocabulary is both an internal contract and the interface for outward extension.</p>
+
+<h2>Auto caching: cache that "unchanging opening"</h2>
+<p>The second theme is <span class="mono">cache-policy.ts</span>—a file of only a hundred-some lines that strings several lessons together. First recall the motive: lesson 30 covered Anthropic's prompt caching (mark some blocks with <span class="mono">cache_control</span>, caching the prefix from the start to that marker), and the "at most 4 breakpoints" budget. But <strong>where exactly should the breakpoints land?</strong>—that's what cache-policy answers. Its default policy <span class="mono">"auto"</span> places three breakpoints:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">last tool definition</div><div class="c-txt">markLastTool: the tool list usually stays fixed all turn</div></div>
+  <div class="cell"><div class="c-tag">last system part</div><div class="c-txt">markLastSystem: the system prompt also usually fixed all turn</div></div>
+  <div class="cell"><div class="c-tag">latest user message</div><div class="c-txt">latest-user-message: a turn's "watershed"</div></div>
+</div>
+<p>Why exactly these three? The source comment nails it, and this is <strong>the very knot this lesson should tie</strong>. Think of lesson 17's agent loop: after a user sends one message, <strong>a single turn "explodes" into many assistant↔tool round-trips</strong>—the model calls a tool, sees the result, calls another tool… each round-trip must resend the <strong>entire prefix</strong> (tool definitions + system prompt + all history up to this user message) to the model. That prefix <strong>stays rock-steady through the whole turn</strong>. So placing the cache breakpoint at the "latest user message" boundary means: <strong>every tool round-trip's API call within this turn hits the same cached prefix</strong>. One cache write, repeatedly hit by the turn's N round-trips—the savings are multiplied.</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">user msg</span><span class="t-txt">cache breakpoint placed here (prefix = tools+system+history, up to here)</span></div>
+  <div class="t-row"><span class="t-num">round-trip 1</span><span class="t-txt">model calls tool A → resend the whole prefix (cache hit!)</span></div>
+  <div class="t-row"><span class="t-num">round-trip 2</span><span class="t-txt">sees result, calls tool B → resend prefix again (hit again)</span></div>
+  <div class="t-row"><span class="t-num">round-trip N</span><span class="t-txt">…repeatedly hitting the same cached prefix within one turn…</span></div>
+</div>
+<p>Here, lesson 24's thread finally connects: Context Epoch works to death to keep the "baseline prefix stable" <strong>precisely to keep this cached prefix hitting continuously</strong>. Once the prefix is rewritten midway, the cache instantly invalidates, and every subsequent round-trip in the turn must recompute at full price. So "hold the prefix steady" isn't fastidiousness, it's a <strong>hard-cash money-saving measure</strong>—cache-policy places breakpoints right at this layer, Context Epoch guards the prefix unchanged at that layer, the two conspiring, one above one below, to achieve prompt caching's high hit rate. <strong>A "why hold the prefix steady" planted in lesson 24 finally shows its hand in lesson 34.</strong></p>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>Why is caching <strong>on by default</strong> (<span class="mono">undefined → "auto"</span>)? The comment gives a precise reckoning:</p>
+  <pre class="code"><span class="cm">// simplified from cache-policy.ts comments and defaults</span>
+<span class="kw">const</span> AUTO = { tools: <span class="kw">true</span>, system: <span class="kw">true</span>, messages: <span class="st">"latest-user-message"</span> }
+
+<span class="cm">// Math: Anthropic 5-min cache, write = 1.25x base, read = 0.1x.</span>
+<span class="cm">// A single reuse within 5 minutes already wins (1.25 + 0.1 &lt; 2).</span>
+<span class="cm">// And a tool turn reuses many times → sure win. So on by default.</span></pre>
+  <p>A cache write costs slightly more than no cache (1.25x), but a read is nearly free (0.1x). <strong>As long as the prefix is reused even once within 5 minutes, the deal pays off</strong>; and a tool turn easily has a dozen-plus round-trips, reusing far more than once—so opencode sets caching <strong>on by default</strong>, matching the consensus of production agent frameworks like LangChain's caching middleware and kern-ai. One more engineering detail worth noting: <span class="mono">markMessageAt</span> deliberately avoids <span class="mono">.map()</span> and uses <span class="mono">slice + index assignment</span>, the comment frank about it—long conversations run it on every request, and <span class="mono">.map()</span>'s closure dispatch and whole-array copies "show up in profiling." <strong>Even such tiny hot-path overhead is watched</strong>—the hallmark of production code, and the confidence behind this cache logic daring to be "on by default."</p>
+</div>
+
+<h2>Different vendors, different cache mechanisms: a restrained "skip"</h2>
+<p>One last touch of cleverness hides in a line, <span class="mono">RESPECTS_INLINE_HINTS</span>. cache-policy's whole "mark inline hints on parts" approach <strong>works only for Anthropic and Bedrock</strong>—because only their wire formats recognize the inline <span class="mono">cache_control</span> marker. OpenAI's and Gemini's cache mechanisms are <strong>fundamentally different</strong>:</p>
+<table class="t">
+  <tr><th>Vendor</th><th>Cache mechanism</th><th>What cache-policy does</th></tr>
+  <tr><td>Anthropic / Bedrock</td><td>explicit inline marker cache_control</td><td>place breakpoints (this lesson's star)</td></tr>
+  <tr><td>OpenAI</td><td>implicit prefix caching (automatic, no marker)</td><td>skip the whole pass</td></tr>
+  <tr><td>Gemini</td><td>implicit + out-of-band CachedContent API</td><td>skip the whole pass</td></tr>
+</table>
+<p>So <span class="mono">applyCachePolicy</span>'s very first line is: <strong>anything not in <span class="mono">RESPECTS_INLINE_HINTS</span> returns as-is, the whole policy skipped</strong>. The comment explains candidly: marking inline hints for OpenAI/Gemini is "harmless but pointless"—they don't look at these markers at all, having their own implicit caching. It's a very <strong>restrained</strong> design: not forcing one mechanism on everyone, but <strong>acknowledging each vendor's fundamentally different caching philosophy</strong>, acting when it should (Anthropic/Bedrock) and shutting up when it should (OpenAI/Gemini). This again confirms all of M6's main melody—<strong>let the adapter layer absorb differences, rather than cramming them into one unified abstraction pretending they're all the same</strong>. A truly good abstraction knows where to unify and where to let go.</p>
+<p>Drawn as a pipeline, <span class="mono">applyCachePolicy</span>'s "fill-in-the-blanks" nature is clear—it <strong>fills only the cells the caller left empty, never overwriting existing manual markers</strong>:</p>
+<div class="flow">
+  <div class="f-node">LLMRequest<br><small>incoming</small></div>
+  <div class="f-arrow">recognize route?→</div>
+  <div class="f-node">non-inline family<br><small>OpenAI/Gemini → return as-is</small></div>
+  <div class="f-arrow">yes → resolve(auto)</div>
+  <div class="f-node">place 3 breakpoints<br><small>last tool/system/user</small></div>
+  <div class="f-arrow">→ hand to protocol</div>
+  <div class="f-node">L30 breakpoint budget<br><small>trim within 4 slots</small></div>
+</div>
+<p>Note this pipeline's handoff to lesson 30: cache-policy runs <strong>before protocol encoding</strong>, marking the parts to cache with <span class="mono">CacheHint</span>; then the protocol's lowering layer (lesson 30's <span class="mono">cacheControl</span> with the <span class="mono">Breakpoints{remaining,dropped}</span> counter) turns these hints into actual <span class="mono">cache_control</span> markers while holding the 4-slot cap. <strong>One decides "where," one executes "mark it without exceeding"</strong>—responsibilities cleanly split: cache-policy is strategy (which spots are most worth caching), the protocol's breakpoint budget is tactics (carrying it out within the hard constraint). The two lessons now mesh seamlessly.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson ties M6's (and earlier parts') several threads into knots:</p>
+  <ul>
+    <li><strong>LLMEvent = the inbound half of the anti-corruption layer</strong> (<span class="mono">schema/events.ts</span>, 17 members): step / text / reasoning / tool-input start-delta-end triples + tool-call/result/error + finish(with Usage) + provider-error. All six protocols' stream.step translate into it, lesson 17's agent loop consumes only it. Completes the inbound face of lesson 28's "translation wall."</li>
+    <li><strong>Auto caching's 3 breakpoints</strong> (cache-policy.ts's "auto"): last tool definition + last system part + latest user message—caching the "stable prefix unchanged through the whole turn."</li>
+    <li><strong>Connecting lesson 24</strong>: breakpoints at the "latest user message" boundary make every assistant↔tool round-trip within a turn hit the same cached prefix; this is the <strong>true purpose</strong> of Context Epoch guarding "baseline prefix stable"—stable = cacheable = money saved.</li>
+    <li><strong>Caching on by default</strong>: write 1.25x, read 0.1x, one reuse within 5 minutes pays off, a tool turn reuses many times for a sure win. Mechanisms differ (Anthropic/Bedrock explicit inline; OpenAI/Gemini implicit, cache-policy skips the whole pass).</li>
+  </ul>
+  <p>M6 now has just one lesson left. Lesson 35 covers <strong>model resolution and the GitHub Copilot provider</strong>: how opencode recognizes from the models.dev catalog "which Route a model should ride, which set of knobs to configure," and Copilot, that "both a provider and a self-contained auth system" special case. After it, the whole LLM loop—"core speaks canonical → adapters translate dialects → transport delivers → event stream comes back → caching saves money"—is fully closed.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>LLMEvent (<span class="mono">schema/events.ts</span>, 17 members)</strong> is the anti-corruption layer's inbound canonical vocabulary: step-start/finish, text/reasoning/tool-input each as start-delta-end triples, tool-call/result/error, finish (with Usage), provider-error. All six protocols' stream.step translate into it, the agent loop (L17) consumes only it—completing the inbound half of lesson 28's "translation wall."</li>
+    <li><strong>The triple reflects streaming</strong>: content arriving "bit by bit" (body/reasoning/tool args) all split into start→delta…→end, exactly lesson 29's state-machine output shape.</li>
+    <li><strong>cache-policy.ts's "auto" places 3 breakpoints</strong>: last tool definition + last system part + latest user message (<span class="mono">markLastTool/markLastSystem/markMessages</span>), caching the "stable prefix unchanged through the turn."</li>
+    <li><strong>Connects Context Epoch (L24)</strong>: breakpoints at the "latest user message" boundary make every assistant↔tool round-trip in a turn hit the same prefix; so Context Epoch guarding "baseline prefix stable" is truly to <strong>preserve cache hits</strong>. Caching on by default (write 1.25x/read 0.1x, one reuse within 5 min pays off).</li>
+    <li><strong>RESPECTS_INLINE_HINTS = {anthropic-messages, bedrock-converse}</strong>: only these two recognize inline markers; OpenAI (implicit prefix caching), Gemini (implicit + out-of-band CachedContent) <strong>skip the whole pass</strong>. Embodies "let the adapter layer absorb differences, not pretend uniformity."</li>
+  </ul>
+</div>
+""",
+}
 LESSON_35 = wip('模型解析与 Copilot provider', 'Model resolution & Copilot')
