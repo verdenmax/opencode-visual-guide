@@ -45,6 +45,48 @@ def _shuffle(opts, answer, seed):
 
 
 QUIZZES = {
+    "44-config-loading.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode 的 Config.Info 在系统里扮演什么角色？", "en": "What role does opencode's Config.Info play in the system?"},
+                "opts": [
+                    {"zh": "一个类型化 Schema 的「接线总成」——把全系统几乎所有用户可调项（model/agents/permissions/mcp/tool_output/skills…）汇到一处；加载即校验", "en": "A typed-Schema \"wiring harness\" — gathering nearly all the system's user-tunable items (model/agents/permissions/mcp/tool_output/skills…) in one place; loading = validation"},
+                    {"zh": "只存一个 model 字段", "en": "Stores only a model field"},
+                    {"zh": "运行时才组装、没有 schema", "en": "Assembled at runtime, no schema"},
+                    {"zh": "每个子系统各自一份独立配置文件", "en": "Each subsystem has its own separate config file"},
+                ],
+                "answer": 0,
+                "why": {"zh": "Config.Info（config.ts）是用 Effect Schema 定义的大类，几乎汇集 opencode 所有子系统的旋钮：model/shell、agents（L45）、permissions（L41 Ruleset）、mcp（L46）、tool_output（L42）、skills（L43）、instructions/commands/lsp…。它是类型化的，所以加载时就校验（写错字段/类型在解析关被挡下，schema 即契约）。「一处声明、各取所需」：用户只在一处声明，每个子系统从同一份 Config.Info 取自己那格——好写、好校验、好演进（加可调项=加字段）。", "en": "Config.Info (config.ts) is a big class defined with Effect Schema, gathering nearly all of opencode's subsystem knobs: model/shell, agents (L45), permissions (L41 Ruleset), mcp (L46), tool_output (L42), skills (L43), instructions/commands/lsp…. It's typed, so it's validated at load (a wrong field/type stopped at the parse gate, schema is contract). \"Declare in one place, each takes what it needs\": the user declares in one spot, each subsystem takes its cell from this same Config.Info — easy to write, validate, evolve (adding a tunable = adding a field)."},
+            },
+            {
+                "q": {"zh": "当全局配置和某个子目录配置对同一项（如 model）给了不同值，最终用哪个？为什么？", "en": "When global config and some subdirectory config give different values for the same item (e.g. model), which wins, and why?"},
+                "opts": [
+                    {"zh": "子目录配置（更靠近打开的目录）胜出——「越靠近所打开目录的配置越优先」，因为它对应更具体的意图，特异应压过宽泛默认", "en": "The subdirectory config (closer to the opened dir) wins — \"config closer to the opened dir wins,\" because it maps to more specific intent, specific should override broad default"},
+                    {"zh": "全局配置永远胜出", "en": "Global config always wins"},
+                    {"zh": "随机选一个", "en": "Picks one at random"},
+                    {"zh": "报冲突错误、拒绝加载", "en": "Errors on conflict, refuses to load"},
+                ],
+                "answer": 0,
+                "why": {"zh": "源码铁律：「A config closer to the opened directory should win over one higher up」。优先级低→高：全局默认 < 项目根 < 更靠近 cwd 的特例。为什么越近越优先？因为它对应人的意图的「特异性」——全局写的是「我大体喜欢这样」的宽泛默认，子目录专门写的是「就这块儿我要特别这样」的明确意图；特异理应压过宽泛，否则专门为某角落写的设置反被全局默认盖掉就荒谬了。配置被排成 Entry[] 低→高，便于就近覆盖。", "en": "The source iron law: \"A config closer to the opened directory should win over one higher up.\" Priority low→high: global default < project root < closer-to-cwd exception. Why closer wins? Because it maps to intent specificity — the global is \"I generally like this\" broad default, the subdir specifically is \"right here I want it specially\" explicit intent; specific should override broad, else a setting written for a corner being covered by a global default would be absurd. Config is sorted into Entry[] low→high for closer-overrides."},
+            },
+            {
+                "q": {"zh": "latest(entries, key) 怎么得到某个设置的最终生效值？这种「保留有序来源、按 key 当场裁决」相比「急着深合并成一个大对象」好在哪？", "en": "How does latest(entries, key) get a setting's final effective value, and how is \"keep ordered sources, adjudicate per-key on the spot\" better than \"eagerly deep-merge into one big object\"?"},
+                "opts": [
+                    {"zh": "filter 出 Document 再 findLast 有定义的（=最高优先级）；保留有序来源让每项「从哪来、为何是这值」始终可追溯，配置出问题不会「来源成谜」", "en": "filter Documents then findLast with a definition (=highest priority); keeping ordered sources keeps each item's \"where from, why this value\" always traceable, config trouble never \"source is a mystery\""},
+                    {"zh": "把所有配置随机打乱再取第一个", "en": "Shuffles all configs and takes the first"},
+                    {"zh": "只读全局配置", "en": "Reads only global config"},
+                    {"zh": "深合并更快所以更好", "en": "Deep-merge is faster so better"},
+                ],
+                "answer": 0,
+                "why": {"zh": "latest 逻辑：filter 出 type==document 的 Entry → map 取该 key → findLast(≠undefined)。因 entries 是低→高排的，findLast 取最高优先级里有定义的那项——逐项 last-wins。和第 41 课权限 evaluate 用同一个 findLast。不预算合成结果、而把来源按优先级留着按 key 当场裁决：每项「从哪份配置来、为何是这值」清清楚楚可追溯，排查「这 model 怎么是这个」顺着优先级一层层看即可，不会迷失在早已揉成一团、来源难辨的大对象里。把『有哪些来源』和『某项最终取谁』分开=可解释性的根基。", "en": "latest logic: filter Entries with type==document → map the key → findLast(≠undefined). Because entries are low→high, findLast takes the highest-priority one with a definition — per-item last-wins. Same findLast as lesson 41's permission evaluate. It doesn't pre-compute a merged result but keeps sources by priority and adjudicates per-key on the spot: each item's \"which config it came from, why this value\" stays clear and traceable; to debug \"why is this model this,\" look layer by layer down priority, never lost in a long-mashed, source-obscured big object. Separating \"which sources exist\" from \"which one an item finally takes\" = the foundation of explainability."},
+            },
+        ],
+        "open": [
+            {"zh": "课里把 opencode 的配置层叠（全局默认 < 项目 < 更靠近 cwd）和 CSS cascade、.gitconfig（system<global<local）、editorconfig 等归为同一类「分层就近覆盖」机制。请你提炼这类机制的共同结构（多个有序来源、就近/就具体者覆盖、按项取值），并谈谈它为什么比「单一全局配置」或「每处独立配置」都更好用。它的代价（心智负担、来源排查）又在哪？", "en": "The lesson groups opencode's config cascade (global default < project < closer-to-cwd) with CSS cascade, .gitconfig (system<global<local), editorconfig as the same \"layered closer-overrides\" mechanism. Distill this class's common structure (multiple ordered sources, closer/more-specific overrides, per-item resolution), and discuss why it beats both \"a single global config\" and \"independent config everywhere.\" What's its cost (cognitive load, source debugging)?"},
+            {"zh": "课里强调这套配置系统的「可解释性」：保留有序来源、按 key 当场裁决，让每一项的来源始终可追，避免「来源成谜」。请结合你维护过的配置系统（如环境变量层叠、k8s 多层 values、构建工具配置），谈谈「配置来源难追溯」给你造成过什么麻烦？一个系统该如何设计，才能在合并多来源配置的同时，仍让人随时回答「这个值到底从哪来」？", "en": "The lesson stresses this config system's \"explainability\": keeping ordered sources and adjudicating per-key keeps each item's source always traceable, avoiding \"source is a mystery.\" From config systems you've maintained (env-var layering, k8s multi-layer values, build-tool config), discuss what trouble \"config source hard to trace\" caused you. How should a system be designed so that, while merging multi-source config, it still lets you answer \"where exactly does this value come from\" anytime?"},
+        ],
+    },
+
     "01-what-is-opencode.html": {
         "mcq": [
             {
