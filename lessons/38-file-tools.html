@@ -328,8 +328,314 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第七部分 · 工具系统</span><span class="lang-en">Part 7 · Tool System</span></div>
     <h1><span class="lang-zh">文件工具</span><span class="lang-en">File tools</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《文件工具》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“文件工具”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "File tools" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "File tools" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">前两课我们搭好了工具系统的<strong>骨架</strong>：一个工具怎么定义（第 36 课 <span class="mono">Tool.make</span>）、怎么被收集成模型可见的清单（第 37 课注册表）。从这一课起，我们钻进<strong>一个个真实的工具</strong>，看「骨架如何长出血肉」。先看最日常、也最考验功力的一族——<strong>文件工具</strong>：<span class="mono">read</span>（读）、<span class="mono">write</span>（整写）、<span class="mono">edit</span>（精改）、<span class="mono">apply_patch</span>（批量打补丁）。一个写代码的 agent，绝大多数动作落地成的，就是这四把「手」对文件的读与改。</p>
+<p>这一课有两层收获。其一，<strong>印证第 36 课</strong>：你会亲眼看到这四个工具<strong>全是同一张 <span class="mono">Config</span> 表的不同填法</strong>——各自声明 input/output schema + execute，套上 <span class="mono">withPermission</span>，仅此而已。其二，也是重头：我们会把 <span class="mono">edit</span> 工具的执行<strong>一步步摊开</strong>（spec 点名的 worked-example），看一个「把这段文字改成那段」的小操作，背后藏着多少<strong>生产级的较真</strong>——精确匹配、歧义拒绝、行尾归一、乐观并发写。读完你会明白：让 AI 安全地改你的代码，<strong>难的从来不是「替换字符串」，而是那一圈「不猜、不错、不覆盖别人」的护栏</strong>。</p>
+
+<div class="card analogy">
+  <div class="tag">✍️ 生活类比</div>
+  把这四个文件工具想象成一位文字匠人的<strong>四件工具</strong>。<strong>read</strong> 是<strong>放大镜</strong>——只看不改，还能翻页（offset/limit）地看长文档，甚至能「看」一整个抽屉的目录。<strong>write</strong> 是<strong>一张全新的稿纸</strong>——整页重写，旧的全盖掉。<strong>edit</strong> 是一支<strong>精密改错笔</strong>——「把这句话改成那句」，但它有古板的脾气：要改的原句必须<strong>一字不差</strong>地对上（连空格缩进都算）；要是这句话在文中<strong>出现了两次</strong>，它会停笔反问「<strong>你指哪一处？</strong>」，绝不替你瞎猜；而且动笔前它会瞄一眼——<strong>你刚才看过之后，这页要是被别人涂改过，它就拒绝下笔</strong>，免得抹掉别人的工作。<strong>apply_patch</strong> 则是一叠<strong>批量施工单</strong>——「新增这个文件、改那个、删另一个」，一次性按单施工。四件工具，对应改动的四种<strong>粒度与形状</strong>，模型按需取用。
+</div>
+
+<h2>四把「手」：一张表看清分工</h2>
+<p>先把四个工具并排放，它们的「形」一目了然——注意它们<strong>都在填第 36 课那张 <span class="mono">Config</span> 表</strong>（input/output schema + execute + 权限）：</p>
+<table class="t">
+  <tr><th>工具</th><th>input</th><th>改动粒度</th><th>权限</th></tr>
+  <tr><td>read</td><td>path, offset?, limit?</td><td>只读（可翻页、可列目录）</td><td>assert 读权限</td></tr>
+  <tr><td>write</td><td>path, content</td><td>整文件覆盖/新建</td><td>withPermission "write"</td></tr>
+  <tr><td>edit</td><td>path, oldString, newString, replaceAll?</td><td>精确查找替换（一处或全部）</td><td>withPermission "edit"</td></tr>
+  <tr><td>apply_patch</td><td>patchText</td><td>多文件批量 add/update/delete</td><td>withPermission</td></tr>
+</table>
+<p>这张表本身就是一堂设计课。四个工具覆盖了一条<strong>从粗到细、从单到多</strong>的改动光谱：<span class="mono">write</span> 最粗（整页换）、<span class="mono">edit</span> 最细（一句改）、<span class="mono">apply_patch</span> 最广（跨文件一把梭），而 <span class="mono">read</span> 是唯一<strong>不产生副作用</strong>的观察者。为什么要分这么多把？因为<strong>不同的改动形状，配不同的工具最省 token、最不易出错</strong>：改一行用 edit（只发那一行），重写整文件用 write（不必发 diff），跨文件重构用 apply_patch（一次成型）。模型会根据要做的事，<strong>自己挑那把最趁手的</strong>。这正是第 36 课「一张表、各自填空」结出的果——四种填法，覆盖四种真实需求。</p>
+<p>另一个共性是<strong>路径的边界</strong>：所有文件工具的路径都<strong>相对于「当前 Location」（工作区）解析</strong>；Location 内的绝对路径可接受，但指向<strong>外部</strong>的绝对路径，需要额外的 <span class="mono">external_directory</span> 批准才放行。这是一道安全栅栏——agent 默认只能在它的工作区里折腾，想伸手到工作区外，得先过一道明确的许可。</p>
+<p>两个端点的工具也各有巧思，值得各看一眼。先看只读的 <span class="mono">read</span>——它远不止「读一个文件」。它的 output 是一个<strong>三选一的联合</strong>，外加 offset/limit 的<strong>翻页</strong>能力：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">文件内容 Content</div><div class="c-txt">读一个文件；图片会被识别成 base64 + 图片 mime，作为「文件」内容回传给多模态模型</div></div>
+  <div class="cell"><div class="c-tag">文本页 TextPage</div><div class="c-txt">大文本按 offset（起始行）+ limit（行数）翻页读，不必一次塞满上下文</div></div>
+  <div class="cell"><div class="c-tag">目录列表 ListPage</div><div class="c-txt">path 指向目录时，read 变成「列目录」，同样可翻页</div></div>
+</div>
+<p>一个工具同时承担「读文件 / 列目录」、还内建翻页——这是把「<strong>观察文件系统</strong>」这件事抽象成了一个统一入口，模型不必为「读文件」和「看目录」记两套工具，一个 <span class="mono">read</span> 配不同的 path 就够了。再看另一端的 <span class="mono">apply_patch</span>，它的 output 是一个 <span class="mono">applied</span> 数组，每项记录一次操作的类型与目标：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">add</div><div class="c-txt">新增一个文件</div></div>
+  <div class="cell"><div class="c-tag">update</div><div class="c-txt">修改一个已有文件</div></div>
+  <div class="cell"><div class="c-tag">delete</div><div class="c-txt">删除一个文件</div></div>
+</div>
+<p>一段 <span class="mono">patchText</span> 里可以同时描述多文件的增、改、删，<span class="mono">apply_patch</span> <strong>顺序施工</strong>、逐条记进 <span class="mono">applied</span>。当模型要做一次「跨好几个文件的重构」时，比起连发十几次 edit，一次 apply_patch 既省 token、又让这组改动成为一个<strong>语义上的整体</strong>，要么整组生效、要么一眼看清在哪一步出了岔。</p>
+
+<h2>worked-example：一次 edit 的完整一生</h2>
+<p>现在把 <span class="mono">edit</span> 的 <span class="mono">execute</span> 一步步摊开。表面上它只做一件事——「把文件里的 <span class="mono">oldString</span> 换成 <span class="mono">newString</span>」。但真实的执行，是一条布满护栏的流水线：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">①先验参数</span><span class="t-txt">old==new？→ 拒：「没有改动」；old==""？→ 拒：「空串请用 write」（碰盘前先挡）</span></div>
+  <div class="t-row"><span class="t-num">②问权限</span><span class="t-txt">permission.assert(...)：这文件准不准改？（第 41 课）</span></div>
+  <div class="t-row"><span class="t-num">③读原文</span><span class="t-txt">readFile + decodeUtf8（处理 BOM）</span></div>
+  <div class="t-row"><span class="t-num">④行尾归一</span><span class="t-txt">detect 文件是 \n 还是 \r\n，把 old/new 都转成同款</span></div>
+  <div class="t-row"><span class="t-num">⑤数匹配</span><span class="t-txt">countOccurrences：0→拒「找不到」；&gt;1 且非 replaceAll→拒「有歧义」</span></div>
+  <div class="t-row"><span class="t-num">⑥替换</span><span class="t-txt">replaceAll ? 全替 : 替第一处</span></div>
+  <div class="t-row"><span class="t-num">⑦乐观写</span><span class="t-txt">writeIfUnchanged(expected=刚读到的字节)：被人改过就拒写</span></div>
+</div>
+<p>这条链里，<strong>真正「替换」的只有第 ⑥ 步一行代码</strong>，其余全是<strong>护栏</strong>。每一道护栏，都对应一个「让 AI 改代码」会踩的真实坑：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">精确匹配，不许模糊</div><div class="c-txt">oldString 必须一字不差（含空格缩进）；找不到就拒，绝不「差不多就改了」</div></div>
+  <div class="cell"><div class="c-tag">歧义就拒，不替你猜</div><div class="c-txt">同一段出现多次且没说 replaceAll → 停手反问「请给更多上下文或设 replaceAll」</div></div>
+  <div class="cell"><div class="c-tag">行尾自动归一</div><div class="c-txt">模型发的是 \n、文件可能是 \r\n；自动转成文件的同款，匹配才不会假性失败</div></div>
+  <div class="cell"><div class="c-tag">乐观并发，不覆盖别人</div><div class="c-txt">writeIfUnchanged 带上「我读到的原字节」，写时若文件已变→拒，绝不抹掉他人改动</div></div>
+</div>
+<p>第 ⑤ 步的「歧义拒绝」最见品格。模型说「把 <span class="mono">return x</span> 改成 <span class="mono">return y</span>」，可文件里有三处 <span class="mono">return x</span>——改哪个？<strong>一个莽撞的工具会改第一个（或全改），然后酿成 bug；edit 选择停手反问。</strong>它宁可让模型「多给点上下文」再来一次，也不替它赌。这是一种深刻的克制：<strong>面对歧义，最负责任的动作不是「猜一个」，而是「把歧义如实抛回去」</strong>。第 ① 步的「碰盘前先验」也是同理——参数明显无意义（old==new、old=""）时，<strong>在产生任何副作用之前就拒掉</strong>，错误来得越早越廉价。这两道护栏背后是同一个信念：<strong>一个会被 AI 高频调用、又直接改你磁盘的工具，必须把「不确定」挡在「动手」之前。</strong>模型会幻觉、会笔误、会自信地给出对不上的 oldString——edit 不假设模型永远对，而是把每一种「可能出错」都显式地拦成一条清楚的拒绝。这种「不信任输入、处处设防」的姿态，正是把一个玩具级 demo 和一个敢让人用在真实代码库上的工具区分开的东西。</p>
+
+<h2>writeIfUnchanged：不覆盖别人的乐观并发</h2>
+<p>第 ⑦ 步那个 <span class="mono">writeIfUnchanged</span> 值得单独品，它是这套设计里最「老练」的一笔。想象一个时间差：edit 在 <span class="mono">③</span> 读到了文件的字节，到 <span class="mono">⑦</span> 要写回去，中间隔着读文件、数匹配、算替换这些步骤——这段时间里，<strong>别的进程（另一个 agent、用户在编辑器里手改、一个 watch 脚本）完全可能也改了同一个文件</strong>。若 edit 闷头把自己算出的新内容写回去，就会<strong>悄悄抹掉那期间别人的改动</strong>（经典的「丢失更新」）。</p>
+<div class="flow">
+  <div class="f-node">③读到原字节<br><small>expected = 这份</small></div>
+  <div class="f-arrow">…算替换…→</div>
+  <div class="f-node">⑦writeIfUnchanged<br><small>带上 expected 一起写</small></div>
+  <div class="f-arrow">盘上还是 expected？</div>
+  <div class="f-node">是→写入 / 否→拒写<br><small>compare-and-swap</small></div>
+</div>
+<p><span class="mono">writeIfUnchanged({target, expected: 刚读到的字节, content: 新内容})</span> 的语义是<strong>「比较并交换」（compare-and-swap）</strong>：只在「磁盘上的内容还等于我当初读到的那份」时才写入；若已经变了，<strong>拒绝写、报错</strong>。这就把「读—改—写」三步之间的并发风险<strong>关进了一个原子操作里</strong>。它不上悲观锁（不阻塞别人），而是<strong>乐观地假设没人动、写时再核对</strong>——这正是数据库与分布式系统里常见的乐观并发控制（OCC）。一个「改文件」的小工具，竟把数据库级的并发严谨度用上了，这就是 opencode「把每件小事都当真」的底色。值得一提的是，这道护栏在<strong>多 agent 并行</strong>的未来尤其关键：当好几个 agent 可能同时动同一个代码库时，「我以为我在改的，是不是还是我读到的那份」就不再是杞人忧天，而是每次写盘都要回答的问题。edit 用 <span class="mono">writeIfUnchanged</span> 提前把这个答案焊进了每一次替换里——<strong>它不是为今天的单 agent 写的，而是为明天的并发世界留的余地。</strong></p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>文件工具是 agent「动手改世界」最直接的一组手：</p>
+  <ul>
+    <li><strong>四把手覆盖改动光谱</strong>：<span class="mono">read</span>（只读、可翻页、可列目录）/ <span class="mono">write</span>（整文件覆盖）/ <span class="mono">edit</span>（精确查找替换）/ <span class="mono">apply_patch</span>（多文件批量 add/update/delete）。从粗到细、从单到多，模型按改动形状挑趁手的那把。</li>
+    <li><strong>全是第 36 课 Config 表的不同填法</strong>：各声明 input/output schema + execute，套 <span class="mono">withPermission</span>/<span class="mono">permission.assert</span>。印证「一张表、各自填空」。</li>
+    <li><strong>edit 的四道护栏</strong>：精确匹配（不模糊）、歧义拒绝（多匹配不猜）、行尾归一（\n↔\r\n）、乐观并发写（<span class="mono">writeIfUnchanged</span> 不覆盖别人）。真正「替换」只一行，其余全是护栏。</li>
+    <li><strong>路径边界</strong>：相对「当前 Location」解析；外部绝对路径需 <span class="mono">external_directory</span> 批准。安全栅栏让 agent 默认只在工作区内活动。</li>
+  </ul>
+  <p>这一课的主旋律——「让 AI 安全地改代码，难点在护栏不在替换」——会一路贯穿 M7。下一课（第 39 课）转向<strong>搜索与执行工具</strong>：<span class="mono">glob</span>（按名找文件）、<span class="mono">grep</span>（按内容搜）、<span class="mono">bash</span>（跑命令）——其中 bash 经 PTY 运行、又是另一圈精巧的护栏。读文件、搜文件、跑命令，是 coding agent 的三大基本功，这两课把前两样讲透。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>edit「数匹配 → 按数量决定」的那段，把克制写得很直白（简化自 edit.ts）：</p>
+  <pre class="code"><span class="cm">// ④行尾归一后，⑤数匹配，按数量分流</span>
+<span class="kw">const</span> oldString = <span class="fn">convertToLineEnding</span>(input.oldString, ending)  <span class="cm">// 转成文件的 \n / \r\n</span>
+<span class="kw">const</span> replacements = <span class="fn">countOccurrences</span>(source.text, oldString)
+<span class="kw">if</span> (replacements === 0)
+  <span class="kw">return</span> <span class="kw">new</span> ToolFailure({ message: <span class="st">"Could not find oldString ... must match exactly"</span> })
+<span class="kw">if</span> (replacements &gt; 1 &amp;&amp; input.replaceAll !== <span class="kw">true</span>)
+  <span class="kw">return</span> <span class="kw">new</span> ToolFailure({ message: <span class="st">"Found multiple exact matches ... set replaceAll to true"</span> })
+<span class="kw">const</span> replaced = input.replaceAll === <span class="kw">true</span>
+  ? source.text.<span class="fn">replaceAll</span>(oldString, newString)
+  : source.text.<span class="fn">replace</span>(oldString, newString)
+<span class="cm">// ⑦ 乐观写：只在文件未变时落盘</span>
+files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.content, content: ... })</pre>
+  <p>注意这些「拒绝」全部走 <span class="mono">ToolFailure</span>——回到第 36、37 课的闭环：工具的失败不是异常，而是一个<strong>规规矩矩的值</strong>，被注册表收成「错误结果」回传模型。于是模型读到「找不到 oldString」或「有多处匹配，请加上下文」时，能<strong>自己据此修正、重试</strong>——错误信息本身成了给模型的「下一步提示」。<strong>好的工具不只在成功时有用，更在失败时把「为什么失败、该怎么办」讲清楚</strong>，因为它的「用户」是个会照着错误信息调整的模型。这也是为什么 edit 的每条拒绝消息都写得像一句叮嘱（"must match exactly"、"set replaceAll to true"）——它们是<strong>写给模型看的操作指南</strong>。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>四个文件工具</strong>（<span class="mono">core/src/tool/{read,write,edit,apply-patch}.ts</span>）覆盖改动光谱：<span class="mono">read</span>（只读/翻页/列目录）、<span class="mono">write</span>（整文件覆盖）、<span class="mono">edit</span>（精确查找替换）、<span class="mono">apply_patch</span>（多文件批量 add/update/delete）。全是第 36 课 <span class="mono">Config</span> 表的不同填法 + <span class="mono">withPermission</span>。</li>
+    <li><strong>edit 的执行是一条护栏流水线</strong>：①验参（old==new/空串→拒）②permission.assert ③读+decodeUtf8(BOM) ④行尾归一(\n↔\r\n) ⑤数匹配 ⑥替换 ⑦乐观写。真正替换只第 ⑥ 步一行。</li>
+    <li><strong>edit 四道护栏</strong>：精确匹配（含空格缩进，找不到即拒）；歧义拒绝（多匹配且非 replaceAll→停手反问，不替模型猜）；行尾自动归一（避免假性失配）；<strong>乐观并发写</strong>。</li>
+    <li><strong><span class="mono">writeIfUnchanged(expected=读到的字节)</span> = compare-and-swap</strong>：只在磁盘内容仍等于当初读到的那份时才写，否则拒——把「读-改-写」的并发风险关进原子操作，防丢失更新（乐观并发控制 OCC，不上悲观锁）。</li>
+    <li><strong>路径相对「当前 Location」解析</strong>，外部绝对路径需 <span class="mono">external_directory</span> 批准（安全栅栏）。所有「拒绝」走 <span class="mono">ToolFailure</span> 回传模型，错误消息即给模型的操作指南。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. opencode 的四个文件工具 read/write/edit/apply_patch 覆盖了什么？它们和第 36 课的关系是？</div>
+  <ol class="opts">
+    <li>一条「从粗到细、从单到多」的改动光谱（整写/精改/批量补丁/只读），且全是第 36 课 Config 表的不同填法（input/output schema + execute + 权限）</li>
+    <li>四个互不相干、各自从头实现的独立程序</li>
+    <li>只有 read 是工具，其余是内部函数</li>
+    <li>其实是同一个工具的四个别名</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。write 最粗（整页换）、edit 最细（一句改）、apply_patch 最广（跨文件一把梭）、read 是唯一无副作用的观察者。不同改动形状配不同工具最省 token、最不易错：改一行用 edit、重写整文件用 write、跨文件重构用 apply_patch，模型自己挑趁手的。四者都在填第 36 课那张 Config 表——各声明 input/output schema + execute，套 withPermission。这正是「一张表、各自填空」的果。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. edit 工具发现 oldString 在文件里出现了多次、而调用没设 replaceAll，它会怎么做？</div>
+  <ol class="opts">
+    <li>随机改一处</li>
+    <li>默认全部都改</li>
+    <li>停手反问：返回 ToolFailure「有多处匹配，请提供更多上下文或设 replaceAll」——绝不替模型猜该改哪一处</li>
+    <li>默认改第一处</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。面对歧义，最负责任的动作不是「猜一个」而是「把歧义如实抛回去」。模型说「把 return x 改成 return y」，可文件有三处 return x——改哪个？莽撞工具改第一个或全改会酿 bug；edit 选择停手返回 ToolFailure，让模型多给上下文再来。这条拒绝（连同「找不到 oldString，必须一字不差」）都走 ToolFailure 回传，错误消息本身成了给模型的操作指南。这是把玩具 demo 和敢用在真实代码库上的工具区分开的东西。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. edit 最后用 writeIfUnchanged({target, expected: 刚读到的字节, content}) 落盘。这是为了什么？</div>
+  <ol class="opts">
+    <li>compare-and-swap：只在磁盘内容仍等于当初读到的那份时才写，否则拒——把「读-改-写」并发风险关进原子操作，防丢失更新（乐观并发，不上悲观锁）</li>
+    <li>纯属多余的检查</li>
+    <li>为了写得更快</li>
+    <li>为了压缩文件</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。从③读字节到⑦写回，中间隔着数匹配、算替换——这期间别的进程（另一 agent、用户在编辑器手改、watch 脚本）可能也改了同一文件。闷头写就会悄悄抹掉别人的改动（丢失更新）。writeIfUnchanged 带上 expected=读到的原字节，语义是 compare-and-swap：仅当盘上内容仍等于 expected 才写，变了就拒。它不上悲观锁（不阻塞别人），乐观假设没人动、写时核对——数据库/分布式系统的 OCC。在多 agent 并行的未来尤其关键。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里说 edit 的执行里「真正替换只一行，其余全是护栏」，并把四道护栏（精确匹配/歧义拒绝/行尾归一/乐观并发）对应到「让 AI 改代码会踩的真实坑」。请结合你写过的、需要被不可靠输入调用的工具或接口，谈谈「核心逻辑很短、护栏很长」是不是常态？你会如何判断「哪些护栏值得加、哪些是过度防御」？</li>
+    <li>课里强调 edit 的拒绝消息（"must match exactly"、"set replaceAll to true"）是「写给模型看的操作指南」——因为工具的「用户」是个会照错误信息调整的模型。这和「写给人看的错误信息」有何异同？为一个 LLM 调用的工具设计错误信息时，你会特别注意什么（如可操作性、是否暴露内部细节、是否引导正确重试）？</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">The prior two lessons built the tool system's <strong>skeleton</strong>: how a tool is defined (lesson 36's <span class="mono">Tool.make</span>), how it's collected into a model-visible list (lesson 37's registry). From this lesson, we dive into <strong>individual real tools</strong>, watching "the skeleton grow flesh." First the most everyday—and most skill-testing—family: <strong>file tools</strong>: <span class="mono">read</span>, <span class="mono">write</span> (whole-write), <span class="mono">edit</span> (precise edit), <span class="mono">apply_patch</span> (batch patching). For a code-writing agent, the vast majority of actions land as these four "hands" reading and changing files.</p>
+<p>This lesson has two layers of payoff. One, <strong>confirming lesson 36</strong>: you'll see firsthand these four tools are <strong>all different fillings of the same <span class="mono">Config</span> form</strong>—each declaring input/output schema + execute, wrapped in <span class="mono">withPermission</span>, nothing more. Two, the centerpiece: we'll <strong>unfold the edit tool's execution step by step</strong> (the spec-named worked-example), seeing how much <strong>production-grade rigor</strong> hides behind a small "change this text to that" operation—exact match, ambiguity refusal, line-ending normalization, optimistic-concurrency write. You'll come away understanding: letting AI safely change your code, <strong>the hard part was never "string replacement," but the ring of guardrails around it—"don't guess, don't err, don't clobber others."</strong></p>
+
+<div class="card analogy">
+  <div class="tag">✍️ Analogy</div>
+  Picture these four file tools as a wordsmith's <strong>four implements</strong>. <strong>read</strong> is a <strong>magnifying glass</strong>—look without changing, paging through a long document (offset/limit), even "looking" at a whole drawer's worth of directory. <strong>write</strong> is a <strong>fresh sheet of paper</strong>—rewrite the whole page, the old all covered. <strong>edit</strong> is a <strong>precision correction pen</strong>—"change this sentence to that," but with a fussy temperament: the original sentence to change must match <strong>letter-for-letter</strong> (spaces and indentation count); if that sentence <strong>appears twice</strong> in the text, it stops and asks back "<strong>which one do you mean?</strong>," never guessing for you; and before writing it glances—<strong>if the page got scribbled on by someone else since you last looked, it refuses to write</strong>, lest it erase their work. <strong>apply_patch</strong> is a stack of <strong>batch work orders</strong>—"add this file, change that, delete the other," executed in one pass per the orders. Four implements, for the four <strong>granularities and shapes</strong> of change, the model picking as needed.
+</div>
+
+<h2>Four "hands": one table for the division of labor</h2>
+<p>First lay the four tools side by side, their "shape" plain—note they <strong>all fill lesson 36's <span class="mono">Config</span> form</strong> (input/output schema + execute + permission):</p>
+<table class="t">
+  <tr><th>Tool</th><th>input</th><th>Change granularity</th><th>Permission</th></tr>
+  <tr><td>read</td><td>path, offset?, limit?</td><td>read-only (paging, directory listing)</td><td>assert read permission</td></tr>
+  <tr><td>write</td><td>path, content</td><td>whole-file overwrite/create</td><td>withPermission "write"</td></tr>
+  <tr><td>edit</td><td>path, oldString, newString, replaceAll?</td><td>exact find-replace (one or all)</td><td>withPermission "edit"</td></tr>
+  <tr><td>apply_patch</td><td>patchText</td><td>multi-file batch add/update/delete</td><td>withPermission</td></tr>
+</table>
+<p>This table is itself a design lesson. The four cover a <strong>coarse-to-fine, single-to-many</strong> change spectrum: <span class="mono">write</span> coarsest (whole page swap), <span class="mono">edit</span> finest (one sentence change), <span class="mono">apply_patch</span> broadest (cross-file in one go), and <span class="mono">read</span> the only <strong>side-effect-free</strong> observer. Why so many? Because <strong>different change shapes fit different tools to save the most tokens and least err</strong>: change one line with edit (send just that line), rewrite a whole file with write (no diff needed), refactor across files with apply_patch (formed in one pass). The model, per the task, <strong>picks the handiest one itself</strong>. This is the fruit of lesson 36's "one form, each fills blanks"—four fillings, covering four real needs.</p>
+<p>Another commonality is the <strong>path boundary</strong>: all file tools' paths resolve <strong>relative to the "active Location" (workspace)</strong>; absolute paths inside the Location are accepted, but absolute paths pointing <strong>outside</strong> require extra <span class="mono">external_directory</span> approval. This is a security fence—the agent by default can only mess within its workspace; reaching outside needs explicit permission first.</p>
+<p>The two endpoint tools each have cleverness worth a look. First the read-only <span class="mono">read</span>—far more than "read a file." Its output is a <strong>three-way union</strong>, plus offset/limit <strong>paging</strong>:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">file Content</div><div class="c-txt">read a file; images are recognized as base64 + image mime, returned as "file" content to the multimodal model</div></div>
+  <div class="cell"><div class="c-tag">TextPage</div><div class="c-txt">large text read by offset (start line) + limit (line count) paging, not stuffing the context at once</div></div>
+  <div class="cell"><div class="c-tag">ListPage</div><div class="c-txt">when path points to a directory, read becomes "list directory," also pageable</div></div>
+</div>
+<p>One tool serving "read file / list directory," with built-in paging—abstracting "<strong>observing the filesystem</strong>" into one unified entry; the model needn't remember two tools for "read a file" and "view a directory," one <span class="mono">read</span> with different paths suffices. Now the other endpoint, <span class="mono">apply_patch</span>: its output is an <span class="mono">applied</span> array, each item recording one operation's type and target:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">add</div><div class="c-txt">add a file</div></div>
+  <div class="cell"><div class="c-tag">update</div><div class="c-txt">modify an existing file</div></div>
+  <div class="cell"><div class="c-tag">delete</div><div class="c-txt">delete a file</div></div>
+</div>
+<p>One <span class="mono">patchText</span> can describe adds, updates, deletes across multiple files at once; <span class="mono">apply_patch</span> <strong>executes sequentially</strong>, logging each into <span class="mono">applied</span>. When the model wants "a refactor across several files," versus firing a dozen edits, one apply_patch both saves tokens and makes this group of changes <strong>a semantic whole</strong>.</p>
+
+<h2>Worked-example: a single edit's full life</h2>
+<p>Now unfold <span class="mono">edit</span>'s <span class="mono">execute</span> step by step. On the surface it does one thing—"replace <span class="mono">oldString</span> with <span class="mono">newString</span> in the file." But the real execution is a pipeline lined with guardrails:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">①validate first</span><span class="t-txt">old==new? → reject "no changes"; old==""? → reject "use write for empty" (block before touching disk)</span></div>
+  <div class="t-row"><span class="t-num">②ask permission</span><span class="t-txt">permission.assert(...): is this file allowed to change? (lesson 41)</span></div>
+  <div class="t-row"><span class="t-num">③read source</span><span class="t-txt">readFile + decodeUtf8 (handle BOM)</span></div>
+  <div class="t-row"><span class="t-num">④normalize line ending</span><span class="t-txt">detect file's \n or \r\n, convert old/new to the same</span></div>
+  <div class="t-row"><span class="t-num">⑤count matches</span><span class="t-txt">countOccurrences: 0→reject "not found"; &gt;1 & not replaceAll→reject "ambiguous"</span></div>
+  <div class="t-row"><span class="t-num">⑥replace</span><span class="t-txt">replaceAll ? replace all : replace first</span></div>
+  <div class="t-row"><span class="t-num">⑦optimistic write</span><span class="t-txt">writeIfUnchanged(expected=just-read bytes): reject if someone changed it</span></div>
+</div>
+<p>In this chain, <strong>only step ⑥, one line, actually "replaces"</strong>; all the rest are <strong>guardrails</strong>. Each guardrail corresponds to a real pit "letting AI change code" steps into:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">exact match, no fuzzy</div><div class="c-txt">oldString must match letter-for-letter (spaces, indentation); not found → reject, never "close enough so change it"</div></div>
+  <div class="cell"><div class="c-tag">ambiguity rejected, no guessing</div><div class="c-txt">same segment appearing multiple times without replaceAll → stop and ask "give more context or set replaceAll"</div></div>
+  <div class="cell"><div class="c-tag">line endings auto-normalized</div><div class="c-txt">model sends \n, file may be \r\n; auto-convert to the file's, so matching doesn't falsely fail</div></div>
+  <div class="cell"><div class="c-tag">optimistic concurrency, no clobbering</div><div class="c-txt">writeIfUnchanged carries "the bytes I read"; if the file changed at write time → reject, never erasing others' changes</div></div>
+</div>
+<p>Step ⑤'s "ambiguity refusal" shows the most character. The model says "change <span class="mono">return x</span> to <span class="mono">return y</span>," but the file has three <span class="mono">return x</span>—which one? <strong>A reckless tool would change the first (or all), then breed a bug; edit chooses to stop and ask back.</strong> It would rather have the model "give more context" and retry than gamble. This is profound restraint: <strong>facing ambiguity, the most responsible action isn't "guess one" but "throw the ambiguity back faithfully."</strong> Step ①'s "validate before touching disk" is the same logic—when params are obviously meaningless (old==new, old==""), <strong>reject before any side effect</strong>; the earlier the error, the cheaper. Both guardrails rest on one belief: <strong>a tool called frequently by AI and directly changing your disk must block "uncertainty" before "acting."</strong> The model hallucinates, mistypes, confidently gives a mismatched oldString—edit doesn't assume the model is always right, but explicitly intercepts each "could go wrong" into a clear rejection. This stance of "distrust input, guard everywhere" is exactly what separates a toy demo from a tool you'd dare use on a real codebase.</p>
+
+<h2>writeIfUnchanged: optimistic concurrency that doesn't clobber others</h2>
+<p>Step ⑦'s <span class="mono">writeIfUnchanged</span> deserves its own savor—the most "seasoned" stroke in this design. Imagine a time gap: edit read the file's bytes at <span class="mono">③</span>, and by <span class="mono">⑦</span> wants to write back, with reading, counting, computing the replacement in between—during which <strong>another process (another agent, the user editing in their editor, a watch script) may well have changed the same file</strong>. If edit blindly writes its computed new content back, it would <strong>silently erase others' changes in that interval</strong> (the classic "lost update").</p>
+<div class="flow">
+  <div class="f-node">③read source bytes<br><small>expected = this</small></div>
+  <div class="f-arrow">…compute replace…→</div>
+  <div class="f-node">⑦writeIfUnchanged<br><small>write with expected</small></div>
+  <div class="f-arrow">disk still expected?</div>
+  <div class="f-node">yes→write / no→reject<br><small>compare-and-swap</small></div>
+</div>
+<p><span class="mono">writeIfUnchanged({target, expected: just-read bytes, content: new})</span>'s semantics are <strong>"compare-and-swap"</strong>: write only if "the disk content still equals what I originally read"; if changed, <strong>refuse to write, error out</strong>. This locks the concurrency risk between "read—modify—write" into <strong>one atomic operation</strong>. It takes no pessimistic lock (doesn't block others) but <strong>optimistically assumes no one touched it, verifying at write time</strong>—exactly the optimistic concurrency control (OCC) common in databases and distributed systems. A small "change a file" tool wielding database-grade concurrency rigor—that's opencode's "take every small thing seriously" character. Worth noting, this guardrail is especially crucial in a <strong>multi-agent parallel</strong> future: when several agents may touch the same codebase at once, "is what I think I'm changing still the one I read" stops being paranoia and becomes a question every write must answer. edit welds that answer into every replacement ahead of time with <span class="mono">writeIfUnchanged</span>—<strong>it's written not for today's single agent, but as headroom for tomorrow's concurrent world.</strong></p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>File tools are the most direct hands for the agent "changing the world":</p>
+  <ul>
+    <li><strong>Four hands covering the change spectrum</strong>: <span class="mono">read</span> (read-only, paging, directory listing) / <span class="mono">write</span> (whole-file overwrite) / <span class="mono">edit</span> (exact find-replace) / <span class="mono">apply_patch</span> (multi-file batch add/update/delete). Coarse-to-fine, single-to-many; the model picks the handiest by change shape.</li>
+    <li><strong>All different fillings of lesson 36's Config form</strong>: each declaring input/output schema + execute, wrapped in <span class="mono">withPermission</span>/<span class="mono">permission.assert</span>. Confirming "one form, each fills blanks."</li>
+    <li><strong>edit's four guardrails</strong>: exact match (no fuzzy), ambiguity refusal (multiple matches, no guessing), line-ending normalization (\n↔\r\n), optimistic-concurrency write (<span class="mono">writeIfUnchanged</span> doesn't clobber). Only one line actually "replaces," the rest all guardrails.</li>
+    <li><strong>Path boundary</strong>: resolved relative to "active Location"; external absolute paths need <span class="mono">external_directory</span> approval. A security fence keeping the agent within its workspace by default.</li>
+  </ul>
+  <p>This lesson's main theme—"letting AI safely change code, the difficulty is in guardrails not replacement"—runs through all of M7. The next lesson (39) turns to <strong>search & exec tools</strong>: <span class="mono">glob</span> (find files by name), <span class="mono">grep</span> (search by content), <span class="mono">bash</span> (run commands)—where bash runs via PTY, another ring of fine guardrails. Reading files, searching files, running commands are a coding agent's three basic skills; these two lessons cover the first two thoroughly.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>edit's "count matches → decide by count" writes restraint plainly (simplified from edit.ts):</p>
+  <pre class="code"><span class="cm">// ④ after normalizing line endings, ⑤ count matches, branch by count</span>
+<span class="kw">const</span> oldString = <span class="fn">convertToLineEnding</span>(input.oldString, ending)  <span class="cm">// to the file's \n / \r\n</span>
+<span class="kw">const</span> replacements = <span class="fn">countOccurrences</span>(source.text, oldString)
+<span class="kw">if</span> (replacements === 0)
+  <span class="kw">return</span> <span class="kw">new</span> ToolFailure({ message: <span class="st">"Could not find oldString ... must match exactly"</span> })
+<span class="kw">if</span> (replacements &gt; 1 &amp;&amp; input.replaceAll !== <span class="kw">true</span>)
+  <span class="kw">return</span> <span class="kw">new</span> ToolFailure({ message: <span class="st">"Found multiple exact matches ... set replaceAll to true"</span> })
+<span class="kw">const</span> replaced = input.replaceAll === <span class="kw">true</span>
+  ? source.text.<span class="fn">replaceAll</span>(oldString, newString)
+  : source.text.<span class="fn">replace</span>(oldString, newString)
+<span class="cm">// ⑦ optimistic write: land only if the file is unchanged</span>
+files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.content, content: ... })</pre>
+  <p>Note all these "rejections" go through <span class="mono">ToolFailure</span>—back to lessons 36, 37's loop: a tool's failure isn't an exception but a <strong>well-behaved value</strong>, collected by the registry into an "error result" back to the model. So when the model reads "could not find oldString" or "multiple matches, add context," it can <strong>correct and retry itself</strong>—the error message becomes the model's "next-step hint." <strong>A good tool is useful not only on success but, on failure, makes "why it failed, what to do" clear</strong>, because its "user" is a model that adjusts per the error message. That's why each of edit's rejection messages reads like an instruction ("must match exactly," "set replaceAll to true")—they're <strong>operating guides written for the model to read</strong>.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>Four file tools</strong> (<span class="mono">core/src/tool/{read,write,edit,apply-patch}.ts</span>) cover the change spectrum: <span class="mono">read</span> (read-only/paging/directory listing), <span class="mono">write</span> (whole-file overwrite), <span class="mono">edit</span> (exact find-replace), <span class="mono">apply_patch</span> (multi-file batch add/update/delete). All different fillings of lesson 36's <span class="mono">Config</span> form + <span class="mono">withPermission</span>.</li>
+    <li><strong>edit's execution is a guardrail pipeline</strong>: ①validate (old==new/empty→reject) ②permission.assert ③read+decodeUtf8(BOM) ④normalize line endings (\n↔\r\n) ⑤count matches ⑥replace ⑦optimistic write. Only step ⑥, one line, actually replaces.</li>
+    <li><strong>edit's four guardrails</strong>: exact match (incl. spaces/indentation, not found → reject); ambiguity refusal (multiple matches & not replaceAll → stop and ask, no guessing for the model); auto line-ending normalization (avoiding false mismatches); <strong>optimistic-concurrency write</strong>.</li>
+    <li><strong><span class="mono">writeIfUnchanged(expected=read bytes)</span> = compare-and-swap</strong>: write only if disk content still equals what was originally read, else reject—locking "read-modify-write" concurrency risk into an atomic operation, preventing lost updates (optimistic concurrency control OCC, no pessimistic lock).</li>
+    <li><strong>Paths resolve relative to "active Location"</strong>, external absolute paths need <span class="mono">external_directory</span> approval (security fence). All "rejections" go through <span class="mono">ToolFailure</span> back to the model; the error message is the model's operating guide.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. What do opencode's four file tools read/write/edit/apply_patch cover, and how do they relate to lesson 36?</div>
+  <ol class="opts">
+    <li>A "coarse-to-fine, single-to-many" change spectrum (whole-write/precise-edit/batch-patch/read-only), all different fillings of lesson 36's Config form (input/output schema + execute + permission)</li>
+    <li>Four unrelated standalone programs each implemented from scratch</li>
+    <li>Only read is a tool, the rest are internal functions</li>
+    <li>Actually four aliases of the same tool</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. write coarsest (whole-page swap), edit finest (one-sentence change), apply_patch broadest (cross-file in one go), read the only side-effect-free observer. Different change shapes fit different tools to save tokens and least err: change one line with edit, rewrite a whole file with write, refactor across files with apply_patch, the model picking. All four fill lesson 36's Config form — declaring input/output schema + execute, wrapped in withPermission. The fruit of "one form, each fills blanks."</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. If edit finds oldString appears multiple times in the file and the call didn't set replaceAll, what does it do?</div>
+  <ol class="opts">
+    <li>Changes a random one</li>
+    <li>Changes all by default</li>
+    <li>Stops and asks back: returns ToolFailure "multiple matches, provide more context or set replaceAll" — never guessing for the model which to change</li>
+    <li>Changes the first by default</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. Facing ambiguity, the most responsible action isn't "guess one" but "throw the ambiguity back faithfully." The model says "change return x to return y," but the file has three return x—which? A reckless tool changing the first or all breeds a bug; edit stops and returns ToolFailure, having the model give more context and retry. This rejection (like "could not find oldString, must match exactly") goes through ToolFailure, the error message itself the model's operating guide. This separates a toy demo from a tool you'd dare use on a real codebase.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. edit finally lands via writeIfUnchanged({target, expected: just-read bytes, content}). What for?</div>
+  <ol class="opts">
+    <li>Compare-and-swap: write only if disk content still equals what was originally read, else reject — locking "read-modify-write" concurrency risk into an atomic operation, preventing lost updates (optimistic concurrency, no pessimistic lock)</li>
+    <li>A purely redundant check</li>
+    <li>To write faster</li>
+    <li>To compress the file</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. From ③ reading bytes to ⑦ writing back, counting and computing the replacement intervene—during which another process (another agent, the user editing, a watch script) may have changed the same file. Blindly writing would silently erase their changes (lost update). writeIfUnchanged carries expected=the read bytes, semantics compare-and-swap: write only if disk still equals expected, reject if changed. It takes no pessimistic lock (doesn't block others), optimistically assumes no one touched it, verifying at write—databases'/distributed systems' OCC. Especially crucial in a multi-agent parallel future.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson says in edit's execution "only one line actually replaces, the rest all guardrails," mapping four guardrails (exact match/ambiguity refusal/line-ending normalization/optimistic concurrency) to "real pits of letting AI change code." From a tool or interface you've written that's called by unreliable input, discuss whether "short core logic, long guardrails" is the norm. How would you judge "which guardrails are worth adding, which are over-defense"?</li>
+    <li>The lesson stresses edit's rejection messages ("must match exactly," "set replaceAll to true") are "operating guides written for the model"—because the tool's "user" is a model that adjusts per the error message. How is this similar to/different from "error messages written for humans"? Designing error messages for an LLM-called tool, what would you especially mind (actionability, exposing internal details, guiding correct retry)?</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="37-tool-registry.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">工具注册表</span><span class="lang-en">The tool registry</span></div></a><a class="next" href="39-search-exec-tools.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">搜索与执行工具</span><span class="lang-en">Search &amp; exec tools</span></div></a></div>
 </div>
 <script>

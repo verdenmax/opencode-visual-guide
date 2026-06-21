@@ -1528,6 +1528,47 @@ QUIZZES = {
             {"zh": "Copilot 的认证用「令牌交换」：先拿长期的 GitHub OAuth 凭证，换一个短期、限定用途的 Copilot token，再拿它去认证。课里说这是「最小权限 + 短时效凭证」的安全惯例，且这套复杂流程被整个封装进 auth 这一件、不惊动协议层。请论证：为什么「不直接把长期凭证发给推理端点，而是换一个短期 token」更安全？把这种安全复杂性隔离在 auth 这一层（而非散落各处），对整个系统的可维护性和可审计性有什么好处？", "en": "Copilot's auth uses \"token exchange\": take the long-lived GitHub OAuth credential, exchange for a short-lived, purpose-limited Copilot token, then authenticate with it. The lesson calls this the \"least privilege + short-lived credential\" security convention, with the whole complex flow encapsulated into the auth piece, undisturbing the protocol layer. Argue: why is \"not sending the long-lived credential to inference endpoints, but exchanging for a short-lived token\" more secure? What does isolating this security complexity in the auth layer (rather than scattering it) do for the system's maintainability and auditability?"},
         ],
     },
+    "38-file-tools.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode 的四个文件工具 read/write/edit/apply_patch 覆盖了什么？它们和第 36 课的关系是？", "en": "What do opencode's four file tools read/write/edit/apply_patch cover, and how do they relate to lesson 36?"},
+                "opts": [
+                    {"zh": "一条「从粗到细、从单到多」的改动光谱（整写/精改/批量补丁/只读），且全是第 36 课 Config 表的不同填法（input/output schema + execute + 权限）", "en": "A \"coarse-to-fine, single-to-many\" change spectrum (whole-write/precise-edit/batch-patch/read-only), all different fillings of lesson 36's Config form (input/output schema + execute + permission)"},
+                    {"zh": "四个互不相干、各自从头实现的独立程序", "en": "Four unrelated standalone programs each implemented from scratch"},
+                    {"zh": "其实是同一个工具的四个别名", "en": "Actually four aliases of the same tool"},
+                    {"zh": "只有 read 是工具，其余是内部函数", "en": "Only read is a tool, the rest are internal functions"},
+                ],
+                "answer": 0,
+                "why": {"zh": "write 最粗（整页换）、edit 最细（一句改）、apply_patch 最广（跨文件一把梭）、read 是唯一无副作用的观察者。不同改动形状配不同工具最省 token、最不易错：改一行用 edit、重写整文件用 write、跨文件重构用 apply_patch，模型自己挑趁手的。四者都在填第 36 课那张 Config 表——各声明 input/output schema + execute，套 withPermission。这正是「一张表、各自填空」的果。", "en": "write coarsest (whole-page swap), edit finest (one-sentence change), apply_patch broadest (cross-file in one go), read the only side-effect-free observer. Different change shapes fit different tools to save tokens and least err: change one line with edit, rewrite a whole file with write, refactor across files with apply_patch, the model picking. All four fill lesson 36's Config form — declaring input/output schema + execute, wrapped in withPermission. The fruit of \"one form, each fills blanks.\""},
+            },
+            {
+                "q": {"zh": "edit 工具发现 oldString 在文件里出现了多次、而调用没设 replaceAll，它会怎么做？", "en": "If edit finds oldString appears multiple times in the file and the call didn't set replaceAll, what does it do?"},
+                "opts": [
+                    {"zh": "停手反问：返回 ToolFailure「有多处匹配，请提供更多上下文或设 replaceAll」——绝不替模型猜该改哪一处", "en": "Stops and asks back: returns ToolFailure \"multiple matches, provide more context or set replaceAll\" — never guessing for the model which to change"},
+                    {"zh": "默认改第一处", "en": "Changes the first by default"},
+                    {"zh": "默认全部都改", "en": "Changes all by default"},
+                    {"zh": "随机改一处", "en": "Changes a random one"},
+                ],
+                "answer": 0,
+                "why": {"zh": "面对歧义，最负责任的动作不是「猜一个」而是「把歧义如实抛回去」。模型说「把 return x 改成 return y」，可文件有三处 return x——改哪个？莽撞工具改第一个或全改会酿 bug；edit 选择停手返回 ToolFailure，让模型多给上下文再来。这条拒绝（连同「找不到 oldString，必须一字不差」）都走 ToolFailure 回传，错误消息本身成了给模型的操作指南。这是把玩具 demo 和敢用在真实代码库上的工具区分开的东西。", "en": "Facing ambiguity, the most responsible action isn't \"guess one\" but \"throw the ambiguity back faithfully.\" The model says \"change return x to return y,\" but the file has three return x—which? A reckless tool changing the first or all breeds a bug; edit stops and returns ToolFailure, having the model give more context and retry. This rejection (like \"could not find oldString, must match exactly\") goes through ToolFailure, the error message itself the model's operating guide. This separates a toy demo from a tool you'd dare use on a real codebase."},
+            },
+            {
+                "q": {"zh": "edit 最后用 writeIfUnchanged({target, expected: 刚读到的字节, content}) 落盘。这是为了什么？", "en": "edit finally lands via writeIfUnchanged({target, expected: just-read bytes, content}). What for?"},
+                "opts": [
+                    {"zh": "compare-and-swap：只在磁盘内容仍等于当初读到的那份时才写，否则拒——把「读-改-写」并发风险关进原子操作，防丢失更新（乐观并发，不上悲观锁）", "en": "Compare-and-swap: write only if disk content still equals what was originally read, else reject — locking \"read-modify-write\" concurrency risk into an atomic operation, preventing lost updates (optimistic concurrency, no pessimistic lock)"},
+                    {"zh": "为了写得更快", "en": "To write faster"},
+                    {"zh": "为了压缩文件", "en": "To compress the file"},
+                    {"zh": "纯属多余的检查", "en": "A purely redundant check"},
+                ],
+                "answer": 0,
+                "why": {"zh": "从③读字节到⑦写回，中间隔着数匹配、算替换——这期间别的进程（另一 agent、用户在编辑器手改、watch 脚本）可能也改了同一文件。闷头写就会悄悄抹掉别人的改动（丢失更新）。writeIfUnchanged 带上 expected=读到的原字节，语义是 compare-and-swap：仅当盘上内容仍等于 expected 才写，变了就拒。它不上悲观锁（不阻塞别人），乐观假设没人动、写时核对——数据库/分布式系统的 OCC。在多 agent 并行的未来尤其关键。", "en": "From ③ reading bytes to ⑦ writing back, counting and computing the replacement intervene—during which another process (another agent, the user editing, a watch script) may have changed the same file. Blindly writing would silently erase their changes (lost update). writeIfUnchanged carries expected=the read bytes, semantics compare-and-swap: write only if disk still equals expected, reject if changed. It takes no pessimistic lock (doesn't block others), optimistically assumes no one touched it, verifying at write—databases'/distributed systems' OCC. Especially crucial in a multi-agent parallel future."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说 edit 的执行里「真正替换只一行，其余全是护栏」，并把四道护栏（精确匹配/歧义拒绝/行尾归一/乐观并发）对应到「让 AI 改代码会踩的真实坑」。请结合你写过的、需要被不可靠输入调用的工具或接口，谈谈「核心逻辑很短、护栏很长」是不是常态？你会如何判断「哪些护栏值得加、哪些是过度防御」？", "en": "The lesson says in edit's execution \"only one line actually replaces, the rest all guardrails,\" mapping four guardrails (exact match/ambiguity refusal/line-ending normalization/optimistic concurrency) to \"real pits of letting AI change code.\" From a tool or interface you've written that's called by unreliable input, discuss whether \"short core logic, long guardrails\" is the norm. How would you judge \"which guardrails are worth adding, which are over-defense\"?"},
+            {"zh": "课里强调 edit 的拒绝消息（\"must match exactly\"、\"set replaceAll to true\"）是「写给模型看的操作指南」——因为工具的「用户」是个会照错误信息调整的模型。这和「写给人看的错误信息」有何异同？为一个 LLM 调用的工具设计错误信息时，你会特别注意什么（如可操作性、是否暴露内部细节、是否引导正确重试）？", "en": "The lesson stresses edit's rejection messages (\"must match exactly,\" \"set replaceAll to true\") are \"operating guides written for the model\"—because the tool's \"user\" is a model that adjusts per the error message. How is this similar to/different from \"error messages written for humans\"? Designing error messages for an LLM-called tool, what would you especially mind (actionability, exposing internal details, guiding correct retry)?"},
+        ],
+    },
     "37-tool-registry.html": {
         "mcq": [
             {
