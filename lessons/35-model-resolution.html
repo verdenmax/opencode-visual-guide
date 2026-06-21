@@ -478,7 +478,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
   <ul>
     <li>课里说 opencode 把「模型的价格、上限、能力」这些事实，外置给 models.dev 社区目录来维护，自己只负责消费——称之为「不重复维护事实」的更高层复用。请结合你做过的项目，举一个「本可以外置给权威上游、却被自己硬编码维护」的事实（如时区表、汇率、国家区号、第三方 API 的字段）。把它外置会带来什么好处与什么新风险（如上游不可用、数据格式漂移）？</li>
-    <li>Copilot 的认证用「令牌交换」：先拿长期的 GitHub OAuth 凭证，换一个短期、限定用途的 Copilot token，再拿它去认证。课里说这是「最小权限 + 短时效凭证」的安全惯例，且这套复杂流程被整个封装进 auth 旋钮、不惊动协议层。请论证：为什么「不直接把长期凭证发给推理端点，而是换一个短期 token」更安全？把这种安全复杂性隔离在 auth 这一层（而非散落各处），对整个系统的可维护性和可审计性有什么好处？</li>
+    <li>Copilot 的认证用「令牌交换」：先拿长期的 GitHub OAuth 凭证，换一个短期、限定用途的 Copilot token，再拿它去认证。课里说这是「最小权限 + 短时效凭证」的安全惯例，且这套复杂流程被整个封装进 auth 这一件、不惊动协议层。请论证：为什么「不直接把长期凭证发给推理端点，而是换一个短期 token」更安全？把这种安全复杂性隔离在 auth 这一层（而非散落各处），对整个系统的可维护性和可审计性有什么好处？</li>
   </ul>
 </div>
 </div></div>
@@ -632,7 +632,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
   <ul>
     <li>The lesson says opencode externalizes facts like "model prices, limits, capabilities" to the models.dev community catalog to maintain, only consuming them—calling it the higher-order reuse of "not re-maintaining facts." From a project you've done, give an example of a fact that "could have been externalized to an authoritative upstream but was hardcoded and self-maintained" (e.g. timezone tables, exchange rates, country codes, a third-party API's fields). What benefits and what new risks (upstream unavailability, data-format drift) would externalizing bring?</li>
-    <li>Copilot's auth uses "token exchange": take the long-lived GitHub OAuth credential, exchange for a short-lived, purpose-limited Copilot token, then authenticate with it. The lesson calls this the "least privilege + short-lived credential" security convention, with the whole complex flow encapsulated into the auth knob, undisturbing the protocol layer. Argue: why is "not sending the long-lived credential to inference endpoints, but exchanging for a short-lived token" more secure? What does isolating this security complexity in the auth layer (rather than scattering it) do for the system's maintainability and auditability?</li>
+    <li>Copilot's auth uses "token exchange": take the long-lived GitHub OAuth credential, exchange for a short-lived, purpose-limited Copilot token, then authenticate with it. The lesson calls this the "least privilege + short-lived credential" security convention, with the whole complex flow encapsulated into the auth piece, undisturbing the protocol layer. Argue: why is "not sending the long-lived credential to inference endpoints, but exchanging for a short-lived token" more secure? What does isolating this security complexity in the auth layer (rather than scattering it) do for the system's maintainability and auditability?</li>
   </ul>
 </div>
 </div></div>

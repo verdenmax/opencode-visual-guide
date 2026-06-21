@@ -1525,7 +1525,48 @@ QUIZZES = {
         ],
         "open": [
             {"zh": "课里说 opencode 把「模型的价格、上限、能力」这些事实，外置给 models.dev 社区目录来维护，自己只负责消费——称之为「不重复维护事实」的更高层复用。请结合你做过的项目，举一个「本可以外置给权威上游、却被自己硬编码维护」的事实（如时区表、汇率、国家区号、第三方 API 的字段）。把它外置会带来什么好处与什么新风险（如上游不可用、数据格式漂移）？", "en": "The lesson says opencode externalizes facts like \"model prices, limits, capabilities\" to the models.dev community catalog to maintain, only consuming them—calling it the higher-order reuse of \"not re-maintaining facts.\" From a project you've done, give an example of a fact that \"could have been externalized to an authoritative upstream but was hardcoded and self-maintained\" (e.g. timezone tables, exchange rates, country codes, a third-party API's fields). What benefits and what new risks (upstream unavailability, data-format drift) would externalizing bring?"},
-            {"zh": "Copilot 的认证用「令牌交换」：先拿长期的 GitHub OAuth 凭证，换一个短期、限定用途的 Copilot token，再拿它去认证。课里说这是「最小权限 + 短时效凭证」的安全惯例，且这套复杂流程被整个封装进 auth 旋钮、不惊动协议层。请论证：为什么「不直接把长期凭证发给推理端点，而是换一个短期 token」更安全？把这种安全复杂性隔离在 auth 这一层（而非散落各处），对整个系统的可维护性和可审计性有什么好处？", "en": "Copilot's auth uses \"token exchange\": take the long-lived GitHub OAuth credential, exchange for a short-lived, purpose-limited Copilot token, then authenticate with it. The lesson calls this the \"least privilege + short-lived credential\" security convention, with the whole complex flow encapsulated into the auth knob, undisturbing the protocol layer. Argue: why is \"not sending the long-lived credential to inference endpoints, but exchanging for a short-lived token\" more secure? What does isolating this security complexity in the auth layer (rather than scattering it) do for the system's maintainability and auditability?"},
+            {"zh": "Copilot 的认证用「令牌交换」：先拿长期的 GitHub OAuth 凭证，换一个短期、限定用途的 Copilot token，再拿它去认证。课里说这是「最小权限 + 短时效凭证」的安全惯例，且这套复杂流程被整个封装进 auth 这一件、不惊动协议层。请论证：为什么「不直接把长期凭证发给推理端点，而是换一个短期 token」更安全？把这种安全复杂性隔离在 auth 这一层（而非散落各处），对整个系统的可维护性和可审计性有什么好处？", "en": "Copilot's auth uses \"token exchange\": take the long-lived GitHub OAuth credential, exchange for a short-lived, purpose-limited Copilot token, then authenticate with it. The lesson calls this the \"least privilege + short-lived credential\" security convention, with the whole complex flow encapsulated into the auth piece, undisturbing the protocol layer. Argue: why is \"not sending the long-lived credential to inference endpoints, but exchanging for a short-lived token\" more secure? What does isolating this security complexity in the auth layer (rather than scattering it) do for the system's maintainability and auditability?"},
+        ],
+    },
+    "36-tool-definition.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode 里「定义一个工具」靠的是什么？", "en": "What is \"defining a tool\" in opencode based on?"},
+                "opts": [
+                    {"zh": "填一张 Tool.make 的 Config 表：description（给模型读）+ input/output（schema）+ execute（干活）+ 可选 toModelOutput——每个工具都填这同一张表", "en": "Filling a Tool.make Config form: description (read by the model) + input/output (schema) + execute (do work) + optional toModelOutput — every tool fills this same form"},
+                    {"zh": "继承一个 BaseTool 抽象类、重写一堆方法", "en": "Subclassing a BaseTool abstract class and overriding many methods"},
+                    {"zh": "在一个巨大的 switch 里加一个 case", "en": "Adding a case to one giant switch"},
+                    {"zh": "写一个独立的微服务", "en": "Writing a standalone microservice"},
+                ],
+                "answer": 0,
+                "why": {"zh": "Tool.make(config)（core/src/tool/tool.ts）是定义工具的唯一入口。Config 核心三件是 input/output/execute：声明「吃什么、吐什么、怎么算」，execute 签名 (input, context) => Effect<output, ToolFailure> 输入输出带类型、错误是值。这和第 29 课「每个协议填同一张两栏表」是同一种设计哲学——把共性钉成一张表，每个实例只管填空。read/bash/grep 千差万别，都在填这同一张 Config。", "en": "Tool.make(config) (core/src/tool/tool.ts) is the sole entry to defining a tool. Config's core three are input/output/execute: declaring \"what it takes, produces, how it computes,\" with execute's signature (input, context) => Effect<output, ToolFailure> typed I/O and errors-as-values. Same design philosophy as lesson 29's \"every protocol fills the two-column form\" — nail the commonality into one form, each instance just fills blanks. read/bash/grep, wildly different, all fill this same Config."},
+            },
+            {
+                "q": {"zh": "一个工具的 input/output schema 同时承担哪几件事？", "en": "What does a tool's input/output schema do all at once?"},
+                "opts": [
+                    {"zh": "三件：① definition 转 JSON Schema 给模型当说明书；② settle 用 input schema 解码校验进来的参数；③ 用 output schema 编码校验出去的结果", "en": "Three: ① definition turns it into JSON Schema as the model's manual; ② settle decode-validates incoming params via the input schema; ③ encode-validates the outgoing result via the output schema"},
+                    {"zh": "只用来生成 TypeScript 类型，运行时不参与", "en": "Only for generating TypeScript types, not involved at runtime"},
+                    {"zh": "只用来写文档", "en": "Only for documentation"},
+                    {"zh": "只校验输入，不管输出", "en": "Only validates input, ignores output"},
+                ],
+                "answer": 0,
+                "why": {"zh": "同一份 schema 声明一次、三处把关：对外是给模型的说明书（definition→JSON Schema），对内是输入的安检门（decode）和输出的质检口（encode）。这是第 22 课「codec 一肩三役」在工具层的再现。关键收益在失败处理：模型传来不合 schema 的乱参数、工具吐出不合规结果，两种脏数据都被挡成一个规规矩矩的 ToolFailure 值，而非异常炸穿 agent 循环。schema 是工具与混沌世界之间的防线。", "en": "The same schema, declared once, guards three gates: outward the model's manual (definition→JSON Schema), inward the input's checkpoint (decode) and output's QC (encode). A recurrence of lesson 22's \"codec wears three hats\" at the tool layer. The key payoff is failure handling: the model passing schema-violating params, a tool spitting non-conforming output — both dirty-data kinds are stopped into a well-behaved ToolFailure value, not an exception blasting the agent loop. The schema is the tool's line of defense against a chaotic world."},
+            },
+            {
+                "q": {"zh": "Tool.make 返回的「工具」其实是 Object.freeze({})（冻结的空对象），真正的行为藏在模块级 WeakMap 里。为什么这么设计？", "en": "Tool.make's returned \"tool\" is actually Object.freeze({}) (a frozen empty object), the real behavior hidden in a module-level WeakMap. Why this design?"},
+                "opts": [
+                    {"zh": "让工具成为不可篡改的「能力凭证」：只能交给 Tool.settle/definition 用；withPermission 派生新句柄而非改原值；类型层只剩 Input/Output 幽灵参数、运行时脏活不污染类型", "en": "Make the tool an immutable \"capability token\": only usable via Tool.settle/definition; withPermission derives a new handle instead of mutating; the type layer has only phantom Input/Output params, runtime grunt work not polluting types"},
+                    {"zh": "纯粹是个 bug", "en": "Purely a bug"},
+                    {"zh": "为了节省内存", "en": "To save memory"},
+                    {"zh": "因为 TypeScript 不支持类", "en": "Because TypeScript doesn't support classes"},
+                ],
+                "answer": 0,
+                "why": {"zh": "返回空对象、行为入 WeakMap，一次买齐三件好事：① 不可篡改——拿到工具改不了它的行为，只能照规矩用；② 装饰即新值——withPermission 派生一把新钥匙牌指向增强 Runtime，原工具纹丝不动（不可变思维）；③ 类型与运行时分离——类型层只剩 Input/Output 两个幽灵参数供编译器对齐，运行时藏在 WeakMap 不污染类型。WeakMap 还附带：工具被 GC 时 Runtime 自动释放，无泄漏。withPermission 正是第 41 课权限系统的接入点。", "en": "Returning an empty object with behavior in a WeakMap buys three goods at once: ① immutability — holders can't change a tool's behavior, only use it by the rules; ② decoration yields a new value — withPermission derives a new key tag pointing at the enhanced Runtime, the original untouched (immutable thinking); ③ types/runtime separated — the type layer keeps only the two phantom Input/Output params for the compiler to align, runtime hidden in the WeakMap without polluting types. WeakMap also throws in: a GC'd tool's Runtime auto-releases, no leak. withPermission is exactly lesson 41's permission plug-in point."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说 settle 吐出两份——structured（给系统归档的结构化值）和 content（给模型读的 text/file），并把它们刻意解耦：「系统要记的」和「模型该看的」常常不是一回事（如文件读取：结构化里有字节数/行号/编码，给模型只需内容本身）。请结合你设计过的接口，谈谈「同一次操作的结果，对内详尽、对外精炼」这种双输出为什么有用？它和第 42 课「有界工具输出」会怎样配合？", "en": "The lesson says settle emits two copies—structured (the structured value filed for the system) and content (text/file read by the model)—deliberately decoupled: \"what the system records\" and \"what the model should see\" are often not the same (e.g. file-read: structured has byte counts/line numbers/encoding, the model needs only the content). From an interface you've designed, discuss why this dual output of \"detailed inward, concise outward for the same operation's result\" is useful. How would it cooperate with lesson 42's \"bounded tool output\"?"},
+            {"zh": "课里把工具的 execute 签名 (input, context) => Effect<output, ToolFailure> 和第 29 课协议的「两栏表」相提并论，都是「把一类东西的共性钉成一张表，让每个实例只管填空」。请再举两个你熟悉的、用「同一张表/同一个接口、各自填空」来统一一族实现的例子（如插件系统、Web 中间件、数据库驱动）。这种「定义一张共同的形」相比「每个实现各搞一套」，在新增、测试、复用上分别带来什么好处？", "en": "The lesson likens a tool's execute signature (input, context) => Effect<output, ToolFailure> to lesson 29's protocol \"two-column form,\" both \"nailing a category's commonality into one form so each instance just fills blanks.\" Give two more examples you know of unifying a family of implementations via \"the same form/interface, each filling blanks\" (e.g. plugin systems, web middleware, database drivers). Versus \"each implementation doing its own thing,\" what does \"defining one common shape\" buy for adding, testing, and reuse respectively?"},
         ],
     },
 }
