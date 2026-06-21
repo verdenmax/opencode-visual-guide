@@ -328,8 +328,304 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第五部分 · Context Epoch 系统</span><span class="lang-en">Part 5 · Context System</span></div>
     <h1><span class="lang-zh">Agent 切换与 Epoch 替换</span><span class="lang-en">Agent switch &amp; epoch</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《Agent 切换与 Epoch 替换》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“Agent 切换与 Epoch 替换”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Agent switch & epoch" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Agent switch & epoch" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">整个第五部分，有一个名字被反复点到、却一直没拆——<span class="mono">AgentReplacementBlocked</span>。第 24 课讲纪元时说「换 agent 要走 replace、可能被 block」，第 25、26 课又两次预告「这是压轴的硬骨头」。现在，到了啃它的时候。这一课，也是第五部分的收官，回答一个听起来简单、做起来微妙的问题：<strong>当你在会话中途换了一个 agent，那份为旧 agent 建立的上下文纪元，该怎么办？为什么「替换」有时会被「阻挡」？</strong>答案，会把第 21 课那个看似不起眼的 <span class="mono">unavailable ≠ removed</span> 原则，和整套系统「宁可阻塞、绝不残缺」的品格，一齐照亮。读完它，你不仅看懂一个边角机制，更会摸到 opencode 对待「根基性变更」时那种近乎固执的审慎。</p>
+<p>为什么「换 agent」是个需要小心处理的硬骨头？因为它要求<strong>从零重建一份完整的基线</strong>。第 24 课讲过：同一个 agent 的环境演进，走 <span class="mono">reconcile</span>（增量补）；可换了 agent，旧基线的「人设」整个作废，必须 <span class="mono">replace</span>——<strong>重新观察所有源、从头拼一份新基线</strong>。而「从头拼一份完整基线」这件事，有个苛刻的前提：<strong>所有源此刻都得观察得到</strong>。万一某个源恰好临时挂了（第 21 课那个 <span class="mono">unavailable</span>）呢？这一课的全部张力，就在这个「万一」里。</p>
+
+<div class="card analogy">
+  <div class="tag">🏔️ 生活类比</div>
+  接着第 24 课登山的比喻：<strong>换 agent，就是换一支全新的登山队</strong>，新队伍得有<strong>自己的大本营</strong>（新纪元）。可要扎一个新大本营，你得先做一次<strong>完整的环境勘测</strong>——海拔、坐标、天气、补给点，一样都不能少（重新观察所有源）。现在设想：就在你准备扎新营的当口，<strong>GPS 临时没信号了</strong>（一个源 unavailable）。你会怎么办？一个负责任的领队<strong>绝不会</strong>凭半个坐标就硬扎营——那等于让新队伍住进一个位置都没标准的营地，迟早出事。他会<strong>暂停扎营，等 GPS 恢复</strong>；在这期间，<strong>旧队的大本营依然有效、照常待命</strong>。这就是 <span class="mono">AgentReplacementBlocked</span> 的全部精神：<strong>与其建一个缺了一块的新基线，不如阻塞、等待、保留旧的</strong>。一次推迟的交接，远胜一个有缺口的新营。
+</div>
+
+<h2>reconcile 还是 replace：变化的两种量级</h2>
+<p>先把第 24 课那个分岔再钉清楚，因为它是这一课的起点。每次 <span class="mono">prepare</span> 对表时，<span class="mono">stored.agent</span>（存档里的 agent）和当前 agent 一比，决定走哪条路：</p>
+<div class="cols">
+  <div class="col"><h4>同 agent → reconcile</h4><p>「人设」没变，只是环境飘了点。在旧基线上算增量、补一句 update 即可。常态运转。</p></div>
+  <div class="col"><h4>换 agent → replace</h4><p>「人设」整个换了，旧基线作废。必须<strong>重新观察所有源、从头拼一份新基线</strong>。改朝换代。</p></div>
+</div>
+<p>这里的关键差异，在于两条路<strong>对「源观察不到」的容忍度，截然不同</strong>。<span class="mono">reconcile</span> 很宽容：某个源此刻 <span class="mono">unavailable</span>？没关系，它<strong>保住上一份快照</strong>就行——反正基线还在，缺这一轮的观察无伤大雅（这正是第 21 课 <span class="mono">unavailable ≠ removed</span> 的常态体现）。但 <span class="mono">replace</span> 没有这份从容：它要拼的是一份<strong>全新</strong>的基线，<strong>没有「上一份快照」可以保底</strong>——每个源都必须<strong>此刻、当场、新鲜地</strong>观察到，才能拼出一份完整、自洽的新基线。<strong>一个能容忍「暂时看不到」，一个不能——区别就在这里炸开。</strong></p>
+<p>停下来体会这个对比，你会更懂「上下文有没有连续性」这件事的分量。<span class="mono">reconcile</span> 之所以能容忍一次缺席，是因为它站在<strong>一份已有基线的肩膀上</strong>——旧快照就是它的安全网，这一轮没读到，下一轮补上就是，基线始终完整。而 <span class="mono">replace</span> 是要<strong>另起炉灶</strong>，它脚下没有任何旧基线托底，是真正的「从零开始」。「从零开始」最怕的就是「开局缺料」：增量更新缺一笔，无非晚补一轮；但<strong>奠基</strong>时缺一块，那是把残缺<strong>焊进了地基</strong>，往后每一轮都带着这个缺口。所以同样是「一个源没读到」，在增量场景里是小事、在奠基场景里是大事——opencode 对这两种场景区别对待，正是看透了「打地基」和「添砖加瓦」根本不是一回事。</p>
+
+<h2>为什么要 block：拒绝残缺的新基线</h2>
+<p>于是 <span class="mono">SystemContext.replace</span> 的逻辑，就有了那道关键的闸门。它重新观察所有源，然后做一个判断：</p>
+<pre class="code"><span class="cm">// 简化自 system-context/index.ts 的 replaceObservation</span>
+<span class="kw">if</span> (entries.<span class="fn">some</span>((e) =&gt;
+    e._tag === <span class="st">"Unavailable"</span> &amp;&amp; <span class="fn">getSnapshot</span>(previous, e.key) !== <span class="kw">undefined</span>))
+  <span class="kw">return</span> { _tag: <span class="st">"ReplacementBlocked"</span> }   <span class="cm">// ← 曾经有、现在却看不到 → 阻塞</span>
+<span class="kw">return</span> { _tag: <span class="st">"ReplacementReady"</span>, generation: ... }  <span class="cm">// 全都观察到了 → 放行</span></pre>
+<p>读这个判断，妙处全在那个条件：<strong>某个源现在 <span class="mono">Unavailable</span>，而它在旧快照里<strong>曾经是有的</strong></strong>。这两个条件缺一不可。如果一个源本来就没有（旧快照里也没它），那它现在没有，无所谓；但如果一个源<strong>本该有、此刻却临时观察不到</strong>，那就危险了——硬拼一份新基线，等于<strong>悄悄把这个源从新 agent 的世界里抹掉了</strong>。新 agent 会以为「这里不是 git 仓库」「没有项目指令」，而其实只是那一下没读到。opencode 的选择斩钉截铁：<strong>这种情况下，宁可 <span class="mono">ReplacementBlocked</span>、阻塞这次切换，也绝不交付一份缺了源的新基线。</strong></p>
+<div class="cols">
+  <div class="col"><h4>❌ 将就：照拼不误</h4><p>源没读到？当它没有，照样拼新基线。新 agent 被悄悄喂了一份残缺的世界——以为「这里不是 git 仓库」，做出错误决策。错误隐蔽、难查。</p></div>
+  <div class="col"><h4>✅ 阻塞：等齐再建</h4><p>有源暂缺就 block，保留旧纪元、等它恢复再重试。代价是切换稍延，收益是新基线永远完整可信。宁慢勿错。</p></div>
+</div>
+<div class="flow">
+  <div class="node">换 agent<span class="sub">人设作废</span></div>
+  <div class="arrow">replace →</div>
+  <div class="node">重新观察所有源<span class="sub">从头拼基线</span></div>
+  <div class="arrow">有源暂缺?</div>
+  <div class="node">Blocked / Ready<span class="sub">挡下重试 / 放行新纪元</span></div>
+</div>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">换 agent → replace：重新观察所有源</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">检查：有没有「旧快照里有、现在却 Unavailable」的源？</span></div>
+  <div class="t-row"><span class="t-num">3a</span><span class="t-txt">有 → ReplacementBlocked → 抛 AgentReplacementBlocked，旧纪元保留、等待重试</span></div>
+  <div class="t-row"><span class="t-num">3b</span><span class="t-txt">没有（全观察到了）→ ReplacementReady → 拼新基线、钉新 baselineSeq、revision+1</span></div>
+</div>
+<p>这道闸门，是第 21 课那个 <span class="mono">unavailable ≠ removed</span> 原则的<strong>终极兑现</strong>。当时我们说「暂缺不等于删除」，听着像句无关痛痒的设计洁癖；现在你看到了它真正的牙齿：正因为系统从一开始就严格区分「暂时看不到」和「真的没有」，它才能在<strong>换 agent 这个最关键的当口</strong>，做出「等一等」而非「将就一下」的正确判断。<strong>一个早早埋下的原则，在六课之后，于一个最微妙的场景里，结出了它最重要的果实。</strong>这就是好设计的复利：当初那点克制，此刻成了不必再想的底气。</p>
+
+<h2>fence：让切换原子、一致</h2>
+<p>当替换真的可以进行（<span class="mono">ReplacementReady</span>）时，还有最后一道纪律要守：<strong>这次切换必须是原子的、一致的</strong>——绝不能切到一半被另一个并发操作搅乱。这就是 <span class="mono">fence</span>（栅栏）和那个 <span class="mono">revision</span> 版本号的活。</p>
+<p><span class="mono">fence</span> 在写入前会再核对一遍：当前存档里的 agent，还是不是我以为的那个？<span class="mono">revision</span> 版本号，还是不是我读到时的那个？只要有一样对不上，就说明<strong>在我盘算这次切换的工夫里，已经有别人动过手了</strong>——于是它 <span class="mono">die</span> 出一个 <span class="mono">RevisionMismatch</span>/<span class="mono">AgentMismatch</span>，外层的 <span class="mono">retryRevisionMismatch</span> 接住、<strong>退让重试</strong>。这套「比对版本、不符就重来」的乐观并发，确保了即便有两处几乎同时想切 agent，最终也只会有一次干净地落定，绝不会留下一个<strong>半切、错乱的纪元</strong>。</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">t0</span><span class="tl-desc">你把 agent 从 A 换成 B → prepare 走 replace</span></div>
+  <div class="tl-item"><span class="tl-time">t1</span><span class="tl-desc">恰好某个源临时挂了 → ReplacementBlocked → 抛 AgentReplacementBlocked</span></div>
+  <div class="tl-item"><span class="tl-time">t1~t2</span><span class="tl-desc">旧纪元（A 的）依然有效、照常待命 —— 会话没有进入残缺态</span></div>
+  <div class="tl-item"><span class="tl-time">t2</span><span class="tl-desc">源恢复 → 下次 prepare 重试 replace → ReplacementReady → B 的新纪元干净落定</span></div>
+</div>
+<div class="cellgroup">
+  <div class="cell"><div class="k">ReplacementReady</div><div class="v">所有源都观察到了 → 拼新基线、replace、revision+1</div></div>
+  <div class="cell"><div class="k">ReplacementBlocked</div><div class="v">有源暂缺 → AgentReplacementBlocked，保留旧纪元、等重试</div></div>
+  <div class="cell"><div class="k">fence + revision</div><div class="v">写入前核对 agent/版本，不符则退让重试——切换原子一致</div></div>
+</div>
+<p>把 block 和 fence 合起来看，你会发现 opencode 对「换 agent」这件事，守着<strong>两道防线</strong>：一道防<strong>残缺</strong>（block：源没齐就不建新基线），一道防<strong>错乱</strong>（fence：有人插手就退让重来）。两道防线指向同一个信念——<strong>纪元这种「会话的根基性状态」，要么完整、一致地建立，要么干脆不动；绝不容许一个半吊子、自相矛盾的中间态存在。</strong>这正是贯穿整个第四、五部分的那条主线（先记账、原子提交、串行排空、版本守护……）在「换 agent」这个收官场景里的最后一次回响。</p>
+<p>退一万步说，这一课真正教给你的，或许不是 <span class="mono">AgentReplacementBlocked</span> 这个具体机制，而是它背后那种<strong>对「中间态」的零容忍</strong>。纵观第四、五部分，你会发现 opencode 反复在做同一件事：但凡涉及「根基性的状态变更」——admit 一个 prompt、推进一个纪元、切换一个 agent——它都坚持「<strong>要么完整成功、要么干净不变</strong>」，绝不留下一个「成功了一半」的尴尬残局。这种执拗，正是「可靠系统」和「能跑的脚本」之间，那道最深的分野：脚本只关心「正常情况能不能跑通」，而可靠系统，把大量心力花在「<strong>异常情况下，能不能优雅地什么都不破坏</strong>」。<span class="mono">AgentReplacementBlocked</span>，不过是这份执拗，在第五部分谢幕时，留下的最后一个注脚。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景·第五部分收官</div>
+  <p>这一课啃下了 <span class="mono">AgentReplacementBlocked</span>，也让整个第五部分（上下文纪元系统）<strong>合龙</strong>。回望这条主线：</p>
+  <ul>
+    <li><strong>第 21-23 课</strong>：系统上下文的「生产侧」——源的代数、单源的观察/比较/渲染、注册表。</li>
+    <li><strong>第 24 课</strong>：上下文纪元——把基线钉成会话里带 baselineSeq 的锚点（合上第 19 课）。</li>
+    <li><strong>第 25 课</strong>：中途更新作为原位 System 消息，无缝织进对话时间线。</li>
+    <li><strong>第 26 课</strong>：极简的内置源（环境/日期/指令）——好抽象的试金石。</li>
+    <li><strong>第 27 课·本课</strong>：换 agent 走 replace；源不齐则 <span class="mono">block</span>（unavailable≠removed 的终极兑现），fence+revision 保切换原子一致。</li>
+  </ul>
+  <p>一句话总结第五部分：<strong>opencode 把「模型每轮该看到怎样一份世界」，做成了一套可组合、可增量、可持久、可演进的「上下文纪元」系统——它和会话引擎共享同一条事件时间线，宁可阻塞也不残缺，宁可重试也不错乱。</strong>引擎（第四部分）已经在跑，决定「引擎该读什么世界」的大脑（第五部分）也已讲透。接下来的第六部分，我们将潜入更底层——<strong>LLM 协议层</strong>：那个把模型的请求与响应，翻译成各家供应商（Anthropic、OpenAI、Gemini…）各自方言的精密适配系统。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">prepareOnce</span> 里「换 agent 被 block」那一支，把这一课的逻辑钉得清清楚楚：</p>
+  <pre class="code"><span class="cm">// 简化自 session/context-epoch.ts 的 prepareOnce</span>
+<span class="kw">const</span> result = stored.replacement_seq === <span class="kw">null</span> &amp;&amp; !replacingAgent
+  ? <span class="kw">yield</span>* SystemContext.<span class="fn">reconcile</span>(value, snapshot)   <span class="cm">// 同 agent：增量</span>
+  : <span class="kw">yield</span>* SystemContext.<span class="fn">replace</span>(value, snapshot)     <span class="cm">// 换 agent：重建</span>
+<span class="kw">if</span> (result._tag === <span class="st">"ReplacementBlocked"</span> &amp;&amp; replacingAgent) {
+  <span class="kw">yield</span>* <span class="fn">fence</span>(db, sessionID, agent, stored.revision)        <span class="cm">// 守一致</span>
+  <span class="kw">return</span> <span class="kw">yield</span>* <span class="kw">new</span> <span class="fn">AgentReplacementBlocked</span>({          <span class="cm">// 抛类型化错误</span>
+    sessionID, previous: stored.agent, current: agent })
+}</pre>
+  <p>留意那个 <span class="mono">AgentReplacementBlocked</span> 错误带的字段：<span class="mono">previous</span>（原来的 agent）和 <span class="mono">current</span>（想换成的 agent）。它不是一句含糊的「切换失败」，而是<strong>把「谁想换成谁、却没换成」说得明明白白</strong>——又一次第 5、8、20 课「错误是值、信息齐全」那套世界观的体现。上层接到这个错误，能清楚知道「是从 A 换 B 被挡了」，从而决定是稍后重试、还是提示用户。<strong>连「被阻挡」这种边角情况，都被收进类型、带齐信息——这是整套系统对「失败也要讲清楚」的一贯执着。</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>换 agent 走 replace（而非 reconcile）</strong>：旧基线的「人设」作废，必须重新观察所有源、从头拼一份新基线（第 24 课）。</li>
+    <li><strong>关键差异</strong>：reconcile 容忍源 <span class="mono">unavailable</span>（保住旧快照）；replace 不能容忍——新基线没有「旧快照保底」，每个源都得当场新鲜观察到。</li>
+    <li><strong>为什么 block</strong>：若某源「曾经有、现在却 unavailable」，硬拼新基线等于悄悄抹掉它。opencode 宁可 <span class="mono">ReplacementBlocked</span>、保留旧纪元、等重试，也绝不交付残缺基线——第 21 课 <span class="mono">unavailable ≠ removed</span> 的终极兑现。</li>
+    <li><strong>fence + revision</strong>：写入前核对 agent/版本，不符则退让重试——保证切换<strong>原子、一致</strong>，绝无半切错乱的纪元。</li>
+    <li><strong>两道防线</strong>（防残缺的 block + 防错乱的 fence）指向同一信念：<strong>纪元要么完整一致地建立，要么不动——不容许半吊子的中间态。</strong></li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. 为什么换 agent 时 SystemContext.replace 会因「某个源 unavailable」而 block？</div>
+  <ol class="opts">
+    <li>因为 agent 不允许切换</li>
+    <li>因为 replace 太慢</li>
+    <li>为了节省内存</li>
+    <li>新基线要从零重建、没有旧快照保底；某源曾经有现在却看不到，硬拼等于悄悄把它从新 agent 的世界抹掉</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。reconcile（同 agent）容忍源暂缺——保住旧快照即可。但 replace 拼全新基线、没有旧快照保底，每个源必须当场新鲜观察到。若某源「曾经有、现在却 unavailable」，硬拼会把它抹掉、新 agent 误以为「这里不是 git 仓库」。宁可 block 也不交付残缺基线——第 21 课 unavailable≠removed 的终极兑现。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. 为什么同样是「一个源没读到」，reconcile 当小事、replace 当大事？</div>
+  <ol class="opts">
+    <li>因为 replace 用的模型不同</li>
+    <li>没有区别</li>
+    <li>reconcile 站在已有基线肩上(旧快照是安全网)；replace 是从零奠基，缺一块就把残缺焊进地基</li>
+    <li>因为 reconcile 不读源</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。增量更新缺一笔，晚补一轮即可，基线始终完整；奠基时缺一块，是把残缺焊进地基，往后每轮都带这缺口。「打地基」和「添砖加瓦」根本不是一回事——opencode 区别对待，正是看透了这点。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. fence + revision 在 agent 切换里扮演什么角色？</div>
+  <ol class="opts">
+    <li>记录切换日志</li>
+    <li>写入前核对 agent/版本，不符则退让重试——保证切换原子一致，绝无半切错乱的纪元</li>
+    <li>加快切换速度</li>
+    <li>阻止所有切换</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。fence 写入前再核对：当前 agent 还是我以为的吗？revision 还是我读到的吗？有一样不符=有人在我盘算时动过手→die RevisionMismatch/AgentMismatch→外层 retryRevisionMismatch 退让重试。乐观并发确保两处并发切换最终只一次干净落定。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里说 opencode 守着两道防线：block 防残缺、fence 防错乱，都指向「纪元要么完整一致地建立、要么不动」。结合「可靠系统 vs 能跑的脚本」之分，说说为什么「异常情况下能优雅地什么都不破坏」比「正常情况能跑通」更难、更值钱。</li>
+    <li>第 21 课那个 unavailable≠removed 原则，当时看像无关痛痒的设计洁癖，六课后却在「换 agent」这个最关键场景结出最重要的果实。回顾你读过的代码/系统，举一个「当初一个不起眼的克制，后来成了关键能力」的例子。</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">All through Part 5, one name was repeatedly invoked yet never unpacked — <span class="mono">AgentReplacementBlocked</span>. Lesson 24 on epochs said "switching agent takes replace, may be blocked"; Lessons 25 and 26 twice teased "this is the finale's hard bone." Now, time to crack it. This lesson, also Part 5's finale, answers a question that sounds simple but is subtle to do: <strong>when you switch an agent mid-session, what becomes of the context epoch built for the old agent? Why is "replacement" sometimes "blocked"?</strong> The answer illuminates, at once, Lesson 21's seemingly-unremarkable <span class="mono">unavailable ≠ removed</span> principle and the whole system's character of "rather block than be incomplete." Reading it, you don't just understand an edge mechanism but touch opencode's near-stubborn prudence toward "foundational changes."</p>
+<p>Why is "switching agent" a hard bone needing careful handling? Because it demands <strong>rebuilding a complete baseline from scratch</strong>. Lesson 24 covered: a same agent's environment evolution takes <span class="mono">reconcile</span> (increment); but switch the agent and the old baseline's "persona" is wholly void, requiring <span class="mono">replace</span> — <strong>re-observe all sources, stitch a new baseline from scratch</strong>. And "stitch a complete baseline from scratch" has a strict precondition: <strong>all sources must be observable right now</strong>. What if a source happens to be temporarily down (Lesson 21's <span class="mono">unavailable</span>)? This lesson's whole tension lives in that "what if."</p>
+
+<div class="card analogy">
+  <div class="tag">🏔️ Analogy</div>
+  Continuing Lesson 24's mountaineering metaphor: <strong>switching agents is switching to a wholly new climbing team</strong>, and the new team needs <strong>its own base camp</strong> (new epoch). But to pitch a new base camp, you must first do a <strong>complete survey of the surroundings</strong> — altitude, coordinates, weather, supply points, not one missing (re-observe all sources). Now imagine: just as you're about to pitch the new camp, <strong>the GPS temporarily loses signal</strong> (a source unavailable). What do you do? A responsible leader <strong>would never</strong> pitch camp on half a coordinate — that's housing the new team at a site with no standard location, trouble sooner or later. They'd <strong>pause pitching, wait for GPS to recover</strong>; meanwhile, <strong>the old team's base camp stays valid, still on standby</strong>. That's the whole spirit of <span class="mono">AgentReplacementBlocked</span>: <strong>rather than build a new baseline missing a piece, block, wait, keep the old.</strong> A delayed handover beats a new camp built on incomplete data.
+</div>
+
+<h2>reconcile or replace: two magnitudes of change</h2>
+<p>First nail down Lesson 24's fork again, as it's this lesson's starting point. Each <span class="mono">prepare</span> reconcile, <span class="mono">stored.agent</span> (the archive's agent) compared with the current agent decides which road:</p>
+<div class="cols">
+  <div class="col"><h4>same agent → reconcile</h4><p>The "persona" unchanged, just the environment drifted a bit. Compute the increment on the old baseline, append an update. Normal operation.</p></div>
+  <div class="col"><h4>switch agent → replace</h4><p>The "persona" wholly changed, the old baseline void. Must <strong>re-observe all sources, stitch a new baseline from scratch</strong>. Changing of the guard.</p></div>
+</div>
+<p>The key difference is the two roads' <strong>tolerance for "a source unobservable" is utterly different</strong>. <span class="mono">reconcile</span> is forgiving: a source <span class="mono">unavailable</span> right now? Fine, it <strong>keeps the last snapshot</strong> — the baseline still stands, missing this round's observation does no harm (exactly Lesson 21's <span class="mono">unavailable ≠ removed</span> in normal operation). But <span class="mono">replace</span> has no such ease: it stitches a <strong>brand-new</strong> baseline, with <strong>no "last snapshot" to fall back on</strong> — every source must be observed <strong>now, on the spot, freshly</strong> to stitch a complete, self-consistent new baseline. <strong>One can tolerate "temporarily unseen," one can't — the difference explodes right here.</strong></p>
+<p>Pause on this contrast and you'll better grasp the weight of "whether context has continuity." <span class="mono">reconcile</span> can tolerate one absence because it stands <strong>on the shoulders of an existing baseline</strong> — the old snapshot is its safety net, miss this round and catch up next, the baseline always complete. But <span class="mono">replace</span> starts a new fire, with no old baseline underfoot, a true "from scratch." "From scratch" most fears "missing material at the open": an increment missing one entry just catches up a round later; but <strong>laying a foundation</strong> missing a piece <strong>welds the gap into the bedrock</strong>, carrying that hole every round after. So the same "a source unread" is trivial in the increment scenario, grave in the foundation scenario — opencode treating the two differently is exactly seeing through that "laying a foundation" and "adding bricks" are fundamentally not the same thing.</p>
+
+<h2>Why block: refusing an incomplete new baseline</h2>
+<p>So <span class="mono">SystemContext.replace</span>'s logic has that crucial gate. It re-observes all sources, then makes a judgment:</p>
+<pre class="code"><span class="cm">// simplified from replaceObservation in system-context/index.ts</span>
+<span class="kw">if</span> (entries.<span class="fn">some</span>((e) =&gt;
+    e._tag === <span class="st">"Unavailable"</span> &amp;&amp; <span class="fn">getSnapshot</span>(previous, e.key) !== <span class="kw">undefined</span>))
+  <span class="kw">return</span> { _tag: <span class="st">"ReplacementBlocked"</span> }   <span class="cm">// ← once present, now unseen → block</span>
+<span class="kw">return</span> { _tag: <span class="st">"ReplacementReady"</span>, generation: ... }  <span class="cm">// all observed → proceed</span></pre>
+<p>Reading this judgment, the cleverness is all in the condition: <strong>a source is now <span class="mono">Unavailable</span>, AND it <strong>was present</strong> in the old snapshot</strong>. Both conditions are indispensable. If a source never existed (not in the old snapshot either), its absence now is fine; but if a source <strong>should be there yet is temporarily unobservable</strong>, that's dangerous — forcing a new baseline would <strong>silently erase this source from the new agent's world</strong>. The new agent would think "this isn't a git repo," "there are no project instructions," when really that one fetch just failed. opencode's choice is resolute: <strong>in this case, rather <span class="mono">ReplacementBlocked</span>, blocking this switch, than deliver a new baseline missing a source.</strong></p>
+<div class="cols">
+  <div class="col"><h4>❌ make do: stitch anyway</h4><p>Source unread? Treat it as absent, stitch the new baseline anyway. The new agent is silently fed an incomplete world — thinks "not a git repo," makes wrong decisions. The error is hidden, hard to trace.</p></div>
+  <div class="col"><h4>✅ block: build only when complete</h4><p>A source missing → block, keep the old epoch, retry when it recovers. The cost is a slightly delayed switch; the gain is a new baseline always complete and trustworthy. Slow over wrong.</p></div>
+</div>
+<div class="flow">
+  <div class="node">switch agent<span class="sub">persona void</span></div>
+  <div class="arrow">replace →</div>
+  <div class="node">re-observe all sources<span class="sub">stitch from scratch</span></div>
+  <div class="arrow">a source missing?</div>
+  <div class="node">Blocked / Ready<span class="sub">block+retry / proceed to new epoch</span></div>
+</div>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">switch agent → replace: re-observe all sources</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">check: any source "present in old snapshot but now Unavailable"?</span></div>
+  <div class="t-row"><span class="t-num">3a</span><span class="t-txt">yes → ReplacementBlocked → throw AgentReplacementBlocked, old epoch kept, await retry</span></div>
+  <div class="t-row"><span class="t-num">3b</span><span class="t-txt">no (all observed) → ReplacementReady → stitch new baseline, pin new baselineSeq, revision+1</span></div>
+</div>
+<p>This gate is the <strong>ultimate cash-out</strong> of Lesson 21's <span class="mono">unavailable ≠ removed</span> principle. We said then "temporarily missing isn't deleted," sounding like an inconsequential design fastidiousness; now you see its real teeth: precisely because the system strictly distinguishes "temporarily unseen" from "really absent" from the start, it can make the right call of "wait a moment" rather than "make do" <strong>at the most critical juncture of switching agents</strong>. <strong>A principle planted early bears its most important fruit, six lessons later, in a most subtle scenario.</strong> This is the compound interest of good design: that early bit of restraint becomes, now, confidence you needn't think about.</p>
+
+<h2>fence: making the switch atomic, consistent</h2>
+<p>When the replacement truly can proceed (<span class="mono">ReplacementReady</span>), there's one last discipline to keep: <strong>this switch must be atomic and consistent</strong> — never half-switched then disrupted by another concurrent operation. That's the job of <span class="mono">fence</span> and that <span class="mono">revision</span> version number.</p>
+<p><span class="mono">fence</span>, before writing, double-checks: the agent in the current archive, is it still the one I thought? The <span class="mono">revision</span> version, still the one I read? If even one mismatches, it means <strong>while I was planning this switch, someone else already acted</strong> — so it <span class="mono">die</span>s with a <span class="mono">RevisionMismatch</span>/<span class="mono">AgentMismatch</span>, caught by the outer <span class="mono">retryRevisionMismatch</span>, which <strong>backs off and retries</strong>. This optimistic concurrency of "compare versions, redo on mismatch" ensures that even if two places try to switch agents almost simultaneously, only one cleanly settles in the end, never leaving a <strong>half-switched, garbled epoch</strong>.</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">t0</span><span class="tl-desc">you switch agent from A to B → prepare takes replace</span></div>
+  <div class="tl-item"><span class="tl-time">t1</span><span class="tl-desc">a source happens to be down → ReplacementBlocked → throw AgentReplacementBlocked</span></div>
+  <div class="tl-item"><span class="tl-time">t1~t2</span><span class="tl-desc">the old epoch (A's) stays valid, still on standby — the session never enters an incomplete state</span></div>
+  <div class="tl-item"><span class="tl-time">t2</span><span class="tl-desc">source recovers → next prepare retries replace → ReplacementReady → B's new epoch settles cleanly</span></div>
+</div>
+<div class="cellgroup">
+  <div class="cell"><div class="k">ReplacementReady</div><div class="v">all sources observed → stitch new baseline, replace, revision+1</div></div>
+  <div class="cell"><div class="k">ReplacementBlocked</div><div class="v">a source missing → AgentReplacementBlocked, keep old epoch, await retry</div></div>
+  <div class="cell"><div class="k">fence + revision</div><div class="v">double-check agent/version before write, mismatch → back off and retry — atomic, consistent switch</div></div>
+</div>
+<p>Put block and fence together and you find opencode keeps <strong>two defenses</strong> for "switching agents": one against <strong>incompleteness</strong> (block: don't build a new baseline if sources aren't all there), one against <strong>garbling</strong> (fence: someone interfered, back off and redo). Both defenses point to one belief — <strong>an epoch, this "foundational state of the session," is either established completely and consistently, or not touched at all; never is a half-baked, self-contradictory middle state permitted.</strong> This is exactly that main line running through all of Parts 4 and 5 (persist first, atomic commit, serial drain, version guarding…) echoing one last time in the finale scenario of "switching agents."</p>
+<p>Stepping way back, what this lesson truly teaches you may not be the concrete mechanism <span class="mono">AgentReplacementBlocked</span> but the <strong>zero tolerance for "middle states"</strong> behind it. Across Parts 4 and 5, you'll find opencode repeatedly doing the same thing: wherever a "foundational state change" is involved — admitting a prompt, advancing an epoch, switching an agent — it insists "<strong>either complete success, or clean no-change</strong>," never leaving an awkward "half-succeeded" wreck. This stubbornness is exactly the deepest divide between a "reliable system" and a "script that runs": a script cares only "can it run in the normal case," while a reliable system spends great effort on "<strong>in the abnormal case, can it gracefully break nothing</strong>." <span class="mono">AgentReplacementBlocked</span> is but this stubbornness's last footnote, left as Part 5 takes its bow.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture · Part 5 finale</div>
+  <p>This lesson cracks <span class="mono">AgentReplacementBlocked</span> and makes all of Part 5 (the Context Epoch system) <strong>close up</strong>. Look back along the main line:</p>
+  <ul>
+    <li><strong>Lessons 21-23</strong>: system context's "production side" — the source algebra, a single source's observe/compare/render, the registry.</li>
+    <li><strong>Lesson 24</strong>: the context epoch — nailing the baseline into a baselineSeq-numbered anchor in the session (closing Lesson 19).</li>
+    <li><strong>Lesson 25</strong>: mid-conversation updates as in-place System messages, seamlessly woven into the conversation timeline.</li>
+    <li><strong>Lesson 26</strong>: the minimal built-in sources (environment/date/instructions) — the touchstone of good abstraction.</li>
+    <li><strong>Lesson 27 · this one</strong>: switching agent takes replace; sources incomplete → <span class="mono">block</span> (the ultimate cash-out of unavailable≠removed), fence+revision keep the switch atomic and consistent.</li>
+  </ul>
+  <p>One line for Part 5: <strong>opencode makes "what world the model should see each round" into a composable, incrementable, persistable, evolvable "context epoch" system — sharing one event timeline with the session engine, rather blocking than incomplete, rather retrying than garbled.</strong> The engine (Part 4) is already running, the brain deciding "what world the engine should read" (Part 5) fully covered. Next, Part 6, we dive deeper — the <strong>LLM protocol layer</strong>: the precise adapter system translating the model's requests and responses into each provider's (Anthropic, OpenAI, Gemini…) own dialect.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p><span class="mono">prepareOnce</span>'s "switch agent blocked" branch nails this lesson's logic plainly:</p>
+  <pre class="code"><span class="cm">// simplified from prepareOnce in session/context-epoch.ts</span>
+<span class="kw">const</span> result = stored.replacement_seq === <span class="kw">null</span> &amp;&amp; !replacingAgent
+  ? <span class="kw">yield</span>* SystemContext.<span class="fn">reconcile</span>(value, snapshot)   <span class="cm">// same agent: increment</span>
+  : <span class="kw">yield</span>* SystemContext.<span class="fn">replace</span>(value, snapshot)     <span class="cm">// switch agent: rebuild</span>
+<span class="kw">if</span> (result._tag === <span class="st">"ReplacementBlocked"</span> &amp;&amp; replacingAgent) {
+  <span class="kw">yield</span>* <span class="fn">fence</span>(db, sessionID, agent, stored.revision)        <span class="cm">// guard consistency</span>
+  <span class="kw">return</span> <span class="kw">yield</span>* <span class="kw">new</span> <span class="fn">AgentReplacementBlocked</span>({          <span class="cm">// throw typed error</span>
+    sessionID, previous: stored.agent, current: agent })
+}</pre>
+  <p>Note the fields the <span class="mono">AgentReplacementBlocked</span> error carries: <span class="mono">previous</span> (the original agent) and <span class="mono">current</span> (the agent wanted). It's not a vague "switch failed" but <strong>states plainly "who wanted to switch to whom, but didn't"</strong> — again Lessons 5, 8, 20's worldview of "errors are values, fully informed." The upper layer, receiving this error, knows clearly "the switch from A to B was blocked," and can decide to retry later or prompt the user. <strong>Even a corner case like "being blocked" is folded into the type, fully informed — this is the whole system's consistent insistence that "failure too must be stated clearly."</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li><strong>Switching agent takes replace (not reconcile)</strong>: the old baseline's "persona" is void, requiring re-observing all sources and stitching a new baseline from scratch (Lesson 24).</li>
+    <li><strong>The key difference</strong>: reconcile tolerates a source <span class="mono">unavailable</span> (keeps the old snapshot); replace can't — a new baseline has no "old snapshot fallback," every source must be freshly observed on the spot.</li>
+    <li><strong>Why block</strong>: if a source is "once present, now unavailable," forcing a new baseline silently erases it. opencode rather <span class="mono">ReplacementBlocked</span>, keeping the old epoch, awaiting retry, than deliver an incomplete baseline — the ultimate cash-out of Lesson 21's <span class="mono">unavailable ≠ removed</span>.</li>
+    <li><strong>fence + revision</strong>: double-check agent/version before writing, mismatch → back off and retry — ensuring the switch is <strong>atomic, consistent</strong>, never a half-switched garbled epoch.</li>
+    <li><strong>Two defenses</strong> (block against incompleteness + fence against garbling) point to one belief: <strong>an epoch is either established completely and consistently, or not touched — no half-baked middle state permitted.</strong></li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. Why does SystemContext.replace block on "a source unavailable" when switching agents?</div>
+  <ol class="opts">
+    <li>Because agents can't be switched</li>
+    <li>Because replace is too slow</li>
+    <li>To save memory</li>
+    <li>The new baseline rebuilds from scratch with no old-snapshot fallback; a source once present now unseen, forcing it through would silently erase it from the new agent's world</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. reconcile (same agent) tolerates a missing source — keep the old snapshot. But replace stitches a brand-new baseline with no fallback; every source must be freshly observed now. If a source is "once present, now unavailable," forcing it erases it, the new agent wrongly thinks "not a git repo." Rather block than deliver an incomplete baseline — the ultimate cash-out of Lesson 21's unavailable≠removed.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. Why is the same "a source unread" trivial for reconcile but grave for replace?</div>
+  <ol class="opts">
+    <li>Because replace uses a different model</li>
+    <li>There's no difference</li>
+    <li>reconcile stands on an existing baseline (old snapshot as safety net); replace lays a foundation from scratch, missing a piece welds the gap into the bedrock</li>
+    <li>Because reconcile doesn't read sources</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. An increment missing one entry catches up a round later, the baseline always complete; laying a foundation missing a piece welds the gap into the bedrock, carried every round after. "Laying a foundation" and "adding bricks" are fundamentally different — opencode treating them differently is exactly seeing through this.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. What role do fence + revision play in agent switching?</div>
+  <ol class="opts">
+    <li>Log the switch</li>
+    <li>Double-check agent/version before write, mismatch → back off and retry — ensuring an atomic, consistent switch, never a half-switched garbled epoch</li>
+    <li>Speed up the switch</li>
+    <li>Block all switches</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. fence rechecks before write: is the current agent still what I thought? is revision still what I read? Any mismatch = someone acted while I planned → die RevisionMismatch/AgentMismatch → outer retryRevisionMismatch backs off and retries. Optimistic concurrency ensures two concurrent switches settle just once, cleanly.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson says opencode keeps two defenses: block against incompleteness, fence against garbling, both pointing to "an epoch is either established completely and consistently, or not touched." With the "reliable system vs script that runs" divide, explain why "gracefully breaking nothing in the abnormal case" is harder and more valuable than "running in the normal case."</li>
+    <li>Lesson 21's unavailable≠removed principle seemed like inconsequential fastidiousness then, yet six lessons later bears its most important fruit in the critical "switch agent" scenario. From code/systems you've read, give an example where "an early, unremarkable bit of restraint later became a key capability."</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="26-builtin-sources.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">内置 Context Sources</span><span class="lang-en">Built-in sources</span></div></a><a class="next" href="28-llm-overview.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">LLM 层总览</span><span class="lang-en">The LLM layer</span></div></a></div>
 </div>
 <script>

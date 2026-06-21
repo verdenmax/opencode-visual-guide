@@ -1159,6 +1159,47 @@ QUIZZES = {
             {"zh": "课里赞赏 baseline/update 用「now」一词的差别去暗示「这是变化」——一个几乎没人会注意的细节。结合你用过的工具/读过的提示，举一个「为读者（哪怕是 AI）多花一点心思的措辞」让体验明显变好的例子。", "en": "The lesson praises baseline/update using the word \"now\" to hint \"this is a change\" — a detail almost no one notices. From tools you've used or prompts you've read, give an example where \"a bit more care in wording for the reader (even an AI)\" noticeably improved the experience."},
         ],
     },
+    "27-agent-switch-epoch.html": {
+        "mcq": [
+            {
+                "q": {"zh": "为什么换 agent 时 SystemContext.replace 会因「某个源 unavailable」而 block？", "en": "Why does SystemContext.replace block on \"a source unavailable\" when switching agents?"},
+                "opts": [
+                    {"zh": "新基线要从零重建、没有旧快照保底；某源曾经有现在却看不到，硬拼等于悄悄把它从新 agent 的世界抹掉", "en": "The new baseline rebuilds from scratch with no old-snapshot fallback; a source once present now unseen, forcing it through would silently erase it from the new agent's world"},
+                    {"zh": "因为 replace 太慢", "en": "Because replace is too slow"},
+                    {"zh": "因为 agent 不允许切换", "en": "Because agents can't be switched"},
+                    {"zh": "为了节省内存", "en": "To save memory"},
+                ],
+                "answer": 0,
+                "why": {"zh": "reconcile（同 agent）容忍源暂缺——保住旧快照即可。但 replace 拼全新基线、没有旧快照保底，每个源必须当场新鲜观察到。若某源「曾经有、现在却 unavailable」，硬拼会把它抹掉、新 agent 误以为「这里不是 git 仓库」。宁可 block 也不交付残缺基线——第 21 课 unavailable≠removed 的终极兑现。", "en": "reconcile (same agent) tolerates a missing source — keep the old snapshot. But replace stitches a brand-new baseline with no fallback; every source must be freshly observed now. If a source is \"once present, now unavailable,\" forcing it erases it, the new agent wrongly thinks \"not a git repo.\" Rather block than deliver an incomplete baseline — the ultimate cash-out of Lesson 21's unavailable≠removed."},
+            },
+            {
+                "q": {"zh": "为什么同样是「一个源没读到」，reconcile 当小事、replace 当大事？", "en": "Why is the same \"a source unread\" trivial for reconcile but grave for replace?"},
+                "opts": [
+                    {"zh": "reconcile 站在已有基线肩上(旧快照是安全网)；replace 是从零奠基，缺一块就把残缺焊进地基", "en": "reconcile stands on an existing baseline (old snapshot as safety net); replace lays a foundation from scratch, missing a piece welds the gap into the bedrock"},
+                    {"zh": "因为 replace 用的模型不同", "en": "Because replace uses a different model"},
+                    {"zh": "因为 reconcile 不读源", "en": "Because reconcile doesn't read sources"},
+                    {"zh": "没有区别", "en": "There's no difference"},
+                ],
+                "answer": 0,
+                "why": {"zh": "增量更新缺一笔，晚补一轮即可，基线始终完整；奠基时缺一块，是把残缺焊进地基，往后每轮都带这缺口。「打地基」和「添砖加瓦」根本不是一回事——opencode 区别对待，正是看透了这点。", "en": "An increment missing one entry catches up a round later, the baseline always complete; laying a foundation missing a piece welds the gap into the bedrock, carried every round after. \"Laying a foundation\" and \"adding bricks\" are fundamentally different — opencode treating them differently is exactly seeing through this."},
+            },
+            {
+                "q": {"zh": "fence + revision 在 agent 切换里扮演什么角色？", "en": "What role do fence + revision play in agent switching?"},
+                "opts": [
+                    {"zh": "写入前核对 agent/版本，不符则退让重试——保证切换原子一致，绝无半切错乱的纪元", "en": "Double-check agent/version before write, mismatch → back off and retry — ensuring an atomic, consistent switch, never a half-switched garbled epoch"},
+                    {"zh": "加快切换速度", "en": "Speed up the switch"},
+                    {"zh": "阻止所有切换", "en": "Block all switches"},
+                    {"zh": "记录切换日志", "en": "Log the switch"},
+                ],
+                "answer": 0,
+                "why": {"zh": "fence 写入前再核对：当前 agent 还是我以为的吗？revision 还是我读到的吗？有一样不符=有人在我盘算时动过手→die RevisionMismatch/AgentMismatch→外层 retryRevisionMismatch 退让重试。乐观并发确保两处并发切换最终只一次干净落定。", "en": "fence rechecks before write: is the current agent still what I thought? is revision still what I read? Any mismatch = someone acted while I planned → die RevisionMismatch/AgentMismatch → outer retryRevisionMismatch backs off and retries. Optimistic concurrency ensures two concurrent switches settle just once, cleanly."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说 opencode 守着两道防线：block 防残缺、fence 防错乱，都指向「纪元要么完整一致地建立、要么不动」。结合「可靠系统 vs 能跑的脚本」之分，说说为什么「异常情况下能优雅地什么都不破坏」比「正常情况能跑通」更难、更值钱。", "en": "The lesson says opencode keeps two defenses: block against incompleteness, fence against garbling, both pointing to \"an epoch is either established completely and consistently, or not touched.\" With the \"reliable system vs script that runs\" divide, explain why \"gracefully breaking nothing in the abnormal case\" is harder and more valuable than \"running in the normal case.\""},
+            {"zh": "第 21 课那个 unavailable≠removed 原则，当时看像无关痛痒的设计洁癖，六课后却在「换 agent」这个最关键场景结出最重要的果实。回顾你读过的代码/系统，举一个「当初一个不起眼的克制，后来成了关键能力」的例子。", "en": "Lesson 21's unavailable≠removed principle seemed like inconsequential fastidiousness then, yet six lessons later bears its most important fruit in the critical \"switch agent\" scenario. From code/systems you've read, give an example where \"an early, unremarkable bit of restraint later became a key capability.\""},
+        ],
+    },
 }
 
 def render(fname, lang):
