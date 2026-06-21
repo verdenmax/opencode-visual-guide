@@ -1528,6 +1528,47 @@ QUIZZES = {
             {"zh": "Copilot 的认证用「令牌交换」：先拿长期的 GitHub OAuth 凭证，换一个短期、限定用途的 Copilot token，再拿它去认证。课里说这是「最小权限 + 短时效凭证」的安全惯例，且这套复杂流程被整个封装进 auth 这一件、不惊动协议层。请论证：为什么「不直接把长期凭证发给推理端点，而是换一个短期 token」更安全？把这种安全复杂性隔离在 auth 这一层（而非散落各处），对整个系统的可维护性和可审计性有什么好处？", "en": "Copilot's auth uses \"token exchange\": take the long-lived GitHub OAuth credential, exchange for a short-lived, purpose-limited Copilot token, then authenticate with it. The lesson calls this the \"least privilege + short-lived credential\" security convention, with the whole complex flow encapsulated into the auth piece, undisturbing the protocol layer. Argue: why is \"not sending the long-lived credential to inference endpoints, but exchanging for a short-lived token\" more secure? What does isolating this security complexity in the auth layer (rather than scattering it) do for the system's maintainability and auditability?"},
         ],
     },
+    "43-skills.html": {
+        "mcq": [
+            {
+                "q": {"zh": "Skills 系统的「两段式架构」是怎么把一个技能劈成两半的？", "en": "How does the Skills system's \"two-stage architecture\" split a skill in two?"},
+                "opts": [
+                    {"zh": "「名字」半（name+description）经 Context Source 常驻注入系统上下文（随时可见、省 token）；「正文」半经权限化的 skill 工具按需注入（完整指令+基准目录+文件清单）", "en": "The \"name\" half (name+description) is resident-injected into system context via Context Source (always visible, token-saving); the \"body\" half is injected on demand via the permissioned skill tool (full instructions+base dir+file list)"},
+                    {"zh": "前一半给模型、后一半给用户", "en": "First half to the model, second half to the user"},
+                    {"zh": "随机劈成两段", "en": "Randomly split into two parts"},
+                    {"zh": "其实没劈，整个技能一次性全加载", "en": "Not split at all, the whole skill loaded at once"},
+                ],
+                "answer": 0,
+                "why": {"zh": "「全都加载」行不通：上百个技能、每个正文几千字，开局全塞进上下文会瞬间爆满。但模型又必须知道有哪些技能可用。两段式正是这对矛盾的解：把「有什么」（廉价名字+描述，经 SkillGuidance→SystemContext 常驻，第21~27课 Context Source）和「具体是什么」（昂贵正文，经 withPermission 的 skill 工具按需注入）分开——渐进式披露/懒加载。这和第37课「definitions 全列/settle 按需」、第42课「预览常驻/全文 spill」是同一套路。", "en": "\"Load everything\" won't work: hundreds of skills, each body thousands of words, stuffed into context at the start would instantly max it out. Yet the model must know which skills exist. The two stages resolve this: separate \"what exists\" (cheap name+description, resident via SkillGuidance→SystemContext, lessons 21–27's Context Source) from \"what it specifically is\" (expensive body, injected on demand via the withPermission skill tool) — progressive disclosure/lazy loading. Same pattern as lesson 37's \"list definitions/settle on demand\" and lesson 42's \"preview resident/full text spilled.\""},
+            },
+            {
+                "q": {"zh": "skill 工具被调用后，是它自己「干活」完成任务吗？", "en": "After the skill tool is called, does it \"do the work\" to complete the task itself?"},
+                "opts": [
+                    {"zh": "不是。skill 只「发讲义」：注入完整正文（指令+基准目录+文件清单）；真正执行靠模型已有的通用工具（read 读脚本、bash 跑、edit 改）。技能扩展「知道该怎么做」，非「能做什么」", "en": "No. The skill only \"hands out the handbook\": injects the full body (instructions+base dir+file list); actual execution via the model's existing general tools (read for scripts, bash to run, edit to change). A skill extends \"knowing how to do it,\" not \"what it can do\""},
+                    {"zh": "是的，skill 工具内部把所有事都做完", "en": "Yes, the skill tool does everything internally"},
+                    {"zh": "它会启动一个新的 agent 来做", "en": "It spawns a new agent to do it"},
+                    {"zh": "它直接修改模型权重", "en": "It directly modifies the model weights"},
+                ],
+                "answer": 0,
+                "why": {"zh": "skill 工具本身不干活、只发讲义。toModelOutput 注入 <skill_content>：指令正文 + 基准目录 URL + <skill_files> 清单。即一个技能=「一份说明书 + 一个装脚本资料的文件夹」。接下来真正的活，是模型用它已有的通用工具去干——read 读 scripts/ 下的脚本、bash 跑、edit 改。漂亮的分工：skill 负责把对的剧本递到手上，执行剧本还是 M7 那套通用的手。模型本就会用这些工具（能做什么固定），它缺的是「该按什么顺序、用什么诀窍组织它们」——这正是技能正文承载的方法论。", "en": "The skill tool itself doesn't work, only hands out the handbook. toModelOutput injects <skill_content>: the instruction body + base directory URL + <skill_files> list. So a skill = \"a manual + a folder holding scripts/materials.\" The actual work that follows is done by the model using its existing general tools — read for scripts under scripts/, bash to run, edit to change. A beautiful division of labor: the skill puts the right script in hand, executing it still uses M7's general hands. The model already knows these tools (what it can do is fixed); what it lacks is \"in what order, with what tricks to organize them\" — exactly the methodology the skill body carries."},
+            },
+            {
+                "q": {"zh": "为什么说 Skills 是 M5（System Context）和 M7（工具）的「交汇点」？", "en": "Why is Skills called the \"meeting point\" of M5 (System Context) and M7 (tools)?"},
+                "opts": [
+                    {"zh": "一个技能半是上下文、半是工具：名字半走 Context Source（M5），正文半走 skill 工具（M7）；它用全了 Tool.make/注册表/权限/read 等前面所有抽象，是建在它们之上的更高层复用", "en": "A skill is half-context, half-tool: the name half via Context Source (M5), the body half via the skill tool (M7); it fully uses Tool.make/registry/permissions/read and all prior abstractions, a higher-level reuse built atop them"},
+                    {"zh": "因为它在 M5 和 M7 两个文件夹里都有代码", "en": "Because it has code in both the M5 and M7 folders"},
+                    {"zh": "纯属命名巧合", "en": "Pure naming coincidence"},
+                    {"zh": "因为它同时被两个团队维护", "en": "Because two teams maintain it"},
+                ],
+                "answer": 0,
+                "why": {"zh": "Skills 一只脚踩在系统上下文（M5，决定模型看见什么世界）、一只脚踩在工具系统（M7，决定模型能做什么）：名字半经 SystemContext 常驻、正文半经 skill 工具按需。它几乎用全了前面所有零件——Context Source（M5）、Tool.make（L36）、注册表（L37，SkillTool.layer）、权限（L41）、read（L38）。这说明它不是又一个孤立功能，而是建立在前面所有抽象之上的更高层复用。好的高层抽象，往往是底层零件足够扎实后自然『长』出来的。", "en": "Skills has one foot in system context (M5, what world the model sees) and one in the tool system (M7, what the model can do): the name half resident via SystemContext, the body half on demand via the skill tool. It uses nearly all the prior parts — Context Source (M5), Tool.make (L36), registry (L37, SkillTool.layer), permissions (L41), read (L38). This shows it isn't another isolated feature but a higher-level reuse built atop all prior abstractions. A good high-level abstraction often \"grows\" naturally once the lower parts are solid enough."},
+            },
+        ],
+        "open": [
+            {"zh": "课里指出「先廉价地广而告之、再昂贵地按需兑现」这个套路，在 opencode 里至少出现三次：第37课注册表（definitions 全列/settle 按需）、第42课有界输出（预览常驻/全文 spill）、第43课 Skills（名字常驻/正文按需）。请你提炼这个模式的共同结构（什么东西便宜、什么东西贵、用什么把二者连起来），并举一个你熟悉的系统里同样用「目录/索引 + 按需取详情」的例子（如网页分页、数据库游标、CDN）。", "en": "The lesson notes the pattern \"cheaply advertise first, expensively fulfill on demand\" appears at least three times in opencode: lesson 37 registry (list definitions/settle on demand), lesson 42 bounded output (preview resident/full text spilled), lesson 43 Skills (names resident/body on demand). Distill this pattern's common structure (what's cheap, what's expensive, what connects them), and give an example from a system you know that also uses \"catalog/index + fetch details on demand\" (web pagination, database cursors, CDN)."},
+            {"zh": "课里说技能扩展的是 agent「知道该怎么做」（方法论），而非「能做什么」（能力）——模型本就会用 read/edit/bash，缺的是「面对某类任务该按什么顺序、用什么诀窍组织它们」。请结合你的经验，谈谈「把领域专家脑子里的 SOP 写成可加载的技能」这种做法的价值与局限：它在什么任务上特别有效？又在什么情况下，一份静态 SOP 反而会束缚 agent 的灵活应变？", "en": "The lesson says a skill extends the agent's \"knowing how to do it\" (methodology), not \"what it can do\" (capability)—the model already knows read/edit/bash, what it lacks is \"in what order, with what tricks to organize them for a kind of task.\" From your experience, discuss the value and limits of \"writing a domain expert's SOP into a loadable skill\": for what tasks is it especially effective? And when might a static SOP instead constrain the agent's flexible adaptation?"},
+        ],
+    },
     "42-bounded-output.html": {
         "mcq": [
             {

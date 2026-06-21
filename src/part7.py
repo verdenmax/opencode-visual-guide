@@ -1407,4 +1407,201 @@ LESSON_42 = {
 </div>
 """,
 }
-LESSON_43 = wip('Skills 系统', 'The skills system')
+LESSON_43 = {
+    "zh": r"""
+<p class="lead">M7 一路走来，我们把 agent 的「手」拆得很细：怎么定义一个工具（L36）、怎么收集调度（L37）、文件/搜索/执行/网络各类工具（L38~40）、权限（L41）、有界输出（L42）。这最后一课的 <strong>Skills 系统</strong>，是把前面所有零件<strong>串成一个更高层抽象</strong>的压轴戏——它回答一个很实际的问题：<strong>怎么给 agent「教」一套新本领，而不用重训模型、也不用往代码里硬塞逻辑？</strong>答案是「<strong>技能（skill）</strong>」：把「一套领域知识 + 一组操作步骤 + 配套的脚本/文件」打包成一个单元，<strong>需要时按需加载</strong>到对话里。想给 agent 加一项能力？往技能库里<strong>丢一个 skill</strong> 就行。</p>
+<p>Skills 最精妙的，是它的<strong>两段式架构</strong>——这也是这一课的核心，恰好让 M5（System Context）和 M7（工具）<strong>在此交汇</strong>。一个 skill 被劈成两半：<strong>「名字」那半，常驻在系统上下文里（走 Context Source，第 21~27 课）</strong>——模型<strong>随时都看得见</strong>有哪些技能（只是名字 + 一句描述，极省 token）；<strong>「正文」那半，按需经一个权限化的 <span class="mono">skill</span> 工具加载（第 36/41 课）</strong>——只有当任务真的撞上某个技能时，模型才<strong>调用 skill 工具</strong>，把那套完整的指令与资源注入进来。这正是「<strong>渐进式披露 / 懒加载</strong>」：<strong>名字便宜地全摆出来，正文昂贵地按需才取</strong>。读懂这个两段式，你不仅懂了 Skills，更看见了整个 opencode 反复用的那个核心套路——<strong>先廉价地『广而告之』，再昂贵地『按需兑现』</strong>。</p>
+
+<div class="card analogy">
+  <div class="tag">📚 生活类比</div>
+  把技能库想象成办公室墙上一排<strong>贴了标签的活页夹</strong>，每个夹子里是一套<strong>标准作业流程（SOP）</strong>外加一叠配套表单和脚本。书架最显眼处挂着一张<strong>索引卡</strong>——只印每个夹子的<strong>书脊标签</strong>（技能名 + 一句话说明），<strong>始终在视野里</strong>（这就是系统上下文）。agent 接到活儿，先扫一眼索引卡；要是某个标签正好对上手头的任务，它就<strong>把那个夹子抽下来、翻开</strong>（调用 <span class="mono">skill</span> 工具）——此刻，完整的 SOP 加上「配套资料在哪个文件夹」就摊到了桌面上。接着 agent <strong>照着 SOP 一步步做</strong>，用它<strong>平时那些工具</strong>（read 去读引用的脚本、bash 去跑）把活干完。<strong>给 agent 添一项新本领，不靠重新培训它，而靠往书架上多放一个活页夹。</strong>索引常驻、正文按需——这就是 Skills 的两段式智慧，也是一种「轻装上阵、用时再取」的从容。
+</div>
+
+<h2>两段式：名字常驻，正文按需</h2>
+<p>先看清一个 skill 到底由什么构成——它远不止「一段提示词」，而是一个<strong>自带资料的知识包</strong>：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">name</div><div class="c-txt">技能名（模型调用时用它指名）</div></div>
+  <div class="cell"><div class="c-tag">description</div><div class="c-txt">一句话说明（模型据此判断「这任务该不该用它」）</div></div>
+  <div class="cell"><div class="c-tag">content</div><div class="c-txt">完整正文：详细的工作流指令</div></div>
+  <div class="cell"><div class="c-tag">基准目录 + files</div><div class="c-txt">一个文件夹，装着配套脚本/参考资料；正文里可引用它们</div></div>
+</div>
+<p>Skills 系统的灵魂，是把这样一个技能<strong>劈成两半</strong>，分走两条完全不同的通道。这张对照表是这一课最该记住的东西：</p>
+<div class="cols">
+  <div class="col"><h4>「名字」半 · 走 Context Source</h4><p><span class="mono">SkillGuidance.load(agent)</span> 返回一个 <span class="mono">SystemContext</span>（第 21~27 课的源！），往系统上下文注入一份<strong>技能清单</strong>——每个只有 <span class="mono">&lt;name&gt;</span> + <span class="mono">&lt;description&gt;</span>，外加一句「任务匹配某技能时，用 skill 工具加载它」。<strong>常驻、便宜、模型随时看得见。</strong></p></div>
+  <div class="col"><h4>「正文」半 · 走 skill 工具</h4><p><span class="mono">skill</span> 工具（<span class="mono">withPermission</span> 权限化）：input 一个 <span class="mono">{name}</span>。模型调用它，<span class="mono">toModelOutput</span> 把该技能的<strong>完整正文</strong>（指令 + 基准目录 + 文件清单）注入对话。<strong>按需、昂贵、只在用到时取。</strong></p></div>
+</div>
+<p>为什么非要劈成两半？因为<strong>「全都加载」根本行不通</strong>。设想技能库里有上百个技能，每个正文动辄几千字——若开局就把它们的全文一股脑塞进上下文，<strong>窗口瞬间爆满，正经对话没地方放了</strong>。但模型又必须<strong>知道有哪些技能可用</strong>，否则它根本想不到去调用。两段式正是这对矛盾的优雅解：<strong>把「有什么」（廉价的名字）和「具体是什么」（昂贵的正文）分开</strong>——名字便宜，全摆出来当目录；正文昂贵，谁用到谁再取。这和第 37 课注册表的「definitions 全列、settle 按需执行」、第 42 课的「预览常驻、全文 spill 待取」，是<strong>同一个套路在不同地方的第三次现身</strong>。<strong>opencode 反反复复在用这一招：先廉价地广而告之，再昂贵地按需兑现。</strong></p>
+<div class="flow">
+  <div class="f-node">注册表（L37）<br><small>列 definitions / settle 按需</small></div>
+  <div class="f-arrow">同一套路 →</div>
+  <div class="f-node">有界输出（L42）<br><small>预览常驻 / 全文 spill</small></div>
+  <div class="f-arrow">同一套路 →</div>
+  <div class="f-node">Skills（L43）<br><small>名字常驻 / 正文按需</small></div>
+</div>
+
+<h2>一次技能加载的完整流程</h2>
+<p>把两段式串成一条时间线，一个技能从「被看见」到「被用上」是这样走的：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">①广告</span><span class="t-txt">SkillGuidance 把技能名+描述注入系统上下文（Context Source），模型一直看得见</span></div>
+  <div class="t-row"><span class="t-num">②匹配</span><span class="t-txt">模型遇到一个任务，发现某技能的 description 正好对上</span></div>
+  <div class="t-row"><span class="t-num">③调用</span><span class="t-txt">模型调 skill 工具，传入那个 name（先过权限：第 41 课）</span></div>
+  <div class="t-row"><span class="t-num">④注入</span><span class="t-txt">toModelOutput 注入完整正文：指令 + 基准目录 URL + &lt;skill_files&gt; 清单</span></div>
+  <div class="t-row"><span class="t-num">⑤执行</span><span class="t-txt">模型照正文一步步做，用 read 读引用的脚本/文件、用 bash 跑——靠的是它平时那些工具</span></div>
+</div>
+<p>第 <span class="mono">④⑤</span> 步藏着 Skills 最漂亮的一点：<strong>skill 工具本身并不「干活」，它只「发讲义」。</strong>它注入的正文里，除了文字指令，还有一句关键的「<strong>本技能的基准目录在此 URL</strong>」，以及一份 <span class="mono">&lt;skill_files&gt;</span> 文件清单。也就是说，一个技能 = <strong>「一份说明书 + 一个装着脚本和资料的文件夹」</strong>。skill 工具把说明书和文件夹位置交给模型，接下来真正的活儿，是模型<strong>用它已有的通用工具</strong>去干的——read 去读 <span class="mono">scripts/</span> 下的脚本、bash 去执行、edit 去改文件。这是一种漂亮的<strong>分工</strong>：skill 负责「<strong>把对的剧本递到手上</strong>」，而执行剧本用的，还是 M7 前面那套通用的手。<strong>技能不扩展 agent 的「能做什么」，而扩展它的「知道该怎么做」。</strong>这个区分值得多想一层：模型本身已经会用 read/edit/bash 这些工具了（能做什么是固定的），它缺的常常是<strong>「面对某类具体任务，该按什么顺序、用什么诀窍把这些工具组织起来」</strong>——而这，恰恰是一个 skill 的正文所承载的。换句话说，skill 注入的不是新能力，而是<strong>一套把已有能力用对的「方法论」</strong>。这也解释了为什么 skill 适合打包「领域最佳实践」：把一个老手脑子里「这种活儿要先这样、再那样、注意别踩那个坑」的经验，写成一份正文，需要时贴给模型——agent 于是像是<strong>临时请到了一位带着 SOP 的专家</strong>。</p>
+
+<h2>Skills 是怎么把 M5 + M7 串起来的</h2>
+<p>这一课之所以放在 M7 收尾，是因为 Skills 几乎<strong>把前面所有零件都用上了一遍</strong>——它是个不折不扣的「集大成」抽象：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">用 Context Source（M5）</div><div class="c-txt">技能名+描述经 SystemContext 常驻注入（第 21~27 课）</div></div>
+  <div class="cell"><div class="c-tag">用 Tool.make（L36）</div><div class="c-txt">skill 工具本身就是一张填好的 Config 表</div></div>
+  <div class="cell"><div class="c-tag">用注册表（L37）</div><div class="c-txt">skill 工具经 SkillTool.layer 在 locationLayer 里自我登记</div></div>
+  <div class="cell"><div class="c-tag">用权限（L41）</div><div class="c-txt">skill 工具 withPermission——加载技能也要过许可</div></div>
+  <div class="cell"><div class="c-tag">用 read 等工具（L38）</div><div class="c-txt">正文引用的脚本/文件，靠通用 read 工具去取</div></div>
+  <div class="cell"><div class="c-tag">发现与下载</div><div class="c-txt">SkillDiscovery 从目录索引、还能从 URL 下载技能</div></div>
+</div>
+<p>看这张表你就明白，为什么说 Skills 是 M5+M7 的<strong>交汇点</strong>：它一只脚踩在「系统上下文」（M5，决定模型看见什么世界），一只脚踩在「工具系统」（M7，决定模型能做什么）。一个技能，<strong>半是上下文、半是工具</strong>——名字那半是上下文，正文那半是工具。这种「跨越两大子系统」的设计，恰恰说明 Skills 不是又一个孤立功能，而是<strong>建立在前面所有抽象之上的、更高一层的复用机制</strong>。也正因为底下那些零件（工具同形、上下文可组合、权限可叠加）都打磨好了，Skills 才能这么轻巧地把它们拼起来——<strong>好的高层抽象，往往不是凭空造出来的，而是底层零件足够扎实后，自然『长』出来的。</strong>顺带一提，<span class="mono">SkillDiscovery</span> 还能从目录索引技能、甚至从 URL 下载——技能不是写死在代码里的，而是<strong>可发现、可分发、可扩展</strong>的内容，这让「给 agent 加本领」变成了一件社区也能参与的事。</p>
+<div class="flow">
+  <div class="f-node">技能来源<br><small>本地目录 / 远程 URL</small></div>
+  <div class="f-arrow">SkillDiscovery →</div>
+  <div class="f-node">索引 Index<br><small>{name, files} 列表</small></div>
+  <div class="f-arrow">→</div>
+  <div class="f-node">进入两段式<br><small>名字常驻 / 正文按需</small></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景 · M7 收官</div>
+  <p>Skills 是 M7 工具系统的压轴，把前面所有零件拼成「给 agent 教新本领」的高层抽象：</p>
+  <ul>
+    <li><strong>skill = 知识 + 步骤 + 配套文件的打包单元</strong>，按需加载。给 agent 加能力 = 往技能库丢一个 skill，不必重训模型、不必改代码。</li>
+    <li><strong>两段式架构（核心）</strong>：<strong>名字半</strong>经 <span class="mono">SkillGuidance</span> → <span class="mono">SystemContext</span>（M5 Context Source）常驻注入（名+描述，省 token、随时可见）；<strong>正文半</strong>经权限化的 <span class="mono">skill</span> 工具按需注入（完整指令 + 基准目录 + 文件清单）。渐进式披露 / 懒加载。</li>
+    <li><strong>skill 只「发讲义」、不「干活」</strong>：注入正文（含基准目录与 &lt;skill_files&gt;），真正执行靠模型已有的通用工具（read 读脚本、bash 跑、edit 改）。技能扩展的是「知道该怎么做」，不是「能做什么」。</li>
+    <li><strong>M5+M7 的交汇点</strong>：Skills 用全了 Context Source（M5）+ Tool.make（L36）+ 注册表（L37）+ 权限（L41）+ read 等（L38）；半是上下文、半是工具。<span class="mono">SkillDiscovery</span> 可从目录索引、从 URL 下载——可发现、可分发、可扩展。</li>
+  </ul>
+  <p>到这里，<strong>M7「agent 的手」彻底讲透</strong>：从「一个工具怎么定义」（L36），到收集调度（L37）、各类具体工具（L38~40）、权限边界（L41）、有界输出（L42），再到把成套本领打包复用（L43）。一套完整、可控、可扩展的工具体系，让 LLM 这颗「脑」真正能<strong>动手改变世界</strong>。下一个 part（M8）将转向<strong>配置、Agents 与 Provider</strong>——agent 是怎么被配置出来的、不同 agent 怎么定义、模型与供应商怎么接入。脑（M6 LLM）、手（M7 工具）都齐了，接下来该讲<strong>怎么把一个具体的 agent「攒」出来、配好它的脑与手、让它真正跑起来</strong>。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">skill</span> 工具注入正文的 <span class="mono">toModelOutput</span>，把「说明书 + 文件夹」交得很清楚（简化自 tool/skill.ts）：</p>
+  <pre class="code"><span class="cm">// 注入给模型的技能正文：指令 + 基准目录 + 文件清单</span>
+[ <span class="st">`&lt;skill_content name="${'$'}{skill.name}"&gt;`</span>,
+  <span class="st">`# Skill: ${'$'}{skill.name}`</span>,
+  skill.content.<span class="fn">trim</span>(),                          <span class="cm">// 完整指令正文</span>
+  <span class="st">`Base directory for this skill: ${'$'}{dirURL}`</span>,   <span class="cm">// 配套文件在哪</span>
+  <span class="st">"Relative paths (e.g., scripts/) are relative to this base directory."</span>,
+  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${'$'}{f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
+].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
+  <p>这段注入有两处用心。其一，它给的是<strong>基准目录的 URL + 一份文件清单</strong>，而非把那些脚本文件的<strong>内容</strong>也一并塞进来——又是「渐进式披露」：先告诉模型「<strong>有哪些文件、在哪</strong>」，至于某个脚本<strong>具体写了啥</strong>，等模型真要用时，再用 read 工具去读。一层套一层的懒加载：技能正文懒加载、技能里的文件再懒加载。其二，注释里那句「<span class="mono">file list is sampled</span>（文件清单是抽样的）」很诚实——当一个技能附带成百上千个文件时，清单本身也会被<strong>有界</strong>（呼应第 42 课），不让「列文件」这件事反过来撑爆上下文。<strong>从技能正文到文件清单，处处是『按需、有界』——这套贯穿 M7 的纪律，到收官这一课依然一以贯之。</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>skill = 知识+步骤+配套文件的打包单元</strong>（<span class="mono">core/src/skill/*</span>、<span class="mono">tool/skill.ts</span>），按需加载。给 agent 加本领 = 往技能库丢一个 skill，不重训模型、不改代码。</li>
+    <li><strong>两段式架构（核心）</strong>：<strong>名字半</strong>经 <span class="mono">SkillGuidance.load</span> → <span class="mono">SystemContext</span>（M5 Context Source，第 21~27 课）常驻注入（仅 name+description，省 token、随时可见）；<strong>正文半</strong>经 <span class="mono">withPermission</span> 的 <span class="mono">skill</span> 工具（input {name}）按需注入完整正文。渐进式披露/懒加载——与第 37 课「definitions 全列/settle 按需」、第 42 课「预览常驻/全文 spill」同一套路。</li>
+    <li><strong>skill 只「发讲义」、不「干活」</strong>：<span class="mono">toModelOutput</span> 注入 <span class="mono">&lt;skill_content&gt;</span>（指令 + 基准目录 URL + <span class="mono">&lt;skill_files&gt;</span> 清单）；真正执行靠模型已有通用工具（read 读脚本、bash 跑、edit 改）。技能扩展「知道该怎么做」，非「能做什么」。</li>
+    <li><strong>M5+M7 交汇点</strong>：Skills 用全 Context Source（M5）+ Tool.make（L36）+ 注册表（L37，<span class="mono">SkillTool.layer</span>）+ 权限（L41）+ read（L38）。一只脚在上下文、一只脚在工具——半上下文、半工具。是建立在前面所有抽象之上的更高层复用。</li>
+    <li><strong>可发现/可分发</strong>：<span class="mono">SkillDiscovery</span> 从目录索引、能从 URL 下载技能。文件清单标注 <span class="mono">sampled</span>（抽样、有界），层层懒加载（技能正文懒加载、技能内文件再懒加载）——「按需、有界」纪律贯穿到 M7 收官。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Through M7 we've dissected the agent's "hands" finely: how to define a tool (L36), collect and dispatch (L37), file/search/exec/network tools (L38–40), permissions (L41), bounded output (L42). This final lesson's <strong>Skills system</strong> is the closing act that <strong>strings all the prior parts into a higher-level abstraction</strong>—it answers a very practical question: <strong>how do you "teach" an agent a new competence without retraining the model or hardcoding logic into the code?</strong> The answer is a "<strong>skill</strong>": packaging "a body of domain knowledge + a set of operating steps + accompanying scripts/files" into a unit, <strong>loaded on demand</strong> into the conversation. Want to add a capability to the agent? Just <strong>drop a skill</strong> into the skill library.</p>
+<p>Skills' most exquisite part is its <strong>two-stage architecture</strong>—this lesson's core, where M5 (System Context) and M7 (tools) <strong>meet</strong>. A skill is split in two: <strong>the "name" half lives resident in the system context (via Context Source, lessons 21–27)</strong>—the model <strong>always sees</strong> which skills exist (just name + a one-line description, very token-cheap); <strong>the "body" half loads on demand via a permissioned <span class="mono">skill</span> tool (lessons 36/41)</strong>—only when a task truly matches a skill does the model <strong>call the skill tool</strong> to inject that full set of instructions and resources. This is "<strong>progressive disclosure / lazy loading</strong>": <strong>advertise the names cheaply, fetch the body expensively on demand</strong>. Grasp this two-stage design and you've understood not just Skills but the core pattern opencode uses again and again—<strong>cheaply "advertise" first, expensively "fulfill on demand" later</strong>.</p>
+
+<div class="card analogy">
+  <div class="tag">📚 Analogy</div>
+  Picture the skill library as a row of <strong>labeled binders</strong> on the office wall, each holding a <strong>standard operating procedure (SOP)</strong> plus a stack of accompanying forms and scripts. Most prominently on the shelf hangs an <strong>index card</strong>—printing only each binder's <strong>spine label</strong> (skill name + a one-line note), <strong>always in view</strong> (this is the system context). The agent, handed a task, first glances at the index card; if a label matches the task at hand, it <strong>pulls that binder down and opens it</strong> (calls the <span class="mono">skill</span> tool)—now the full SOP plus "which folder the supporting materials are in" is spread on the desk. Then the agent <strong>follows the SOP step by step</strong>, using its <strong>usual tools</strong> (read to read the referenced scripts, bash to run them) to finish the work. <strong>Adding a new competence to the agent isn't by retraining it, but by putting one more binder on the shelf.</strong> Index resident, body on demand—this is Skills' two-stage wisdom.
+</div>
+
+<h2>Two stages: names resident, body on demand</h2>
+<p>First see clearly what a skill consists of—it's far more than "a prompt," but a <strong>knowledge package with its own materials</strong>:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">name</div><div class="c-txt">the skill name (the model uses it to call by name)</div></div>
+  <div class="cell"><div class="c-tag">description</div><div class="c-txt">a one-line note (the model judges "should this task use it" by this)</div></div>
+  <div class="cell"><div class="c-tag">content</div><div class="c-txt">the full body: detailed workflow instructions</div></div>
+  <div class="cell"><div class="c-tag">base dir + files</div><div class="c-txt">a folder holding accompanying scripts/references; the body can reference them</div></div>
+</div>
+<p>The Skills system's soul is splitting such a skill <strong>in two</strong>, routed down two completely different channels. This table is the thing to remember most from this lesson:</p>
+<div class="cols">
+  <div class="col"><h4>"name" half · via Context Source</h4><p><span class="mono">SkillGuidance.load(agent)</span> returns a <span class="mono">SystemContext</span> (lessons 21–27's source!), injecting into the system context a <strong>skill catalog</strong>—each with just <span class="mono">&lt;name&gt;</span> + <span class="mono">&lt;description&gt;</span>, plus "when a task matches a skill, load it with the skill tool." <strong>Resident, cheap, always visible to the model.</strong></p></div>
+  <div class="col"><h4>"body" half · via the skill tool</h4><p>The <span class="mono">skill</span> tool (<span class="mono">withPermission</span> permissioned): input a <span class="mono">{name}</span>. The model calls it, and <span class="mono">toModelOutput</span> injects that skill's <strong>full body</strong> (instructions + base directory + file list) into the conversation. <strong>On demand, expensive, fetched only when used.</strong></p></div>
+</div>
+<p>Why split in two? Because "<strong>load everything</strong>" simply won't work. Imagine the library has hundreds of skills, each body thousands of words—loading all their full text into context at the start would <strong>instantly max out the window, leaving no room for the actual conversation</strong>. Yet the model must <strong>know which skills are available</strong>, else it'd never think to call one. The two stages elegantly resolve this tension: <strong>separate "what exists" (cheap names) from "what it specifically is" (expensive body)</strong>—names cheap, all laid out as a catalog; body expensive, fetched only by whoever needs it. This, lesson 37's registry "list all definitions, settle on demand," and lesson 42's "preview resident, full text spilled for retrieval" are <strong>the same pattern's third appearance in a different place</strong>. <strong>opencode uses this move over and over: cheaply advertise first, expensively fulfill on demand.</strong></p>
+<div class="flow">
+  <div class="f-node">registry (L37)<br><small>list definitions / settle on demand</small></div>
+  <div class="f-arrow">same pattern →</div>
+  <div class="f-node">bounded output (L42)<br><small>preview resident / full text spilled</small></div>
+  <div class="f-arrow">same pattern →</div>
+  <div class="f-node">Skills (L43)<br><small>names resident / body on demand</small></div>
+</div>
+
+<h2>One skill load's full flow</h2>
+<p>String the two stages into a timeline, and a skill's journey from "seen" to "used" goes:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">①advertise</span><span class="t-txt">SkillGuidance injects skill name+description into system context (Context Source), the model always sees it</span></div>
+  <div class="t-row"><span class="t-num">②match</span><span class="t-txt">the model meets a task, finds some skill's description fits exactly</span></div>
+  <div class="t-row"><span class="t-num">③call</span><span class="t-txt">the model calls the skill tool with that name (passing permission first: lesson 41)</span></div>
+  <div class="t-row"><span class="t-num">④inject</span><span class="t-txt">toModelOutput injects the full body: instructions + base directory URL + &lt;skill_files&gt; list</span></div>
+  <div class="t-row"><span class="t-num">⑤execute</span><span class="t-txt">the model follows the body step by step, using read for referenced scripts/files, bash to run—via its usual tools</span></div>
+</div>
+<p>Steps <span class="mono">④⑤</span> hide Skills' most beautiful point: <strong>the skill tool itself doesn't "do the work," it only "hands out the handbook."</strong> The body it injects, besides text instructions, has a key line "<strong>this skill's base directory is at this URL</strong>" and a <span class="mono">&lt;skill_files&gt;</span> file list. That is, a skill = "<strong>a manual + a folder holding scripts and materials</strong>." The skill tool hands the manual and folder location to the model, and the actual work that follows is done by the model <strong>using its existing general tools</strong>—read for the scripts under <span class="mono">scripts/</span>, bash to run, edit to change files. It's a beautiful <strong>division of labor</strong>: the skill handles "<strong>putting the right script into your hands</strong>," and executing the script still uses M7's earlier general hands. <strong>A skill doesn't extend the agent's "what it can do" but its "knowing how to do it."</strong> This distinction merits one more layer of thought: the model already knows how to use read/edit/bash (what it can do is fixed); what it often lacks is <strong>"facing a specific kind of task, in what order and with what tricks to organize these tools"</strong>—and that's exactly what a skill's body carries. In other words, a skill injects not new capability but <strong>a "methodology" for using existing capabilities right</strong>. This also explains why skills suit packaging "domain best practices": writing an old hand's "for this kind of job, first do this, then that, watch out for that pit" experience into a body, pasted to the model when needed—the agent thus seems to have <strong>temporarily hired an expert bearing an SOP</strong>.</p>
+
+<h2>How Skills strings M5 + M7 together</h2>
+<p>This lesson closes M7 because Skills uses <strong>almost all the prior parts at once</strong>—it's a thorough "synthesis" abstraction:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">uses Context Source (M5)</div><div class="c-txt">skill name+description resident-injected via SystemContext (lessons 21–27)</div></div>
+  <div class="cell"><div class="c-tag">uses Tool.make (L36)</div><div class="c-txt">the skill tool is itself a filled-in Config form</div></div>
+  <div class="cell"><div class="c-tag">uses the registry (L37)</div><div class="c-txt">the skill tool self-registers in locationLayer via SkillTool.layer</div></div>
+  <div class="cell"><div class="c-tag">uses permissions (L41)</div><div class="c-txt">the skill tool withPermission—loading a skill needs permission too</div></div>
+  <div class="cell"><div class="c-tag">uses read etc. (L38)</div><div class="c-txt">the body's referenced scripts/files are fetched by the general read tool</div></div>
+  <div class="cell"><div class="c-tag">discovery & download</div><div class="c-txt">SkillDiscovery indexes from a directory, and can download skills from a URL</div></div>
+</div>
+<p>From this table you see why Skills is M5+M7's <strong>meeting point</strong>: it has one foot in "system context" (M5, deciding what world the model sees) and one in "the tool system" (M7, deciding what the model can do). A skill is <strong>half-context, half-tool</strong>—its name half is context, its body half is a tool. This "spanning two major subsystems" design shows Skills isn't yet another isolated feature but a <strong>higher-level reuse mechanism built atop all the prior abstractions</strong>. And precisely because the underlying parts (tools isomorphic, context composable, permissions stackable) are all polished, Skills can stitch them together so lightly—<strong>a good high-level abstraction often isn't conjured from nothing but "grows" naturally once the lower parts are solid enough.</strong> Incidentally, <span class="mono">SkillDiscovery</span> can also index skills from a directory, even download them from a URL—skills aren't hardcoded but <strong>discoverable, distributable, extensible</strong> content, making "adding a competence to the agent" something the community can join in.</p>
+<div class="flow">
+  <div class="f-node">skill source<br><small>local dir / remote URL</small></div>
+  <div class="f-arrow">SkillDiscovery →</div>
+  <div class="f-node">an Index<br><small>{name, files} list</small></div>
+  <div class="f-arrow">→</div>
+  <div class="f-node">enter two stages<br><small>names resident / body on demand</small></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture · M7 Finale</div>
+  <p>Skills is M7's tool-system finale, stitching all prior parts into a high-level "teach the agent a new competence" abstraction:</p>
+  <ul>
+    <li><strong>skill = a packaged unit of knowledge + steps + accompanying files</strong>, loaded on demand. Adding capability = drop a skill into the library, no retraining the model, no changing code.</li>
+    <li><strong>Two-stage architecture (core)</strong>: the <strong>name half</strong> resident-injected via <span class="mono">SkillGuidance</span> → <span class="mono">SystemContext</span> (M5 Context Source) (name+description, token-saving, always visible); the <strong>body half</strong> injected on demand via the permissioned <span class="mono">skill</span> tool (full instructions + base directory + file list). Progressive disclosure / lazy loading.</li>
+    <li><strong>skill only "hands out the handbook," doesn't "do the work"</strong>: injects the body (with base directory and &lt;skill_files&gt;), actual execution via the model's existing general tools (read for scripts, bash to run, edit to change). A skill extends "knowing how to do it," not "what it can do."</li>
+    <li><strong>M5+M7's meeting point</strong>: Skills fully uses Context Source (M5) + Tool.make (L36) + registry (L37) + permissions (L41) + read etc. (L38); half-context, half-tool. <span class="mono">SkillDiscovery</span> indexes from a directory, downloads from a URL—discoverable, distributable, extensible.</li>
+  </ul>
+  <p>By here, <strong>M7's "the agent's hands" is fully covered</strong>: from "how a tool is defined" (L36), to collect-and-dispatch (L37), concrete tools (L38–40), permission boundaries (L41), bounded output (L42), to packaging whole competences for reuse (L43). A complete, controllable, extensible tool system lets the LLM "brain" truly <strong>act and change the world</strong>. The next part (M8) turns to <strong>config, Agents, and Provider</strong>—how an agent gets configured, how different agents are defined, how models and providers connect. With the brain (M6 LLM) and hands (M7 tools) both in place, next is "how to <strong>assemble</strong> a concrete agent, fit its brain and hands, and get it running."</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>The <span class="mono">skill</span> tool's <span class="mono">toModelOutput</span>, injecting the body, hands over "manual + folder" clearly (simplified from tool/skill.ts):</p>
+  <pre class="code"><span class="cm">// the skill body injected to the model: instructions + base dir + file list</span>
+[ <span class="st">`&lt;skill_content name="${'$'}{skill.name}"&gt;`</span>,
+  <span class="st">`# Skill: ${'$'}{skill.name}`</span>,
+  skill.content.<span class="fn">trim</span>(),                          <span class="cm">// the full instruction body</span>
+  <span class="st">`Base directory for this skill: ${'$'}{dirURL}`</span>,   <span class="cm">// where the supporting files are</span>
+  <span class="st">"Relative paths (e.g., scripts/) are relative to this base directory."</span>,
+  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${'$'}{f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
+].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
+  <p>Two careful touches in this injection. One, it gives the <strong>base directory URL + a file list</strong>, not stuffing those script files' <strong>contents</strong> in too—again "progressive disclosure": first tell the model "<strong>which files exist, where</strong>," and as for what a script <strong>specifically says</strong>, when the model really needs it, it reads it with the read tool. Lazy loading nested in lazy loading: the skill body lazy-loaded, the files within the skill lazy-loaded again. Two, the comment's "<span class="mono">file list is sampled</span>" is honest—when a skill comes with hundreds or thousands of files, the list itself is <strong>bounded</strong> (echoing lesson 42), not letting "listing files" itself blow the context. <strong>From the skill body to the file list, "on demand, bounded" is everywhere—this discipline running through M7 holds firm even in this closing lesson.</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>skill = a packaged unit of knowledge+steps+accompanying files</strong> (<span class="mono">core/src/skill/*</span>, <span class="mono">tool/skill.ts</span>), loaded on demand. Adding a competence = drop a skill into the library, no retraining, no code change.</li>
+    <li><strong>Two-stage architecture (core)</strong>: the <strong>name half</strong> via <span class="mono">SkillGuidance.load</span> → <span class="mono">SystemContext</span> (M5 Context Source, lessons 21–27) resident-injected (only name+description, token-saving, always visible); the <strong>body half</strong> via the <span class="mono">withPermission</span> <span class="mono">skill</span> tool (input {name}) injected on demand. Progressive disclosure/lazy loading—same pattern as lesson 37's "list definitions/settle on demand" and lesson 42's "preview resident/full text spilled."</li>
+    <li><strong>skill only "hands out the handbook," doesn't "do the work"</strong>: <span class="mono">toModelOutput</span> injects <span class="mono">&lt;skill_content&gt;</span> (instructions + base directory URL + <span class="mono">&lt;skill_files&gt;</span> list); actual execution via the model's existing general tools (read for scripts, bash to run, edit to change). A skill extends "knowing how to do it," not "what it can do."</li>
+    <li><strong>M5+M7 meeting point</strong>: Skills fully uses Context Source (M5) + Tool.make (L36) + registry (L37, <span class="mono">SkillTool.layer</span>) + permissions (L41) + read (L38). One foot in context, one in tools—half-context, half-tool. A higher-level reuse built atop all prior abstractions.</li>
+    <li><strong>Discoverable/distributable</strong>: <span class="mono">SkillDiscovery</span> indexes from a directory, can download skills from a URL. The file list is marked <span class="mono">sampled</span> (sampled, bounded), with layered lazy loading (skill body lazy-loaded, files within lazy-loaded again)—the "on demand, bounded" discipline runs through to M7's finale.</li>
+  </ul>
+</div>
+""",
+}
