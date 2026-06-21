@@ -1487,6 +1487,47 @@ QUIZZES = {
             {"zh": "课里揭示一个跨课的「合谋」：cache-policy 在出站时把断点打在稳定前缀的边界（战略：缓存哪里最划算），protocol 的断点预算在更下层落实且不超 4 个名额（战术：硬约束内执行），而 Context Epoch（L24）在更上层死守前缀不变（保住命中）。请用你自己的话说清这三层各自的职责，并论证：为什么把「决定缓存哪里」「执行打标记」「维持前缀稳定」拆给三个不同的层，比揉成一坨更好？", "en": "The lesson reveals a cross-lesson \"conspiracy\": cache-policy marks breakpoints at the stable-prefix boundary on the way out (strategy: where caching pays most), the protocol's breakpoint budget enforces it lower down within the 4-slot cap (tactics: executing within the hard constraint), while Context Epoch (L24) guards the prefix unchanged higher up (preserving hits). In your own words, articulate each of these three layers' responsibilities, and argue: why is splitting \"decide where to cache,\" \"execute marking,\" and \"keep the prefix stable\" across three different layers better than mashing them into one?"},
         ],
     },
+    "35-model-resolution.html": {
+        "mcq": [
+            {
+                "q": {"zh": "为什么 opencode 不把「某模型支持多大上下文、输入输出多少钱」写死在代码里，而去拉取 models.dev？", "en": "Why doesn't opencode hardcode \"a model's context size, input/output price\" in code, but fetch models.dev instead?"},
+                "opts": [
+                    {"zh": "这些事实随厂商发版不断变化；外置到一个社区维护、会自更新的目录，新模型常常零改动即可识别，把「易变事实」挡在代码之外", "en": "These facts keep changing with vendor releases; externalizing to a community-maintained, self-updating catalog means a new model is often recognized with zero code changes, blocking \"volatile facts\" out of the code"},
+                    {"zh": "因为 models.dev 跑得更快", "en": "Because models.dev runs faster"},
+                    {"zh": "因为代码里不能写数字", "en": "Because you can't put numbers in code"},
+                    {"zh": "纯粹为了多一个网络依赖", "en": "Purely to add a network dependency"},
+                ],
+                "answer": 0,
+                "why": {"zh": "模型的上限、价格、能力随厂商发版频繁变动，写死就得每次改代码发版。opencode 改去拉取 models.dev——一个社区维护、覆盖几乎所有 LLM 的公开目录，缓存住并在刷新时发 models-dev.refreshed 事件。这是「把变化挡在代码外」的智慧（和第 31 课 OpenAI 兼容白嫖生态同源），更是把「维护事实」的脏活交给最了解它们的上游社区——不重复维护事实，是更高层的复用。", "en": "Model limits, prices, capabilities change frequently with vendor releases; hardcoding means changing code and shipping each time. opencode fetches models.dev instead — a community-maintained public catalog covering nearly all LLMs, cached and emitting models-dev.refreshed on refresh. It's the \"keep change out of the code\" wisdom (same root as lesson 31's OpenAI-compatible free-ride), and hands the grunt work of \"maintaining facts\" to the upstream community that knows them best — not re-maintaining facts is a higher-order reuse."},
+            },
+            {
+                "q": {"zh": "catalog 解析「模型名」失败时，给的是 ProviderNotFoundError 和 ModelNotFoundError 两个不同错误，而非一个 null。好处是？", "en": "When catalog fails to resolve a \"model name,\" it gives two distinct errors, ProviderNotFoundError and ModelNotFoundError, not one null. The benefit?"},
+                "opts": [
+                    {"zh": "明确区分「供应商没找到」和「供应商有但模型没找到」两种失败——它们修复方式不同，分开后上层能给精准提示", "en": "Clearly distinguishes \"provider not found\" from \"provider exists but model not found\"—their fixes differ, so separated, the upper layer can give precise hints"},
+                    {"zh": "两个错误纯粹是冗余", "en": "The two errors are pure redundancy"},
+                    {"zh": "为了让代码更长", "en": "To make the code longer"},
+                    {"zh": "错误越多显得越专业", "en": "More errors look more professional"},
+                ],
+                "answer": 0,
+                "why": {"zh": "catalog 是两层字典：先按 providerID 查供应商、再按 modelID 查模型。两种失败的修复截然不同——ProviderNotFound 你得检查 provider 段、ModelNotFound 你得检查 model 段（错误还带上 providerID+modelID）。用不同错误类型把它们分开，而非返回含糊的 null 让上层猜「哪步错了」，上层就能给出精准提示。这呼应全书「让错误自己说清自己是谁」。", "en": "catalog is a two-level dictionary: find provider by providerID, then model by modelID. The two failures' fixes differ entirely — ProviderNotFound you check the provider segment, ModelNotFound you check the model segment (error carries providerID+modelID). Separating them with distinct error types, rather than a vague null leaving the upper layer to guess \"which step failed,\" lets the upper layer give precise hints. Echoes the book's \"let errors say who they are.\""},
+            },
+            {
+                "q": {"zh": "GitHub Copilot 作为「特殊供应商」，它的「特殊」主要体现在六个旋钮的哪一个上？", "en": "GitHub Copilot as a \"special provider\"—its \"specialness\" mainly shows in which of the six knobs?"},
+                "opts": [
+                    {"zh": "auth（和 endpoint）：协议整套复用 OpenAI Chat/Responses，只换端点 + 一套「GitHub 工牌换短期 token」的独特认证", "en": "auth (and endpoint): protocol entirely reuses OpenAI Chat/Responses, swapping only the endpoint + a distinctive \"GitHub badge exchanges short-lived token\" auth"},
+                    {"zh": "protocol：它发明了一套全新协议", "en": "protocol: it invented a brand-new protocol"},
+                    {"zh": "framing：它用二进制分帧", "en": "framing: it uses binary framing"},
+                    {"zh": "六个旋钮全都和别人不同", "en": "All six knobs differ from everyone"},
+                ],
+                "answer": 0,
+                "why": {"zh": "copilot-provider.ts 直接 import OpenAICompatibleChat/Responses 语言模型——协议零重写。它的「特殊」全在 auth：不能用固定 API key，要先拿 GitHub OAuth 工牌换一个有时效的 Copilot token 再做 Bearer 认证（外加自定义头），endpoint 也指向 Copilot 自己。这是第 33 课六旋钮的最佳实战：protocol 旋钮复用、只拨 endpoint+auth。差异收敛成「换 headers+baseURL」的配置，而非协议里的 if(isCopilot)。", "en": "copilot-provider.ts directly imports the OpenAICompatibleChat/Responses language models — protocol zero rewrite. Its \"specialness\" is all in auth: no fixed API key, but first exchange a GitHub OAuth badge for a time-limited Copilot token then Bearer-auth (plus custom headers), with endpoint also pointing to Copilot's own. This is lesson 33's six knobs' best field test: reuse the protocol knob, turn only endpoint+auth. The difference converges into \"swap headers+baseURL\" config, not if(isCopilot) in the protocol."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说 opencode 把「模型的价格、上限、能力」这些事实，外置给 models.dev 社区目录来维护，自己只负责消费——称之为「不重复维护事实」的更高层复用。请结合你做过的项目，举一个「本可以外置给权威上游、却被自己硬编码维护」的事实（如时区表、汇率、国家区号、第三方 API 的字段）。把它外置会带来什么好处与什么新风险（如上游不可用、数据格式漂移）？", "en": "The lesson says opencode externalizes facts like \"model prices, limits, capabilities\" to the models.dev community catalog to maintain, only consuming them—calling it the higher-order reuse of \"not re-maintaining facts.\" From a project you've done, give an example of a fact that \"could have been externalized to an authoritative upstream but was hardcoded and self-maintained\" (e.g. timezone tables, exchange rates, country codes, a third-party API's fields). What benefits and what new risks (upstream unavailability, data-format drift) would externalizing bring?"},
+            {"zh": "Copilot 的认证用「令牌交换」：先拿长期的 GitHub OAuth 凭证，换一个短期、限定用途的 Copilot token，再拿它去认证。课里说这是「最小权限 + 短时效凭证」的安全惯例，且这套复杂流程被整个封装进 auth 旋钮、不惊动协议层。请论证：为什么「不直接把长期凭证发给推理端点，而是换一个短期 token」更安全？把这种安全复杂性隔离在 auth 这一层（而非散落各处），对整个系统的可维护性和可审计性有什么好处？", "en": "Copilot's auth uses \"token exchange\": take the long-lived GitHub OAuth credential, exchange for a short-lived, purpose-limited Copilot token, then authenticate with it. The lesson calls this the \"least privilege + short-lived credential\" security convention, with the whole complex flow encapsulated into the auth knob, undisturbing the protocol layer. Argue: why is \"not sending the long-lived credential to inference endpoints, but exchanging for a short-lived token\" more secure? What does isolating this security complexity in the auth layer (rather than scattering it) do for the system's maintainability and auditability?"},
+        ],
+    },
 }
 
 def render(fname, lang):
