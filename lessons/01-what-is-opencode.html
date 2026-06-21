@@ -328,8 +328,360 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第一部分 · 宏观全景</span><span class="lang-en">Part 1 · The Big Picture</span></div>
     <h1><span class="lang-zh">opencode 是什么</span><span class="lang-en">What is opencode</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《opencode 是什么》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“opencode 是什么”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "What is opencode" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "What is opencode" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">opencode 是一个<strong>开源的 AI 编程 agent</strong>：你在终端里敲下需求，它就能读你的代码、改文件、跑命令，装着大模型一步步把活干完。但它远不止"一个聊天框套了 LLM"——它的内核是一个<strong>常驻的服务器</strong>，掌管全部 agent 逻辑、会话历史、工具与模型接入；你面前的终端界面只是连上这台服务器的<strong>一个客户端</strong>。这一课先建立全景：opencode 是什么、为什么是"客户端/服务器"、一次对话宏观上怎么流动、它由什么搭成。</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 生活类比</div>
+  把 opencode 想成一间<strong>「AI 编程工作室」</strong>。<strong>服务器</strong>是常驻的"工头大脑"，记得整个项目的来龙去脉、手里攥着各种工具；<strong>大模型</strong>是请来的"会写代码的顾问"，但顾问只动嘴、不动手；<strong>客户端</strong>（你的终端 TUI）是工头面前的"操作台"，你在这儿下指令、看进展。工头听顾问的建议，<strong>亲自</strong>用工具（读文件、改代码、跑测试）干活，再把结果讲给顾问听，如此往复，直到完成。
+</div>
+
+<h2>它到底解决什么问题</h2>
+<p>今天的 AI 编程助手大致两类：一类是编辑器里的<strong>补全</strong>（如 Copilot），贴着你的光标续写下一段；一类是<strong>聊天面板</strong>（如 Cursor 的 chat），在侧边和你对话。它们很强，却有共同的天花板：会话和上下文<strong>锁在某个编辑器里</strong>、难以脚本化与自动化、工具能力受宿主限制、换台机器或换个前端就得从头来。</p>
+<p>opencode 反着设计：把"AI 编程 agent"做成一个<strong>独立的、长期运行的服务</strong>，前端只是它的一张脸。于是同一个 agent 可以被终端、网页、桌面、Slack、甚至别的编辑器共享，会话存在服务端不丢，还能 headless 跑在 CI 里。</p>
+
+<table class="t">
+  <tr><th>维度</th><th>编辑器补全 / 聊天</th><th>opencode</th></tr>
+  <tr><td>形态</td><td>编辑器插件 / 面板</td><td><strong>独立常驻服务</strong> + 多种客户端</td></tr>
+  <tr><td>会话上下文</td><td>绑定在某个编辑器进程</td><td><strong>持久化在服务端</strong>（SQLite），换端不丢</td></tr>
+  <tr><td>工具能力</td><td>受宿主 API 限制</td><td>服务端统一提供（读写/执行/搜索/LSP…）</td></tr>
+  <tr><td>自动化</td><td>难以脚本化</td><td><strong>headless</strong> <span class="mono">serve</span> + HTTP API</td></tr>
+  <tr><td>扩展</td><td>插件体系各异</td><td>统一的插件 / MCP / provider 体系</td></tr>
+</table>
+
+<p>这一步"<strong>把 agent 抽成独立服务</strong>"看似只是工程上的搬家，实则改变了 AI 编程的形态：agent 不再是某个编辑器的附属功能，而成了一个<strong>可被任意工作流调用的能力</strong>。你可以在终端里和它结对编程，也可以在 CI 流水线里让它自动跑一轮重构、修测试；可以本地独占，也可以把 server 部署到远端供团队共享。前端从"能力的提供者"退回成"能力的展示窗口"——这正是 opencode 区别于编辑器插件的根本一步，也是它能长出 TUI、网页、桌面、Slack、ACP 这么多张脸的前提。</p>
+<p>换个角度看：编辑器插件是"<strong>把 AI 塞进工具里</strong>"，opencode 是"<strong>把工具交给 AI</strong>"。前者 AI 是配角，处处受编辑器能力的边界约束；后者 AI 是主角，server 主动把读写文件、跑命令、查 LSP 这些能力<strong>武装</strong>给它。这个主客易位，决定了 opencode 想完成的是"端到端把一个任务做完"，而不只是"在你写代码时搭把手"——理解了这一点，后面所有的设计取舍才有了出发点。</p>
+<p>还有一层不能略过：opencode 是<strong>开源</strong>的。这意味着它的模型接入、工具、provider、乃至 agent 的行为都<strong>可审计、可改、可自托管</strong>——你能看到它到底把什么发给了大模型，也能加自己的工具、接自己的私有模型。对想弄明白"一个真实的 AI 编程 agent 内部到底怎么运转"的人来说，这是一份难得的、完整的、还在高速演进的活教材——而这，正是这份指南存在的理由。</p>
+
+<h2>客户端 / 服务器：为什么这样切</h2>
+<p>opencode 把所有"重"的东西——<strong>agent 循环、会话持久化、工具执行、模型接入、权限</strong>——都收进<strong>一个 server</strong>。客户端只干两件事：<strong>把你的话发给 server</strong>、<strong>把 server 推来的事件画出来</strong>。这条边界切得很干净，带来四个直接好处：</p>
+<div class="cols">
+  <div class="col"><h4>一个内核，多张脸</h4><p>TUI、网页、桌面、Slack、ACP 共用同一个 server，行为一致，不用各写一套 agent 逻辑。</p></div>
+  <div class="col"><h4>会话不丢</h4><p>会话存在 server 的 SQLite 里；关掉前端、重启、换台机器，历史都还在。</p></div>
+  <div class="col"><h4>自动化友好</h4><p><span class="mono">opencode serve</span> 起一个无界面 HTTP 服务，脚本 / CI 直接调 API。</p></div>
+  <div class="col"><h4>工具集中</h4><p>读写文件、跑命令、搜索、LSP 诊断都由 server 提供，不受前端能力限制。</p></div>
+</div>
+<p>这套分层，从底到顶可以摞成一座塔——你的请求自上而下穿过它，结果再自下而上冒回来：</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">客户端</span><span class="name">TUI · run · web · desktop · Slack · ACP</span></div>
+    <div class="ld">收集你的输入、渲染 server 推来的事件流（经<strong>生成的 SDK</strong> 通信）</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">服务器</span><span class="name">Effect HttpApi + SSE 事件总线</span></div>
+    <div class="ld">对外提供 HTTP API 与事件流；把请求路由到会话引擎</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">会话引擎</span><span class="name">Session / agent 循环</span></div>
+    <div class="ld">组装上下文、反复调用大模型、执行工具、持久化会话（V1 → V2 迁移中）</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">模型接入</span><span class="name">LLM 协议层 · Provider</span></div>
+    <div class="ld">把请求编码成各家 provider 的协议，流式拿回 token（Anthropic / OpenAI / Gemini …）</div></div>
+</div>
+
+<p>这条边界还有个容易被忽略的性质：<strong>server 是有状态、长生命周期的，client 是瘦的、可随时断开重连的</strong>。server 一直活着、攥着会话历史和正在跑的 agent 循环；client 则可以关掉再打开、甚至换一个完全不同的前端，重连时通过<strong>事件流</strong>立刻同步到会话此刻的样子。正因如此，多个 client 能同时盯着同一个会话——server 把每一个变化都作为事件广播出去，谁连上谁就跟得上进度。</p>
+<p>它们之间说话，靠的是一套<strong>从 server 自动生成的 SDK</strong>（第 12 课详谈）：server 用 Effect 的 HttpApi 描述自己的接口，再据此生成类型安全的客户端代码——于是前端调用 server 就像调用本地函数一样有类型提示，接口一改、客户端类型立刻跟着变。富终端 TUI 还有个巧妙之处：它和 server 跑在<strong>同一个进程</strong>里，用进程内 RPC 代替网络往返（第 13 课），既省去起网络服务的开销，又复用了完全一样的 SDK 接口。</p>
+<p>具体说，连向这台 server 的"脸"是一大家子：你最常用的<strong>富终端 TUI</strong>、脚本友好的 <span class="mono">run</span> 滚动输出模式、<strong>网页</strong>与 <strong>Electron 桌面应用</strong>、把 opencode 接进团队沟通的 <strong>Slack 机器人</strong>，以及通过 <strong>ACP（Agent Client Protocol）</strong>把 opencode 当作 agent 后端接入的外部编辑器。它们形态各异，却都只是同一个 server 的客户端——这也是为什么这份指南把"会话引擎"而不是"某个界面"当作真正的主角。</p>
+<p>把能力集中到 server 还有一个安全上的好处：<strong>所有危险操作都经过同一道权限闸门</strong>。agent 要删文件、跑一条可能有副作用的命令时，server 可以按策略要求你先确认——这道闸门只需在 server 实现一次，所有客户端自动受益（第 41 课细讲）。换句话说，"集中"不只是为了复用，也是为了让"放手让 AI 干活"这件事<strong>可控、可信</strong>。</p>
+
+<h2>一次对话，宏观看一眼</h2>
+<p>你在 TUI 敲下"帮我修复这个 bug"，宏观上会发生这样一串接力——记住这条线，后面每一课都是在放大其中某一段：</p>
+<div class="flow">
+  <div class="node"><div class="nt">你输入</div><div class="nd">TUI 提交 prompt</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">server</div><div class="nd">存会话 · 组装上下文</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">大模型</div><div class="nd">流式返回：要调工具</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">执行工具</div><div class="nd">读文件 / 改代码 / 跑命令</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">喂回结果</div><div class="nd">再问大模型</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">循环到完成</div><div class="nd">事件流回 TUI</div></div>
+</div>
+<p>关键在那个<strong>循环</strong>：大模型一次只"想一步"——它说"我要先读这个文件"，server 就<strong>替它</strong>读、把内容塞回去；它再说"现在改这一行"，server 就改。直到大模型不再要求调工具、给出最终答复，循环才停。整个过程 server 不停把"它在想什么、做了什么"作为<strong>事件流</strong>推给 TUI，你才能实时看到它敲下的每一步。这条"反复 调模型 → 执行工具"的循环，就是所谓 <strong>agent 循环</strong>，是 opencode 真正的心脏（第 17 课会逐跳拆开）。</p>
+<p>把这条循环落到一个真实的"修 bug"上，大致是这样一串接力：大模型先要求用 <span class="mono">grep</span> 搜关键字、定位到出错的文件 → server 执行搜索、把命中的行喂回去 → 大模型要求<strong>读</strong>那个文件的相关片段 → 读回来后它判断"这里少了个空值判断，改这一行" → server 用 <span class="mono">edit</span> 工具落实修改 → 大模型不放心，要求<strong>跑一遍测试</strong> → server 执行 <span class="mono">bash</span> 跑测试、把输出喂回 → 测试通过，大模型给出一句话总结。<strong>这七八步里没有一步是你手动做的</strong>，但每一步你都在 TUI 里看得清清楚楚——这种"它自己一步步把活干完、你全程在场监督"的体感，就是 agent 循环的魅力，也是 opencode 想给你的核心体验。</p>
+<p>这种"全程在场监督"之所以可能，是因为 server 把 agent 的每一个动作——读了什么、决定调哪个工具、工具返回了什么、接下来打算怎么做——都<strong>作为一条条事件</strong>实时推出来。对使用者，这是信任的来源：你不是把任务丢进黑盒等结果，而是看着它一步步推进、随时可喊停或纠正。对开发者，这是 opencode 架构的一条暗线：<strong>几乎所有状态变化都先落成事件，再被持久化、被广播、被前端渲染</strong>——记住"事件"这个词，第三、四部分会反复见到它。</p>
+<p>还有个容易被忽略的细节：循环里的工具调用并不总是一个接一个地跑。当大模型在一步里同时要求"把这三个文件都读一下"时，server 可以<strong>并发</strong>地把它们一起执行、再统一把结果喂回去（第 18 课会看到它背后用的是 Effect 的并发原语 <span class="mono">FiberSet</span>）。所以 agent 循环的真实节奏是"一轮里可能并行干好几件事，再整体推进到下一轮"——既更快，也让大模型一次能看到更完整的上下文。把握住这个"一轮多事、轮轮推进"的图像，后面读 agent 循环源码时就不会被并发细节绕晕。</p>
+
+<h2>它由什么搭成（技术栈一瞥）</h2>
+<p>opencode 是一个 <strong>Bun + TypeScript 的 monorepo</strong>（一个仓库装下 20 多个包）。几块地基值得先记个脸熟，后面会反复遇到：</p>
+<div class="cols">
+  <div class="col"><h4>Bun</h4><p>运行时与工具链：比 Node 启动快，自带打包、测试、SQLite 绑定。<span class="mono">bun dev</span> 即可跑起来。</p></div>
+  <div class="col"><h4>Effect</h4><p>函数式框架：把<strong>副作用、错误、依赖</strong>都写进类型，贯穿 V2 内核（第二部分专讲）。</p></div>
+  <div class="col"><h4>Drizzle + SQLite</h4><p>类型安全的 ORM + 嵌入式数据库：V2 把会话、消息、上下文都持久化进本地 SQLite。</p></div>
+  <div class="col"><h4>SolidJS + opentui</h4><p>用写网页组件的方式，把 UI <strong>渲染到终端</strong>——TUI 本质是"终端里的浏览器"（第十部分）。</p></div>
+</div>
+<p>模型接入也有意思：opencode 同时有两套——V1 直接用 Vercel 的 <span class="mono">ai</span>（AI-SDK），V2 则<strong>自研了一层多协议 LLM 客户端</strong>（第六部分）。这引出整个项目最重要的背景：它正处在一场<strong>从 V1 到 V2 的架构迁移</strong>中，两套代码并存——下一课就专门讲这条迁移线，那是读懂整个仓库的钥匙。</p>
+
+<p>为什么偏偏是这套组合？因为它们各自啃下了 agent 这类程序最硬的一块骨头：<strong>Bun</strong> 让"一个二进制就能跑、装起来简单"成为可能；<strong>Effect</strong> 把"反复调模型、并发执行多个工具、随时可能失败或被用户打断"这种<strong>充满副作用与并发</strong>的逻辑收拢进类型系统，让它可推理、可测试、可组合；<strong>SQLite</strong> 给会话一个零配置、随装随用的本地持久化；<strong>SolidJS + opentui</strong> 让终端 UI 也能像写网页一样组件化。四个选择都指向同一个目标——<strong>一个轻、稳、可嵌入、离线也能跑的本地 agent</strong>。这套技术品味本身，就是读懂 opencode 设计哲学的第一条线索。</p>
+<p>顺带认一下这个 monorepo 的"主干包"，后面会反复点名：<span class="mono">packages/opencode</span> 是主二进制（CLI、V1 会话引擎、server 宿主）；<span class="mono">packages/core</span> 是 V2 的 Session Core（纯 Effect 内核）；<span class="mono">packages/llm</span> 是自研 LLM 协议层；<span class="mono">packages/tui</span> 是富终端界面；<span class="mono">packages/sdk</span> 是从 server 生成的客户端；还有 <span class="mono">plugin</span>、<span class="mono">server</span>、<span class="mono">desktop</span> 等。下一课的"项目地图"会把这 20 多个包一次摊开。</p>
+<p>关于这场迁移，这里先埋个伏笔：你在源码里会看到两套并存的实现——<span class="mono">packages/opencode/src/session</span> 是 <strong>V1</strong>（基于 Vercel AI-SDK、把会话存成磁盘上的 JSON 文件），<span class="mono">packages/core</span> 是 <strong>V2 Session Core</strong>（纯 Effect、存进 SQLite）。V1 仍是当前默认跑的路径，V2 是正在成形的未来。这份指南以 V2 为主线深讲，但会在关键处对照 V1——因为你读源码时一定会同时撞见它俩。下一课就专门把这条迁移线讲清楚。</p>
+
+<h2>这套指南怎么读</h2>
+<p>opencode 的代码量不小，直接扎进源码容易迷路。这份指南按"<strong>自底向上、层层递进</strong>"组织成 12 个部分：先打地基，再盖楼，最后装修。建议顺着读，因为每一部分都踩在前一部分的概念之上：</p>
+<div class="vflow">
+  <div class="step"><b>① 宏观全景</b>　先建立你正在看的这张全景图（就是本部分）</div>
+  <div class="step"><b>② Effect 地基</b>　读懂贯穿全局的函数式底座，后面才不至于处处卡壳</div>
+  <div class="step"><b>③ 客户端/服务器</b>　server 骨架、路由、SDK 与事件流</div>
+  <div class="step"><b>④–⑤ 会话内核 ★</b>　agent 循环 + System Context / Context Epoch，opencode 最核心的两块</div>
+  <div class="step"><b>⑥ LLM 协议层 ★</b>　自研的多协议模型接入</div>
+  <div class="step"><b>⑦–⑨ 工具 · 配置 · 持久化</b>　让 agent 真正能干活、能配置、记得住</div>
+  <div class="step"><b>⑩–⑫ TUI · 扩展 · 实战</b>　终端渲染、插件/LSP/MCP 生态、构建与贡献</div>
+</div>
+<p>为什么是"自底向上"而不是"自顶向下"？因为 opencode 的上层都建立在一层层抽象之上：不先弄懂 Effect 的 Service 与 Layer，就看不懂 server 怎么被组装出来；不先理解 agent 循环，就说不清 TUI 上那些实时跳动的事件究竟从何而来。所以我们从地基开始，每一层都为上一层备好概念，读到后面会越来越顺。</p>
+<p>带 ★ 的两部分是 opencode 最独特、最值钱的内核，也是这份指南着墨最多的地方。如果你时间有限、只想抓重点，可以先通读第一部分建立全景，再直接跳到第四、五部分；其余部分则可当作"需要时再查"的纵深资料。无论怎么读，都请记住那条主线——<strong>客户端发消息 → server 跑 agent 循环 → 事件流回客户端</strong>——它会像一根线，把后面 63 课串成一串。</p>
+
+<div class="card macro">
+  <div class="tag">🌍 宏观理解</div>
+  opencode = <strong>一个常驻 server</strong>（掌管 agent 循环、会话、工具、provider、持久化）+ <strong>多个瘦客户端</strong>（经生成的 SDK 通信）。记住这条主线：<strong>客户端发消息 → server 跑 agent 循环（反复 调 LLM → 执行工具）→ 事件流回客户端</strong>。这套指南接下来的每一课，都是在放大这条主线上的某一段。
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 细节 / 源码对应</div>
+  命令行入口是 <span class="inline">packages/opencode/src/index.ts</span>：用 <span class="mono">yargs</span> 注册了一大批子命令——"同一套 server 逻辑、多个入口"正是客户端/服务器在命令行上的直接体现：
+<pre class="code"><span class="cm">// 简化自 packages/opencode/src/index.ts</span>
+const cli = <span class="fn">yargs</span>(<span class="fn">hideBin</span>(process.argv))
+  .<span class="fn">scriptName</span>(<span class="st">"opencode"</span>)
+  .<span class="fn">command</span>(TuiThreadCommand)   <span class="cm">// 默认：交互式终端 UI（一个客户端）</span>
+  .<span class="fn">command</span>(RunCommand)         <span class="cm">// 一次性跑一个 prompt（脚本友好）</span>
+  .<span class="fn">command</span>(ServeCommand)       <span class="cm">// 起 headless HTTP server（无界面）</span>
+  .<span class="fn">command</span>(AcpCommand)         <span class="cm">// 作为 ACP server 接入外部编辑器</span>
+  .<span class="fn">command</span>(McpCommand)         <span class="cm">// 管理 MCP 工具服务器</span>
+  <span class="cm">// … 还有 generate / agent / models / session / db …</span></pre>
+  跑 <span class="mono">opencode</span> 默认进 TUI，<span class="mono">opencode serve</span> 起无界面服务，<span class="mono">opencode run "…"</span> 脚本式跑一轮——它们都连向同一套会话引擎。这也解释了一个初见时容易困惑的现象：明明是同一个 <span class="mono">opencode</span> 命令，加不同子命令就成了完全不同的东西——它们共享内核，只是<strong>把同一套能力包装成了不同的入口</strong>。
+</div>
+
+<div class="card key">
+  <div class="tag">✅ 本课要点</div>
+  <ul>
+    <li>opencode 是<strong>开源 AI 编程 agent</strong>，采用<strong>客户端/服务器</strong>架构。</li>
+    <li>server <strong>掌管一切</strong>：agent 循环、会话、工具、provider、持久化；client 只是视图。</li>
+    <li>一次对话 = server <strong>反复（调 LLM → 执行工具）</strong>直到完成，事件流实时回 client。</li>
+    <li>技术栈：<strong>Bun + TypeScript + Effect + Drizzle/SQLite + SolidJS/opentui</strong>。</li>
+    <li>代码正从 <strong>V1</strong>（AI-SDK、文件存储）迁移到 <strong>V2</strong>（纯 Effect、SQLite）——下一课展开。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. opencode 把 agent 逻辑、会话、工具、provider 都收进一个常驻 server，客户端只负责收发与渲染。这个“客户端/服务器”切分最主要换来了什么？</div>
+  <ol class="opts">
+    <li>彻底不需要大模型</li>
+    <li>让大模型的补全速度更快</li>
+    <li>把 agent 绑定到某个特定编辑器</li>
+    <li>一个内核多种前端复用、会话服务端持久化、可 headless 自动化</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。server 拥有一切、client 只是视图：于是 TUI/web/桌面/Slack/ACP 共用一个内核，会话存在 SQLite 不丢，还能用 serve 模式脚本化。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. 课里反复强调的“agent 循环”具体指什么？</div>
+  <ol class="opts">
+    <li>编译器内部的优化循环</li>
+    <li>用户手动重复同样的操作</li>
+    <li>server 反复地“调大模型 → 执行工具 → 把结果喂回”，直到模型不再调工具</li>
+    <li>大模型一次性写出全部代码</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。大模型一次只“想一步”，由 server 替它执行工具再喂回上下文，循环推进——这正是 opencode 的心脏，第 17 课逐跳拆解。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. 关于 V1 与 V2，下面哪个说法是对的？</div>
+  <ol class="opts">
+    <li>V2 是 packages/core（纯 Effect + SQLite），V1 是 packages/opencode/src/session（AI-SDK + 文件存储）</li>
+    <li>V2 已经完全取代 V1，源码里看不到 V1</li>
+    <li>V1 用 Effect + SQLite，V2 用 AI-SDK + 文件存储</li>
+    <li>V1 和 V2 是两个不同的开源项目</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。代码正从 V1（AI-SDK、磁盘 JSON）迁移到 V2 Session Core（纯 Effect、SQLite），两套并存，V1 仍是当前默认路径。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>假设你要给 opencode 加一个全新的前端（比如一个 VSCode 插件）。按它的客户端/服务器架构，你需要做什么、又不需要重做什么？</li>
+    <li>课里说几乎所有状态变化都先落成事件。想一想：这种事件优先的设计，对多个客户端看同一个会话、以及出错后重放，分别带来什么好处？</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">opencode is an <strong>open-source AI coding agent</strong>: type a request in your terminal and it reads your code, edits files, runs commands, and drives a large language model step by step to get the job done. But it is far more than "a chat box wrapping an LLM" — its core is a <strong>long-running server</strong> that owns all the agent logic, session history, tools, and model access; the terminal interface in front of you is just <strong>one client</strong> connected to that server. This lesson builds the big picture: what opencode is, why it is client/server, how one prompt flows at a high level, and what it is built from.</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 Analogy</div>
+  Picture opencode as an <strong>"AI coding workshop."</strong> The <strong>server</strong> is the resident "foreman brain" that remembers the whole project and holds all the tools. The <strong>LLM</strong> is a hired "coding advisor" who only talks, never acts. The <strong>client</strong> (your terminal TUI) is the "control desk" where you give orders and watch progress. The foreman takes the advisor's suggestions and <strong>personally</strong> uses tools (read files, edit code, run tests), then reports results back to the advisor — round and round until the work is done.
+</div>
+
+<h2>What problem does it solve</h2>
+<p>Today's AI coding helpers come in two flavors: in-editor <strong>completion</strong> (like Copilot) that continues from your cursor, and a <strong>chat panel</strong> (like Cursor's chat) that talks alongside you. Both are powerful, but share a ceiling: the session and context are <strong>locked inside one editor</strong>, hard to script or automate, tool power is limited by the host, and switching machines or front-ends means starting over.</p>
+<p>opencode flips the design: it makes the "AI coding agent" a <strong>standalone, long-running service</strong>, and the front-end is just one of its faces. So one agent can be shared by terminal, web, desktop, Slack, even other editors; sessions live server-side and survive; and it can run headless in CI.</p>
+
+<table class="t">
+  <tr><th>Dimension</th><th>Editor completion / chat</th><th>opencode</th></tr>
+  <tr><td>Form</td><td>Editor plugin / panel</td><td><strong>Standalone resident service</strong> + many clients</td></tr>
+  <tr><td>Session context</td><td>Bound to one editor process</td><td><strong>Persisted server-side</strong> (SQLite), survives client switches</td></tr>
+  <tr><td>Tool power</td><td>Limited by host APIs</td><td>Provided centrally by the server (read/write/exec/search/LSP…)</td></tr>
+  <tr><td>Automation</td><td>Hard to script</td><td><strong>headless</strong> <span class="mono">serve</span> + HTTP API</td></tr>
+  <tr><td>Extensibility</td><td>Varying plugin systems</td><td>Unified plugin / MCP / provider system</td></tr>
+</table>
+
+<p>This step — <strong>extracting the agent into a standalone service</strong> — looks like mere engineering relocation, but it changes the shape of AI coding: the agent is no longer a feature bolted onto some editor, but <strong>a capability any workflow can call</strong>. You can pair with it in the terminal, or let it auto-run a refactor in CI; use it locally, or deploy the server remotely for a team to share. The front-end demotes from "provider of the capability" to "display window for it" — exactly the step that separates opencode from editor plugins, and the prerequisite for growing so many faces: TUI, web, desktop, Slack, ACP.</p>
+<p>Put differently: editor plugins <strong>stuff AI into the tool</strong>; opencode <strong>hands the tools to the AI</strong>. In the former the AI is a supporting actor, bounded by the editor's reach; in the latter the AI is the lead, and the server actively <strong>arms</strong> it with reading/writing files, running commands, querying the LSP. That swap of lead and support is why opencode aims to "carry a task end to end," not just "lend a hand while you type" — grasp this and every later design choice has a starting point.</p>
+<p>One more layer worth not skipping: opencode is <strong>open source</strong>. That means its model access, tools, providers, even the agent's behavior are all <strong>auditable, changeable, self-hostable</strong> — you can see exactly what it sends to the LLM, and add your own tools or wire up your own private model. For anyone trying to understand "how a real AI coding agent actually works inside," this is a rare, complete, still-rapidly-evolving living textbook — which is exactly why this guide exists.</p>
+
+<h2>Client / server: why split it this way</h2>
+<p>opencode puts everything "heavy" — <strong>the agent loop, session persistence, tool execution, model access, permissions</strong> — into <strong>one server</strong>. A client does just two things: <strong>send your words to the server</strong> and <strong>render the events it streams back</strong>. That clean boundary buys four things:</p>
+<div class="cols">
+  <div class="col"><h4>One core, many faces</h4><p>TUI, web, desktop, Slack, ACP all share one server with consistent behavior — no re-implementing agent logic per front-end.</p></div>
+  <div class="col"><h4>Sessions survive</h4><p>Sessions live in the server's SQLite; close the front-end, restart, switch machines — the history is still there.</p></div>
+  <div class="col"><h4>Automation-friendly</h4><p><span class="mono">opencode serve</span> starts a headless HTTP service; scripts and CI call the API directly.</p></div>
+  <div class="col"><h4>Tools centralized</h4><p>File I/O, running commands, search, LSP diagnostics all come from the server, unconstrained by the front-end.</p></div>
+</div>
+<p>Stacked bottom-up, these layers form a tower — your request flows down through it, results bubble back up:</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">Clients</span><span class="name">TUI · run · web · desktop · Slack · ACP</span></div>
+    <div class="ld">Collect your input, render the server's event stream (talking via a <strong>generated SDK</strong>)</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">Server</span><span class="name">Effect HttpApi + SSE event bus</span></div>
+    <div class="ld">Exposes the HTTP API and event stream; routes requests to the session engine</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">Session engine</span><span class="name">Session / agent loop</span></div>
+    <div class="ld">Assembles context, calls the LLM repeatedly, runs tools, persists sessions (V1 → V2 in flight)</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">Model access</span><span class="name">LLM protocol layer · Provider</span></div>
+    <div class="ld">Encodes requests into each provider's protocol, streams tokens back (Anthropic / OpenAI / Gemini …)</div></div>
+</div>
+
+<p>That boundary has an easily-missed property: <strong>the server is stateful and long-lived; the client is thin and can disconnect and reconnect anytime</strong>. The server stays alive, holding the session history and the running agent loop; the client can close and reopen, even switch to a completely different front-end, and on reconnect it immediately syncs — via the <strong>event stream</strong> — to what the session looks like right now. That's why several clients can watch one session at once: the server broadcasts every change as an event, and whoever connects catches up.</p>
+<p>They talk through an <strong>SDK generated automatically from the server</strong> (Lesson 12): the server describes its interface with Effect's HttpApi, and type-safe client code is generated from it — so calling the server feels like calling a local function, with type hints, and changing an endpoint instantly updates the client types. The rich TUI has a neat twist: it runs in the <strong>same process</strong> as the server, replacing network round-trips with in-process RPC (Lesson 13), saving the overhead of a network service while reusing the exact same SDK interface.</p>
+<p>Concretely, the "faces" connecting to this server are a big family: the <strong>rich terminal TUI</strong> you use most, the script-friendly <span class="mono">run</span> scrollback mode, the <strong>web</strong> and <strong>Electron desktop</strong> apps, a <strong>Slack bot</strong> that pipes opencode into team chat, and external editors that plug opencode in as an agent backend via <strong>ACP (Agent Client Protocol)</strong>. Different shapes, all just clients of the same server — which is why this guide treats the "session engine," not "some interface," as the real protagonist.</p>
+<p>Centralizing capability into the server has a safety upside too: <strong>every dangerous operation passes through one permission gate</strong>. When the agent wants to delete a file or run a possibly side-effecting command, the server can require your confirmation per policy — a gate implemented once in the server, and every client benefits automatically (Lesson 41). In other words, "centralized" isn't only for reuse; it's also what makes "letting the AI loose to work" <strong>controllable and trustworthy</strong>.</p>
+
+<h2>One prompt, from a distance</h2>
+<p>You type "fix this bug" in the TUI. At a high level, a relay unfolds — remember this line; every later lesson zooms into one segment of it:</p>
+<div class="flow">
+  <div class="node"><div class="nt">You type</div><div class="nd">TUI submits a prompt</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">server</div><div class="nd">store session · assemble context</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">LLM</div><div class="nd">streams back: call a tool</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">run tool</div><div class="nd">read / edit / run command</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">feed result</div><div class="nd">ask the LLM again</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">loop to done</div><div class="nd">events stream to TUI</div></div>
+</div>
+<p>The key is that <strong>loop</strong>: the LLM "thinks one step" at a time — it says "first read this file," and the server reads it <strong>on its behalf</strong> and feeds the content back; it says "now change this line," and the server changes it. Only when the LLM stops asking for tools and gives a final answer does the loop stop. Throughout, the server streams "what it's thinking and doing" as an <strong>event stream</strong> to the TUI, so you watch every step live. This "repeatedly call the model → run tools" loop is the so-called <strong>agent loop</strong>, opencode's true heart (Lesson 17 takes it apart hop by hop).</p>
+<p>Drop this loop onto a real "fix a bug" and it's a relay like this: the LLM first asks to <span class="mono">grep</span> a keyword to locate the failing file → the server runs the search and feeds the matching lines back → the LLM asks to <strong>read</strong> the relevant slice of that file → on reading it, it judges "a null check is missing here, change this line" → the server applies the change with the <span class="mono">edit</span> tool → uneasy, the LLM asks to <strong>run the tests</strong> → the server runs <span class="mono">bash</span> and feeds the output back → tests pass, the LLM gives a one-line summary. <strong>Not one of those seven or eight steps was done by your hand</strong>, yet you watched every one in the TUI — that feel of "it finishes the job step by step while you supervise throughout" is the charm of the agent loop, and the core experience opencode wants to give you.</p>
+<p>This "present throughout, supervising" is possible because the server pushes out every one of the agent's moves — what it read, which tool it chose, what the tool returned, what it plans next — as <strong>individual events</strong>, live. For the user that's the source of trust: you're not tossing a task into a black box and waiting, you're watching it progress step by step, free to stop or correct at any time. For the developer it's a hidden through-line of opencode's architecture: <strong>nearly every state change first becomes an event, then gets persisted, broadcast, and rendered</strong> — remember the word "event"; Parts 3 and 4 meet it again and again.</p>
+<p>One more easily-missed detail: tool calls in the loop don't always run one after another. When the LLM asks in a single step to "read all three of these files," the server can execute them <strong>concurrently</strong> and feed the results back together (Lesson 18 shows the Effect concurrency primitive behind it, <span class="mono">FiberSet</span>). So the real rhythm of the agent loop is "possibly do several things in parallel within a round, then advance as a whole to the next" — faster, and letting the LLM see fuller context at once. Hold this "many things per round, advancing round by round" picture and the concurrency details in the agent-loop source won't tangle you later.</p>
+
+<h2>What it is built from (a tech-stack glance)</h2>
+<p>opencode is a <strong>Bun + TypeScript monorepo</strong> (one repo holding 20+ packages). A few foundations are worth recognizing now; you'll meet them again and again:</p>
+<div class="cols">
+  <div class="col"><h4>Bun</h4><p>Runtime and toolchain: faster startup than Node, with built-in bundling, testing, and SQLite bindings. <span class="mono">bun dev</span> just runs it.</p></div>
+  <div class="col"><h4>Effect</h4><p>A functional framework that writes <strong>side effects, errors, and dependencies</strong> into the types, running through the V2 core (Part 2).</p></div>
+  <div class="col"><h4>Drizzle + SQLite</h4><p>A type-safe ORM + embedded database: V2 persists sessions, messages, and context into local SQLite.</p></div>
+  <div class="col"><h4>SolidJS + opentui</h4><p>Render UI <strong>to the terminal</strong> using web-component style — the TUI is essentially "a browser in your terminal" (Part 10).</p></div>
+</div>
+<p>Model access is interesting too: opencode carries two stacks — V1 uses Vercel's <span class="mono">ai</span> (AI-SDK) directly, while V2 has its <strong>own multi-protocol LLM client</strong> (Part 6). That points to the project's most important backdrop: it is mid <strong>migration from V1 to V2</strong>, with both codebases coexisting — the next lesson is devoted to that migration line, the key to reading the whole repo.</p>
+
+<p>Why this exact combination? Because each tackles one of the hardest bones of a program like an agent: <strong>Bun</strong> makes "one binary just runs, easy to install" possible; <strong>Effect</strong> gathers logic that is <strong>full of side effects and concurrency</strong> — calling the model repeatedly, running several tools at once, failing or being interrupted at any moment — into the type system, making it reasoned-about, testable, composable; <strong>SQLite</strong> gives sessions a zero-config, ready-to-use local persistence; <strong>SolidJS + opentui</strong> let terminal UI be componentized like writing web pages. All four choices point at one goal — <strong>a light, stable, embeddable, offline-capable local agent</strong>. This technical taste itself is the first clue to opencode's design philosophy.</p>
+<p>While we're here, meet the monorepo's "trunk packages," named repeatedly later: <span class="mono">packages/opencode</span> is the main binary (CLI, V1 session engine, server host); <span class="mono">packages/core</span> is V2's Session Core (the pure-Effect kernel); <span class="mono">packages/llm</span> is the in-house LLM protocol layer; <span class="mono">packages/tui</span> is the rich terminal UI; <span class="mono">packages/sdk</span> is the client generated from the server; plus <span class="mono">plugin</span>, <span class="mono">server</span>, <span class="mono">desktop</span>, and more. The next lesson's "project map" spreads all 20-plus packages out at once.</p>
+<p>On that migration, a foreshadowing: in the source you'll see two implementations side by side — <span class="mono">packages/opencode/src/session</span> is <strong>V1</strong> (built on Vercel's AI-SDK, storing sessions as JSON files on disk), and <span class="mono">packages/core</span> is <strong>V2 Session Core</strong> (pure Effect, into SQLite). V1 is still the default path running today; V2 is the future taking shape. This guide teaches V2 as the main line but contrasts V1 at key points — because reading the source you'll bump into both. The next lesson is devoted to making this migration line clear.</p>
+
+<h2>How to read this guide</h2>
+<p>opencode's codebase isn't small, and diving straight into the source is a good way to get lost. This guide is organized <strong>bottom-up, layer by layer</strong> into 12 parts: lay the foundation, raise the building, then finish the interior. Read in order, because each part stands on the concepts of the one before:</p>
+<p>Why "bottom-up" and not "top-down"? Because opencode's upper layers stand on layer upon layer of abstraction: without first grasping Effect's Service and Layer, you can't see how the server is assembled; without first understanding the agent loop, you can't say where those live, flickering events in the TUI come from. So we start at the foundation, each layer preparing concepts for the next, and it reads more smoothly as you go.</p>
+<div class="vflow">
+  <div class="step"><b>① The big picture</b>　build the panorama you're looking at now (this part)</div>
+  <div class="step"><b>② Effect foundations</b>　grasp the functional base that runs through everything</div>
+  <div class="step"><b>③ Client/server</b>　the server skeleton, routes, SDK, and event stream</div>
+  <div class="step"><b>④–⑤ Session core ★</b>　the agent loop + System Context / Context Epoch, opencode's two most central pieces</div>
+  <div class="step"><b>⑥ LLM protocol layer ★</b>　the in-house multi-protocol model access</div>
+  <div class="step"><b>⑦–⑨ Tools · config · persistence</b>　making the agent actually work, be configured, and remember</div>
+  <div class="step"><b>⑩–⑫ TUI · extensibility · practice</b>　terminal rendering, the plugin/LSP/MCP ecosystem, building &amp; contributing</div>
+</div>
+<p>The two ★ parts are opencode's most distinctive, most valuable core, and where this guide spends the most ink. Short on time? Read Part 1 for the panorama, then jump straight to Parts 4 and 5; treat the rest as deep reference to consult when needed. However you read, hold that main line — <strong>client sends a message → server runs the agent loop → events stream back to the client</strong> — it threads the other 63 lessons together.</p>
+
+<div class="card macro">
+  <div class="tag">🌍 Big picture</div>
+  opencode = <strong>one resident server</strong> (owning the agent loop, sessions, tools, providers, persistence) + <strong>several thin clients</strong> (talking via a generated SDK). Hold this line: <strong>client sends a message → server runs the agent loop (repeatedly call the LLM → run tools) → events stream back to the client</strong>. Every lesson ahead zooms into one segment of this line.
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  The CLI entry point is <span class="inline">packages/opencode/src/index.ts</span>: <span class="mono">yargs</span> registers a whole set of subcommands — "one server core, many entry points" is the client/server idea made concrete on the command line:
+<pre class="code"><span class="cm">// simplified from packages/opencode/src/index.ts</span>
+const cli = <span class="fn">yargs</span>(<span class="fn">hideBin</span>(process.argv))
+  .<span class="fn">scriptName</span>(<span class="st">"opencode"</span>)
+  .<span class="fn">command</span>(TuiThreadCommand)   <span class="cm">// default: interactive terminal UI (a client)</span>
+  .<span class="fn">command</span>(RunCommand)         <span class="cm">// run one prompt once (script-friendly)</span>
+  .<span class="fn">command</span>(ServeCommand)       <span class="cm">// start a headless HTTP server</span>
+  .<span class="fn">command</span>(AcpCommand)         <span class="cm">// act as an ACP server for external editors</span>
+  .<span class="fn">command</span>(McpCommand)         <span class="cm">// manage MCP tool servers</span>
+  <span class="cm">// … plus generate / agent / models / session / db …</span></pre>
+  Running <span class="mono">opencode</span> defaults to the TUI, <span class="mono">opencode serve</span> starts a headless service, and <span class="mono">opencode run "…"</span> runs one turn for scripts — all wired to the same session engine. This also explains a confusing-at-first phenomenon: the same <span class="mono">opencode</span> command becomes a completely different thing with a different subcommand — they share the kernel and merely <strong>wrap one set of capabilities into different entry points</strong>.
+</div>
+
+<div class="card key">
+  <div class="tag">✅ Key points</div>
+  <ul>
+    <li>opencode is an <strong>open-source AI coding agent</strong> with a <strong>client/server</strong> architecture.</li>
+    <li>The server <strong>owns everything</strong>: the agent loop, sessions, tools, providers, persistence; the client is just a view.</li>
+    <li>One conversation = the server <strong>repeatedly (call LLM → run tools)</strong> until done, streaming events to the client live.</li>
+    <li>Tech stack: <strong>Bun + TypeScript + Effect + Drizzle/SQLite + SolidJS/opentui</strong>.</li>
+    <li>The code is migrating from <strong>V1</strong> (AI-SDK, file storage) to <strong>V2</strong> (pure Effect, SQLite) — next lesson expands on it.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. opencode puts agent logic, sessions, tools, and providers into one resident server; clients only send and render. What does this client/server split mainly buy?</div>
+  <ol class="opts">
+    <li>Removing the need for an LLM entirely</li>
+    <li>Faster LLM completion</li>
+    <li>Binding the agent to one specific editor</li>
+    <li>One core reused by many front-ends, server-side session persistence, headless automation</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. The server owns everything and the client is just a view: TUI/web/desktop/Slack/ACP share one core, sessions persist in SQLite, and serve mode enables scripting.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. What exactly is the “agent loop” the lesson keeps emphasizing?</div>
+  <ol class="opts">
+    <li>An optimization loop inside the compiler</li>
+    <li>The user manually repeats the same action</li>
+    <li>The server repeatedly “calls the LLM, runs tools, feeds results back” until the model stops calling tools</li>
+    <li>The LLM writes all the code in one shot</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. The LLM thinks one step at a time; the server runs tools on its behalf and feeds context back, advancing the loop — opencode's heart, dissected in Lesson 17.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. Which statement about V1 and V2 is correct?</div>
+  <ol class="opts">
+    <li>V2 is packages/core (pure Effect + SQLite); V1 is packages/opencode/src/session (AI-SDK + file storage)</li>
+    <li>V2 has fully replaced V1; V1 is gone from the source</li>
+    <li>V1 uses Effect + SQLite; V2 uses AI-SDK + file storage</li>
+    <li>V1 and V2 are two different open-source projects</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. The code is migrating from V1 (AI-SDK, on-disk JSON) to V2 Session Core (pure Effect, SQLite); both coexist, and V1 is still the default path today.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>Suppose you add a brand-new front-end to opencode (say a VSCode extension). Given its client/server architecture, what would you need to build, and what would you not need to reimplement?</li>
+    <li>The lesson says nearly every state change first becomes an event. Consider: what does this event-first design give you for multiple clients watching one session, and for replay after a failure?</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="../index.html"><div class="dir"><span class="lang-zh">← 返回</span><span class="lang-en">← Back</span></div><div class="ttl"><span class="lang-zh">目录</span><span class="lang-en">Contents</span></div></a><a class="next" href="02-project-map.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">项目全景地图</span><span class="lang-en">The monorepo map</span></div></a></div>
 </div>
 <script>
