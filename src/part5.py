@@ -611,7 +611,206 @@ load: () =&gt; Effect.<span class="fn">gen</span>(<span class="kw">function</spa
 </div>
 """,
 }
-LESSON_24 = wip('Context Epoch', 'The Context Epoch')
+LESSON_24 = {
+    "zh": r"""
+<p class="lead">前三课，我们把系统上下文的「生产侧」讲全了：源怎么观察自己、怎么增量比较、怎么被注册表收齐。但这些都还停在<strong>「半空中」</strong>——它们产出的那份上下文，<strong>怎么落到一个具体的会话里、并被持久地记下来</strong>？这一课就回答它，而答案，正是第五部分的同名概念——<strong>上下文纪元（Context Epoch）</strong>。它把「此刻这个会话的系统上下文」<strong>钉成一个带序号的锚点</strong>，存进数据库。而那个序号 <span class="mono">baselineSeq</span>，你应该还记得——正是第 19 课 <span class="mono">history.load</span> 用来给历史窗口<strong>裁边</strong>的那条线！读懂这一课，第 19 课那个悬而未决的伏笔，和整个第五部分，就一齐合上了环。</p>
+<p>为什么叫「纪元（epoch）」？这个词用得极准。纪元，是一个<strong>时间的基准点</strong>——就像公元纪年从某一刻起算。系统上下文也是如此：在会话历史的<strong>某个序号点</strong>，确立一份完整的「基线（baseline）」；此后环境的每一点变化，都只是<strong>相对这个基线的增量更新</strong>；直到某个重大事件（比如换了 agent），才需要<strong>开启一个全新的纪元</strong>、重立基线。「确立基线 → 增量更新 → 必要时重立」——这套节律，就是「纪元」二字的全部含义。换句话说，纪元让上下文有了「分期」：每一期都有自己的起点和演进，期与期之间则是一次干净的改朝换代。这一课，我们看它怎么把抽象的源，钉进一个具体会话的时间线里。</p>
+
+<div class="card analogy">
+  <div class="tag">🏕️ 生活类比</div>
+  把上下文纪元想成登山时建立的<strong>大本营</strong>。出发前，你在某个明确的位置扎下大本营（确立 baseline），并<strong>记下它的坐标</strong>（baselineSeq——「本营建于此处」）。此后一路向上，你<strong>不再每次都从头描述整座山</strong>，只记「相对大本营，我又往上爬了多少」（增量更新）。这个大本营的坐标至关重要：它是<strong>「基线到此为止、往后都是新路程」的分界</strong>——回看记录时，坐标之前的一切被「在大本营」这一句概括，坐标之后才是你真正的攀爬轨迹（这正是第 19 课 history.load 拿 baselineSeq 裁边的道理）。而如果你<strong>换了一支完全不同的队伍</strong>（换 agent），旧大本营的坐标和补给可能就不适用了——这时要么平稳交接、要么<strong>另立新营</strong>（新纪元）。一座标好坐标、可增量、必要时重立的大本营——这就是上下文纪元。
+</div>
+
+<h2>纪元是什么：会话里一份带序号的基线</h2>
+<p>上下文纪元，是<strong>每个会话一行</strong>的持久记录（<span class="mono">session_context_epoch</span> 表）。它存着「这个会话当前的系统上下文」的全部要件：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">baseline</div><div class="v">给模型看的基线全文（所有源 baseline 拼成）</div></div>
+  <div class="cell"><div class="k">baseline_seq</div><div class="v">★ 基线锚定的序号——history.load 据此裁边（第 19 课）</div></div>
+  <div class="cell"><div class="k">snapshot</div><div class="v">所有源当前值的结构化快照（用于下次比较）</div></div>
+  <div class="cell"><div class="k">revision</div><div class="v">改过几次——乐观并发的版本号</div></div>
+  <div class="cell"><div class="k">agent</div><div class="v">这份基线属于哪个 agent（换 agent 会触发重立）</div></div>
+</div>
+<p>把这几个字段连起来读，纪元的全貌就清楚了：它是一张「<strong>快照 + 锚点</strong>」——<span class="mono">baseline</span> 是<strong>说给模型的</strong>那份基线全文，<span class="mono">snapshot</span> 是<strong>记给系统的</strong>那份结构化记忆（这正是第 22 课「一说一记」在会话层的落地），<span class="mono">baseline_seq</span> 则是把这份基线<strong>钉在会话时间线某一点</strong>的图钉。最妙的是这枚图钉：它一头连着系统上下文（基线从这里开始），一头连着第 19 课的历史窗口（<span class="mono">history.load</span> 只读这个序号之后的对话）。<strong>纪元，就是系统上下文和会话历史交汇、咬合的那个点。</strong></p>
+<p>注意那个 <span class="mono">revision</span> 字段，它不起眼却很关键：它是一个<strong>乐观并发的版本号</strong>。源码里 <span class="mono">prepare</span> 外面套着一层 <span class="mono">retryRevisionMismatch</span>——意思是，如果两处几乎同时想更新同一个会话的纪元，它们会比对 revision，发现「我读到的版本，已经被别人改过了」，于是<strong>退让、重试</strong>，而非盲目覆盖、造成丢更新。这又是第 16 课那套「同会话串行」之外的另一道并发防线：纪元的更新用版本号守住，确保两个并发的 prepare 不会把彼此的修改踩没。一个小小的 <span class="mono">revision</span> 整数，背后是「绝不悄悄丢失一次上下文更新」的承诺。</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">…seq &lt; baselineSeq</span><span class="tl-desc">被基线全文概括——history.load 不再逐条读</span></div>
+  <div class="tl-item"><span class="tl-time">baselineSeq（锚点）</span><span class="tl-desc">★ 基线在此确立：「往前是底色，往后是对话」</span></div>
+  <div class="tl-item"><span class="tl-time">seq &gt; baselineSeq</span><span class="tl-desc">真正的对话历史——history.load 逐条读、喂给模型</span></div>
+</div>
+
+<h2>prepare：每次运行前，对一次表</h2>
+<p>纪元不是建一次就不管了。每次会话要运行（第 17 课循环启动）前，都会调一次 <span class="mono">SessionContextEpoch.prepare</span>——它做的事，本质是「<strong>拿此刻观察到的环境，和存着的那份基线对一次表</strong>」。这个「每次运行前对表」的节奏，和第 17 课「每轮重读投影历史」是<strong>同一种心跳</strong>：都不信任内存里攒着的旧状态，每到关口就回持久层、拿最新的真相重新校准一遍。逻辑分几种情况：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">首次</span><span class="t-txt">没有存档 → initialize：观察全部源、拼出基线、insert，拿到 baselineSeq，revision=0</span></div>
+  <div class="t-row"><span class="t-num">同 agent</span><span class="t-txt">有存档、agent 没变 → reconcile：和 snapshot 比对</span></div>
+  <div class="t-row"><span class="t-num">→ Unchanged</span><span class="t-txt">环境没变 → 沿用旧 baseline/baselineSeq，啥也不发</span></div>
+  <div class="t-row"><span class="t-num">→ Updated</span><span class="t-txt">环境变了 → publish 一个 ContextUpdated 事件（带差异文本）、revision+1</span></div>
+  <div class="t-row"><span class="t-num">换 agent</span><span class="t-txt">agent 变了 → replace：尝试重立纪元（可能被 block，第 27 课）</span></div>
+</div>
+<p>这套「对表」逻辑，把前几课的零件全用上了。<strong>首次</strong>，就是第 21~23 课那条「注册表 load → combine → initialize → Generation」的链路落地成一行数据库记录。<strong>同 agent 的 reconcile</strong>，正是第 22 课那个 compare 的会话级版本：环境没变就<strong>沉默</strong>（Unchanged，沿用旧基线，连 baselineSeq 都不动）；变了就走 <strong>Updated</strong>——但注意它这里不是简单改个字段，而是 <strong>publish 一个 <span class="mono">ContextUpdated</span> 事件</strong>！这个细节极重要：上下文的变化，被当成<strong>会话历史里一条正式的事件</strong>记下来（还记得第 14、15 课「一切皆事件、只追加」吗？）——于是模型在下一轮重读历史时，自然就读到「哦，目录变了」这条更新，无缝衔接。<strong>系统上下文的演进，本身也是事件溯源的一部分。</strong></p>
+<div class="cols">
+  <div class="col"><h4>reconcile · 同 agent，算增量</h4><p>agent 没变。拿当前环境和存档 snapshot 比，算出「变了什么」。常态运转走这条：沉默或发增量。</p></div>
+  <div class="col"><h4>replace · 换 agent，重立纪元</h4><p>agent 变了。旧基线可能不再适用，尝试整体替换成新纪元——而这一步可能被拦下（第 27 课）。</p></div>
+</div>
+<p>为什么「换 agent」要走完全不同的 <span class="mono">replace</span> 路径，而不是当成一次普通的「变了」？因为 agent 不是环境里的一个普通字段，它<strong>决定了整份上下文的「人设」和规矩</strong>。同一个目录、同一个时间，换一个 agent 来看，该强调的、该带的指令可能<strong>面目全非</strong>。这种变化太根本，不是「在旧基线上补一句增量」能表达的——它需要的是<strong>掀掉旧基线、重立一份</strong>，就像登山换了支队伍、得另立大本营，而非在旧营地上贴张便条。把「同 agent 的演进」和「换 agent 的改朝换代」分成 reconcile 与 replace 两条路，正是纪元设计对「变化有大小之分」的清醒：小变化增量补，大变化整个重来。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">Unchanged</div><div class="v">环境没变 → 沿用旧基线，啥也不发</div></div>
+  <div class="cell"><div class="k">Updated</div><div class="v">环境变了 → 发 ContextUpdated 事件 + revision+1</div></div>
+  <div class="cell"><div class="k">ReplacementReady</div><div class="v">换 agent 且可替换 → 重立纪元，revision+1</div></div>
+  <div class="cell"><div class="k">ReplacementBlocked</div><div class="v">换 agent 但被拦 → AgentReplacementBlocked（第 27 课）</div></div>
+</div>
+
+<h2>baselineSeq：合上第 19 课的环</h2>
+<p>现在可以正式合上那个悬了五课的伏笔了。第 19 课讲 <span class="mono">history.load</span> 时，它并发取的两条裁边线之一，就是 <strong>context epoch 的 <span class="mono">baseline_seq</span></strong>。当时我们说「这条线界定历史窗口」，却没说它从哪来。现在答案揭晓：<strong>它就是这一课的纪元，在确立基线时钉下的那个序号。</strong>一个跨越五课才被填上的伏笔，落点竟是如此朴素的一个整数——但正是这个整数，让前面看似各自为政的两套机制，严丝合缝地对接了起来。</p>
+<div class="flow">
+  <div class="node">源（L21-23）<span class="sub">observe + combine</span></div>
+  <div class="arrow">initialize →</div>
+  <div class="node">Generation<span class="sub">baseline + snapshot</span></div>
+  <div class="arrow">insert →</div>
+  <div class="node">纪元（持久）<span class="sub">钉下 baselineSeq</span></div>
+  <div class="arrow">history.load 读 →</div>
+  <div class="node">裁出历史窗口<span class="sub">第 19 课</span></div>
+</div>
+<p>把这条链看一遍，整个第四、五部分就<strong>咬合成了一个闭环</strong>：系统上下文（L21-23）被观察、拼成基线 → 确立为一个纪元、钉下 baselineSeq（本课）→ 这个 baselineSeq 反过来告诉 history.load「历史从哪读起」（L19）→ 读出的历史窗口，连同基线，一起喂给 agent 循环（L17）→ 循环跑出新消息、新事件 → 下一轮 prepare 又来对表…… 系统上下文不是孤立地挂在一边，而是<strong>深深织进了会话的时间线和事件流里</strong>。<span class="mono">baselineSeq</span> 这枚小小的图钉，就是把「上下文系统」和「会话引擎」缝在一起的那一针。</p>
+<p>退一步看这个闭环，你会对这套架构的「整体性」有更深的体会。一个不那么用心的设计，很可能会把「系统上下文」做成一个<strong>独立的小模块</strong>：每轮临时拼一段环境信息、塞到 prompt 最前面，完事。这样也能跑，但它和会话历史是<strong>两张皮</strong>——上下文的变化无迹可循，历史窗口的边界全靠猜。opencode 偏不：它让上下文的基线<strong>钉进会话的同一条序号时间线</strong>，让上下文的更新<strong>变成会话的同一种事件</strong>，于是「上下文」和「对话」共享同一套持久化、同一套事件流、同一条裁边线。<strong>不是两个系统勉强对接，而是一个系统的两个侧面。</strong>这种「万物归于同一条事件时间线」的整体感，是读懂 opencode 设计品味的关键一课——而上下文纪元，正是这种品味最集中的体现。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这一课是第五部分的<strong>枢纽</strong>，把抽象的源，钉进了具体会话的时间线：</p>
+  <ul>
+    <li><strong>纪元 = 快照 + 锚点</strong>：<span class="mono">session_context_epoch</span> 表存 baseline（说给模型）、snapshot（记给系统）、<strong>baseline_seq（钉在时间线的图钉）</strong>、revision、agent。</li>
+    <li><strong>prepare 每次运行前对表</strong>：首次 initialize；同 agent 走 reconcile（Unchanged 沉默 / Updated <strong>发 ContextUpdated 事件</strong>+revision+1）；换 agent 走 replace（第 27 课）。</li>
+    <li><strong>上下文的变化也是事件</strong>：Updated 不是改字段，而是 publish 一条 ContextUpdated——系统上下文的演进，是事件溯源的一部分。</li>
+    <li><strong>baselineSeq 合上第 19 课</strong>：纪元钉下的序号，正是 history.load 裁历史窗口那条线——上下文系统与会话引擎，由此缝合。</li>
+  </ul>
+  <p>但有两件事这一课只点了名、没展开：其一，「环境变了，发一条 <span class="mono">ContextUpdated</span> 更新事件」——这条更新，模型在对话<strong>中途</strong>到底是以什么形式读到的？那是<strong>第 25 课（会话中系统消息）</strong>。其二，「换了 agent，纪元要重立、还可能被 block」——这个 <span class="mono">AgentReplacementBlocked</span> 到底是怎么回事、为什么要 block？那是<strong>第 27 课（Agent 切换与 Epoch 替换）</strong>。纪元的「常态运转」讲完了，剩下两课讲它的「两种特殊时刻」：中途更新，与改朝换代。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">prepareOnce</span> 里「环境变了」那一支，最能体现「上下文变化即事件」：</p>
+  <pre class="code"><span class="cm">// 简化自 session/context-epoch.ts 的 prepareOnce</span>
+<span class="kw">const</span> result = <span class="kw">yield</span>* SystemContext.<span class="fn">reconcile</span>(value, snapshot)  <span class="cm">// 对表</span>
+<span class="cm">// …Unchanged / ReplacementReady 等分支略…</span>
+<span class="cm">// 环境确有更新 → 把它作为一条会话事件发布出去：</span>
+<span class="kw">yield</span>* events.<span class="fn">publish</span>(
+  SessionEvent.ContextUpdated,
+  { sessionID, messageID: ..., timestamp: ..., text: result.text },  <span class="cm">// ← 差异文本</span>
+  { commit: () =&gt; <span class="fn">advance</span>(db, sessionID, stored.revision, result.snapshot) })  <span class="cm">// 推进 revision + 存新快照</span></pre>
+  <p>读这段：<span class="mono">reconcile</span> 算出「变了什么」（<span class="mono">result.text</span> 就是第 22 课那个 update 差异文本），然后 <span class="mono">publish(SessionEvent.ContextUpdated, …)</span> 把它发成一条事件。注意那个 <span class="mono">commit</span> 回调——它和事件发布<strong>绑成一笔原子操作</strong>：事件落库的同时，<span class="mono">advance</span> 才推进 revision、存下新快照。「发更新事件」和「推进纪元状态」要么一起成、要么一起不成，绝不会出现「事件发了、快照没更新」的撕裂。<strong>连上下文更新这一步，都恪守着第 15 课那套「先持久、再推进」的事件溯源纪律。</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>上下文纪元</strong>把抽象的源，钉成一个会话里<strong>带序号的基线</strong>：<span class="mono">session_context_epoch</span> 表存 baseline、snapshot、<strong>baseline_seq</strong>、revision、agent。</li>
+    <li><strong>「纪元」之名</strong>：在某序号点确立基线 → 此后只发增量 → 重大事件（换 agent）才重立新纪元。</li>
+    <li><strong>prepare 每次运行前对表</strong>：首次 initialize；同 agent reconcile（Unchanged 沉默 / Updated 发 <span class="mono">ContextUpdated</span> 事件+revision+1）；换 agent replace。</li>
+    <li><strong>上下文变化也走事件溯源</strong>：Updated 是 publish 一条 ContextUpdated（而非改字段），且与推进 revision 绑成原子的 commit——「先持久、再推进」（第 15 课）。</li>
+    <li><strong>baselineSeq 合上第 19 课的环</strong>：纪元钉下的序号，正是 <span class="mono">history.load</span> 给历史窗口裁边那条线——上下文系统与会话引擎由此缝成一体。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">The past three lessons covered system context's "production side" fully: how a source observes itself, compares incrementally, gets gathered by the registry. But these all hung <strong>"in mid-air"</strong> — the context they produce, <strong>how does it land in a concrete session and get persistently recorded</strong>? This lesson answers that, and the answer is Part 5's namesake concept — the <strong>Context Epoch</strong>. It nails "this moment's system context for this session" into <strong>a numbered anchor</strong>, stored in the database. And that number, <span class="mono">baselineSeq</span>, you should recall — is exactly the line Lesson 19's <span class="mono">history.load</span> used to <strong>edge-trim</strong> the history window! Understand this lesson and Lesson 19's hanging hook, and all of Part 5, close the loop at once.</p>
+<p>Why "epoch"? The word is precisely chosen. An epoch is a <strong>reference point in time</strong> — like a calendar era counting from a certain moment. System context is the same: at <strong>some sequence point</strong> in the session history, a complete "baseline" is established; thereafter every change in the environment is just an <strong>incremental update relative to this baseline</strong>; until a major event (say an agent switch) requires <strong>opening a wholly new epoch</strong>, re-establishing the baseline. "Establish the baseline → incremental updates → re-establish when needed" — this rhythm is all "epoch" means. In other words, the epoch gives context "periods": each has its own start and evolution, and between periods is a clean changing of the guard. This lesson sees how it nails abstract sources into a concrete session's timeline.</p>
+
+<div class="card analogy">
+  <div class="tag">🏕️ Analogy</div>
+  Think of the context epoch as a <strong>base camp</strong> established when mountaineering. Before setting off, you pitch base camp at a definite location (establish the baseline) and <strong>record its coordinates</strong> (baselineSeq — "base camp pitched here"). Climbing on, you <strong>no longer describe the whole mountain each time</strong>, just note "relative to base camp, I climbed this much higher" (incremental updates). This base camp's coordinates are crucial: they're the <strong>boundary of "baseline ends here, beyond is new journey"</strong> — reviewing the record, everything before the coordinates is summarized by "at base camp," only beyond is your real climbing track (exactly the logic of Lesson 19's history.load edge-trimming by baselineSeq). And if you <strong>switch to a wholly different team</strong> (switch agent), the old base camp's coordinates and supplies may no longer apply — then either hand off smoothly or <strong>pitch a new camp</strong> (new epoch). A base camp with marked coordinates, incrementable, re-pitched when needed — that's the context epoch.
+</div>
+
+<h2>What an epoch is: a numbered baseline in the session</h2>
+<p>The context epoch is a persistent record, <strong>one row per session</strong> (the <span class="mono">session_context_epoch</span> table). It stores all the essentials of "this session's current system context":</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">baseline</div><div class="v">the baseline full text for the model (all sources' baselines stitched)</div></div>
+  <div class="cell"><div class="k">baseline_seq</div><div class="v">★ the sequence the baseline anchors at — history.load edge-trims by it (Lesson 19)</div></div>
+  <div class="cell"><div class="k">snapshot</div><div class="v">structured snapshot of all sources' current values (for next comparison)</div></div>
+  <div class="cell"><div class="k">revision</div><div class="v">how many times changed — optimistic-concurrency version number</div></div>
+  <div class="cell"><div class="k">agent</div><div class="v">which agent this baseline belongs to (switching agent triggers re-establishment)</div></div>
+</div>
+<p>Read these fields together and the epoch's whole picture is clear: it's a "<strong>snapshot + anchor</strong>" — <span class="mono">baseline</span> is the baseline full text <strong>spoken to the model</strong>, <span class="mono">snapshot</span> is the structured memory <strong>remembered by the system</strong> (exactly Lesson 22's "speak once, remember once" landed at the session layer), and <span class="mono">baseline_seq</span> is the pin nailing this baseline <strong>to a point on the session timeline</strong>. The cleverest is this pin: one end connects to system context (the baseline starts here), the other to Lesson 19's history window (<span class="mono">history.load</span> reads only the conversation after this sequence). <strong>The epoch is the point where system context and session history meet and mesh.</strong></p>
+<p>Note the <span class="mono">revision</span> field, inconspicuous but key: it's an <strong>optimistic-concurrency version number</strong>. In the source, <span class="mono">prepare</span> is wrapped in a <span class="mono">retryRevisionMismatch</span> layer — meaning, if two places try to update the same session's epoch almost simultaneously, they compare revisions, find "the version I read has already been changed by someone else," and <strong>back off and retry</strong>, rather than blindly overwriting and causing a lost update. This is another concurrency defense beyond Lesson 16's "serial within a session": epoch updates are guarded by a version number, ensuring two concurrent prepares don't trample each other's changes. A tiny <span class="mono">revision</span> integer carries the promise of "never silently losing a context update."</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">…seq &lt; baselineSeq</span><span class="tl-desc">summarized by the baseline full text — history.load no longer reads each</span></div>
+  <div class="tl-item"><span class="tl-time">baselineSeq (anchor)</span><span class="tl-desc">★ baseline established here: "before is backdrop, after is conversation"</span></div>
+  <div class="tl-item"><span class="tl-time">seq &gt; baselineSeq</span><span class="tl-desc">the real conversation history — history.load reads each, feeds the model</span></div>
+</div>
+
+<h2>prepare: reconcile before each run</h2>
+<p>The epoch isn't built once and forgotten. Before each session run (Lesson 17's loop starting), <span class="mono">SessionContextEpoch.prepare</span> is called — what it does, essentially, is "<strong>reconcile the environment observed now against the stored baseline</strong>." This rhythm of "reconcile before each run" is <strong>the same heartbeat</strong> as Lesson 17's "reread projected history each round": both distrust the old state hoarded in memory, and at each checkpoint go back to the durable layer to recalibrate against the latest truth. The logic branches into cases:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">first time</span><span class="t-txt">no stored record → initialize: observe all sources, stitch the baseline, insert, get baselineSeq, revision=0</span></div>
+  <div class="t-row"><span class="t-num">same agent</span><span class="t-txt">stored record, agent unchanged → reconcile: compare against the snapshot</span></div>
+  <div class="t-row"><span class="t-num">→ Unchanged</span><span class="t-txt">environment unchanged → keep old baseline/baselineSeq, send nothing</span></div>
+  <div class="t-row"><span class="t-num">→ Updated</span><span class="t-txt">environment changed → publish a ContextUpdated event (with diff text), revision+1</span></div>
+  <div class="t-row"><span class="t-num">switch agent</span><span class="t-txt">agent changed → replace: try to re-establish the epoch (may be blocked, Lesson 27)</span></div>
+</div>
+<p>This "reconcile" logic uses all the prior lessons' parts. <strong>First time</strong> is Lessons 21-23's chain "registry load → combine → initialize → Generation" landed as one database row. <strong>Same-agent reconcile</strong> is exactly Lesson 22's compare at the session level: environment unchanged → <strong>silence</strong> (Unchanged, keep the old baseline, don't even touch baselineSeq); changed → <strong>Updated</strong> — but note it's not simply editing a field but <strong>publishing a <span class="mono">ContextUpdated</span> event</strong>! This detail is vital: the context change is recorded as <strong>a formal event in the session history</strong> (remember Lessons 14, 15's "everything is an event, append-only"?) — so when the model rereads history next round, it naturally reads the "oh, the directory changed" update, seamlessly. <strong>The evolution of system context is itself part of event sourcing.</strong></p>
+<div class="cols">
+  <div class="col"><h4>reconcile · same agent, compute increment</h4><p>Agent unchanged. Compare current environment with the stored snapshot, compute "what changed." Normal operation takes this: silence or send an increment.</p></div>
+  <div class="col"><h4>replace · switch agent, re-establish epoch</h4><p>Agent changed. The old baseline may no longer apply, try a wholesale replacement into a new epoch — and this step may be blocked (Lesson 27).</p></div>
+</div>
+<p>Why does "switching agent" take an entirely different <span class="mono">replace</span> path rather than counting as an ordinary "changed"? Because the agent isn't an ordinary field in the environment, it <strong>determines the whole context's "persona" and rules</strong>. The same directory, the same time, seen by a different agent, what to emphasize and what instructions to carry may be <strong>utterly different</strong>. This change is too fundamental to express as "append an increment onto the old baseline" — it needs <strong>tearing down the old baseline and re-establishing one</strong>, like switching mountaineering teams and pitching a new base camp rather than sticking a note on the old one. Splitting "same-agent evolution" and "agent-switch changing of the guard" into reconcile and replace paths is the epoch design's clarity about "changes come in sizes": small changes incremented, big changes started over.</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">Unchanged</div><div class="v">environment unchanged → keep old baseline, send nothing</div></div>
+  <div class="cell"><div class="k">Updated</div><div class="v">environment changed → publish ContextUpdated event + revision+1</div></div>
+  <div class="cell"><div class="k">ReplacementReady</div><div class="v">agent switched and replaceable → re-establish epoch, revision+1</div></div>
+  <div class="cell"><div class="k">ReplacementBlocked</div><div class="v">agent switched but blocked → AgentReplacementBlocked (Lesson 27)</div></div>
+</div>
+
+<h2>baselineSeq: closing Lesson 19's loop</h2>
+<p>Now we can formally close that hook hanging for five lessons. When Lesson 19 covered <span class="mono">history.load</span>, one of the two edge-trim lines it concurrently fetched was the <strong>context epoch's <span class="mono">baseline_seq</span></strong>. We said then "this line bounds the history window" but didn't say where it came from. Now the answer: <strong>it's this lesson's epoch, the sequence nailed down when the baseline was established.</strong> A hook five lessons in the making lands on so plain an integer — but it's exactly this integer that meshes the two seemingly-independent mechanisms seamlessly together.</p>
+<div class="flow">
+  <div class="node">sources (L21-23)<span class="sub">observe + combine</span></div>
+  <div class="arrow">initialize →</div>
+  <div class="node">Generation<span class="sub">baseline + snapshot</span></div>
+  <div class="arrow">insert →</div>
+  <div class="node">epoch (persisted)<span class="sub">nails down baselineSeq</span></div>
+  <div class="arrow">history.load reads →</div>
+  <div class="node">trim the history window<span class="sub">Lesson 19</span></div>
+</div>
+<p>Walk this chain and all of Parts 4 and 5 <strong>mesh into a closed loop</strong>: system context (L21-23) is observed, stitched into a baseline → established as an epoch, nailing down baselineSeq (this lesson) → this baselineSeq in turn tells history.load "where to start reading history" (L19) → the read history window, with the baseline, is fed to the agent loop (L17) → the loop produces new messages, new events → the next round's prepare reconciles again… System context doesn't hang isolated to the side but is <strong>deeply woven into the session's timeline and event stream</strong>. That tiny <span class="mono">baselineSeq</span> pin is the stitch sewing "the context system" and "the session engine" together.</p>
+<p>Step back to this loop and you'll feel the architecture's "wholeness" more deeply. A less careful design might make "system context" a <strong>standalone little module</strong>: each round temporarily stitch some environment info, jam it at the front of the prompt, done. That works too, but it's <strong>two separate skins</strong> from the session history — context changes leave no trace, the history window's boundary is all guesswork. opencode refuses: it nails the context baseline <strong>into the session's same numbered timeline</strong>, makes context updates <strong>the session's same kind of event</strong>, so "context" and "conversation" share one persistence, one event stream, one edge-trim line. <strong>Not two systems forced to connect, but two sides of one system.</strong> This sense of "everything belonging to one event timeline" is a key lesson in understanding opencode's design taste — and the context epoch is that taste's most concentrated expression.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture</div>
+  <p>This lesson is Part 5's <strong>hub</strong>, nailing abstract sources into a concrete session's timeline:</p>
+  <ul>
+    <li><strong>Epoch = snapshot + anchor</strong>: the <span class="mono">session_context_epoch</span> table stores baseline (spoken to the model), snapshot (remembered by the system), <strong>baseline_seq (the pin on the timeline)</strong>, revision, agent.</li>
+    <li><strong>prepare reconciles before each run</strong>: first time initialize; same agent reconcile (Unchanged silent / Updated <strong>publishes a ContextUpdated event</strong>+revision+1); switch agent replace (Lesson 27).</li>
+    <li><strong>Context changes also go through event sourcing</strong>: Updated isn't editing a field but publishing a ContextUpdated — system context's evolution is part of event sourcing.</li>
+    <li><strong>baselineSeq closes Lesson 19</strong>: the epoch's nailed-down sequence is exactly history.load's history-window edge-trim line — the context system and session engine are stitched thereby.</li>
+  </ul>
+  <p>But two things this lesson only named without unfolding: one, "environment changed, send a <span class="mono">ContextUpdated</span> update event" — in what form does the model read this update <strong>mid-conversation</strong>? That's <strong>Lesson 25 (mid-conversation messages)</strong>. Two, "switched agent, the epoch must re-establish and may be blocked" — what is this <span class="mono">AgentReplacementBlocked</span>, why block? That's <strong>Lesson 27 (agent switch & epoch replacement)</strong>. The epoch's "normal operation" covered, the remaining lessons cover its "two special moments": mid-conversation update, and changing of the guard.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p><span class="mono">prepareOnce</span>'s "environment changed" branch best shows "context change is an event":</p>
+  <pre class="code"><span class="cm">// simplified from prepareOnce in session/context-epoch.ts</span>
+<span class="kw">const</span> result = <span class="kw">yield</span>* SystemContext.<span class="fn">reconcile</span>(value, snapshot)  <span class="cm">// reconcile</span>
+<span class="cm">// …Unchanged / ReplacementReady branches omitted…</span>
+<span class="cm">// environment did update → publish it as a session event:</span>
+<span class="kw">yield</span>* events.<span class="fn">publish</span>(
+  SessionEvent.ContextUpdated,
+  { sessionID, messageID: ..., timestamp: ..., text: result.text },  <span class="cm">// ← diff text</span>
+  { commit: () =&gt; <span class="fn">advance</span>(db, sessionID, stored.revision, result.snapshot) })  <span class="cm">// advance revision + store new snapshot</span></pre>
+  <p>Read it: <span class="mono">reconcile</span> computes "what changed" (<span class="mono">result.text</span> is exactly Lesson 22's update diff text), then <span class="mono">publish(SessionEvent.ContextUpdated, …)</span> emits it as an event. Note that <span class="mono">commit</span> callback — it's <strong>bound into one atomic operation</strong> with the event publish: only as the event lands does <span class="mono">advance</span> push the revision and store the new snapshot. "Send the update event" and "advance the epoch state" either both succeed or both don't, never a tear of "event sent, snapshot not updated." <strong>Even the context-update step abides by Lesson 15's event-sourcing discipline of "persist first, advance later."</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li><strong>The context epoch</strong> nails abstract sources into a <strong>numbered baseline</strong> in a session: the <span class="mono">session_context_epoch</span> table stores baseline, snapshot, <strong>baseline_seq</strong>, revision, agent.</li>
+    <li><strong>The name "epoch"</strong>: establish a baseline at some sequence point → thereafter send only increments → a major event (switch agent) re-establishes a new epoch.</li>
+    <li><strong>prepare reconciles before each run</strong>: first time initialize; same agent reconcile (Unchanged silent / Updated publishes a <span class="mono">ContextUpdated</span> event+revision+1); switch agent replace.</li>
+    <li><strong>Context changes also go through event sourcing</strong>: Updated publishes a ContextUpdated (not editing a field), bound with advancing revision into an atomic commit — "persist first, advance later" (Lesson 15).</li>
+    <li><strong>baselineSeq closes Lesson 19's loop</strong>: the epoch's nailed-down sequence is exactly <span class="mono">history.load</span>'s history-window edge-trim line — the context system and session engine stitched into one thereby.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_25 = wip('会话中系统消息', 'Mid-conversation messages')
 LESSON_26 = wip('内置 Context Sources', 'Built-in sources')
 LESSON_27 = wip('Agent 切换与 Epoch 替换', 'Agent switch & epoch')

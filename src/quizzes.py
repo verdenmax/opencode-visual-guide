@@ -1036,6 +1036,47 @@ QUIZZES = {
             {"zh": "Entry 里的 load 是 Effect<SystemContext>（一段「怎么观察」的描述），而非一个死值。这让每次 load() 都重新观察、拿到最新环境。如果改成注册时就存死一个值，会丢失什么能力？", "en": "An Entry's load is Effect<SystemContext> (a description of \"how to observe\"), not a dead value. This makes each load() re-observe, getting the latest environment. If you instead stored a fixed value at registration time, what ability would you lose?"},
         ],
     },
+    "24-context-epoch.html": {
+        "mcq": [
+            {
+                "q": {"zh": "上下文纪元里的 baseline_seq 是什么、为什么重要？", "en": "What is baseline_seq in the context epoch, and why does it matter?"},
+                "opts": [
+                    {"zh": "把基线钉在会话时间线某序号的图钉——正是第 19 课 history.load 给历史窗口裁边那条线", "en": "The pin nailing the baseline at a sequence on the session timeline — exactly Lesson 19's history.load history-window edge-trim line"},
+                    {"zh": "一个随机生成的会话 ID", "en": "A randomly generated session ID"},
+                    {"zh": "模型的版本号", "en": "The model's version number"},
+                    {"zh": "token 计数", "en": "A token count"},
+                ],
+                "answer": 0,
+                "why": {"zh": "纪元确立基线时钉下 baseline_seq：往前的历史被基线全文概括、history.load 不逐条读，往后才是真正的对话。它一头连系统上下文、一头连会话历史窗口——是上下文系统与会话引擎缝合的那一针，合上了第 19 课的伏笔。", "en": "The epoch nails baseline_seq when establishing the baseline: history before it is summarized by the baseline text (history.load skips reading each), after it is the real conversation. One end connects system context, the other the history window — the stitch joining the context system and session engine, closing Lesson 19's hook."},
+            },
+            {
+                "q": {"zh": "reconcile 发现环境变了，prepare 怎么记录这次变化？", "en": "When reconcile finds the environment changed, how does prepare record it?"},
+                "opts": [
+                    {"zh": "publish 一条 ContextUpdated 事件（带差异文本）——上下文变化也是会话历史里的正式事件", "en": "Publish a ContextUpdated event (with diff text) — a context change is also a formal event in the session history"},
+                    {"zh": "直接改 baseline 字段", "en": "Directly edit the baseline field"},
+                    {"zh": "打印到日志", "en": "Print to a log"},
+                    {"zh": "什么都不做", "en": "Do nothing"},
+                ],
+                "answer": 0,
+                "why": {"zh": "Updated 不是改字段，而是 publish(SessionEvent.ContextUpdated, {text: 差异})。于是模型下一轮重读历史自然读到这条更新、无缝衔接。且发事件与推进 revision/存快照绑成原子 commit——「先持久、再推进」，系统上下文的演进本身就是事件溯源的一部分（呼应第 14、15 课）。", "en": "Updated isn't editing a field but publish(SessionEvent.ContextUpdated, {text: diff}). So the model rereads it naturally next round, seamlessly. And the publish is bound atomically with advancing revision/storing snapshot — \"persist first, advance later\"; system context's evolution is itself part of event sourcing (echoing Lessons 14, 15)."},
+            },
+            {
+                "q": {"zh": "为什么「换 agent」走 replace（重立纪元）而非当成普通的 Updated？", "en": "Why does \"switch agent\" take replace (re-establish epoch) rather than count as an ordinary Updated?"},
+                "opts": [
+                    {"zh": "agent 决定整份上下文的「人设」和规矩，变化太根本，需掀掉旧基线重立——而非在旧基线上补增量", "en": "The agent determines the whole context's \"persona\" and rules; the change is too fundamental, needing to tear down and re-establish the baseline — not append an increment onto the old one"},
+                    {"zh": "因为 agent 字段更长", "en": "Because the agent field is longer"},
+                    {"zh": "为了删除旧会话", "en": "To delete the old session"},
+                    {"zh": "没有区别，只是代码风格", "en": "No difference, just code style"},
+                ],
+                "answer": 0,
+                "why": {"zh": "agent 不是环境里普通字段，它决定该强调什么、带什么指令。同一目录同一时间，换个 agent 来看可能面目全非——不是「补一句增量」能表达的，需重立基线（像登山换队伍要另立大本营）。把同 agent 演进(reconcile)与换 agent 改朝换代(replace)分两条路，是对「变化有大小」的清醒。", "en": "The agent isn't an ordinary field; it decides what to emphasize and which instructions to carry. Same dir, same time, a different agent may see something utterly different — not expressible as \"append an increment,\" needing re-establishment (like a new mountaineering team pitching a new base camp). Splitting same-agent evolution (reconcile) from agent-switch changing-of-the-guard (replace) is clarity about \"changes come in sizes.\""},
+            },
+        ],
+        "open": [
+            {"zh": "课里说上下文纪元让「上下文」和「对话」共享同一套持久化、同一条事件流、同一条裁边线——「不是两个系统勉强对接，而是一个系统的两个侧面」。对比「把系统上下文做成独立小模块、每轮临时拼一段塞进 prompt」，后者会丢失什么？", "en": "The lesson says the context epoch makes \"context\" and \"conversation\" share one persistence, one event stream, one edge-trim line — \"not two systems forced to connect, but two sides of one system.\" Compared to \"making system context a standalone module, stitching a bit into the prompt each round,\" what does the latter lose?"},
+            {"zh": "revision 是个乐观并发版本号，prepare 外套 retryRevisionMismatch：两处并发更新同一会话纪元时比对版本、退让重试，绝不盲目覆盖。这道防线和第 16 课「同会话串行」有何不同、又如何互补？", "en": "revision is an optimistic-concurrency version number, with prepare wrapped in retryRevisionMismatch: two concurrent updates to the same session's epoch compare versions, back off and retry, never blindly overwriting. How does this defense differ from and complement Lesson 16's \"serial within a session\"?"},
+        ],
+    },
 }
 
 def render(fname, lang):
