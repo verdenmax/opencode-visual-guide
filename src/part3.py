@@ -483,6 +483,235 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
 </div>
 """,
 }
-LESSON_11 = wip('SSE 事件总线', 'The SSE event bus')
+LESSON_11 = {
+    "zh": r"""
+<p class="lead">上一课的 21 个组里，大多数都是「你问一句、我答一句」的一次性买卖：GET 一下拿到会话列表，POST 一下创建会话。但有一个组特别不一样——<span class="mono">event</span>。它只有<strong>一个端点</strong>，可这个端点一旦连上就<strong>不挂断</strong>，而是变成一条<strong>持续往客户端推送</strong>的长河。这一课我们就解剖这条河：服务器内部状态一变（来了新消息、工具开始跑、会话状态变了），怎么<strong>实时</strong>告诉每一个正在看的客户端？答案是 <strong>SSE（Server-Sent Events，服务器推送事件）</strong>，而它的源头，是一条贯穿 core 的<strong>事件总线</strong>。</p>
+<p>为什么这条河值得单独讲一课？因为它是 opencode「<strong>多端实时一致</strong>」的命脉。你在 TUI 里看到 AI 一个字一个字往外蹦、工具调用的状态实时翻牌——这些<strong>不是 TUI 自己算出来的</strong>，而是 server 通过这条 SSE 河推过来的。网页端、桌面端连的是<strong>同一条河</strong>，所以它们看到的画面天然同步。读懂这一课，你就明白了 opencode 那种「换个客户端、进度一模一样」的魔法，根在哪里。</p>
+
+<div class="card analogy">
+  <div class="tag">📡 生活类比</div>
+  想象你订了一份<strong>实时新闻直播</strong>。老办法（轮询）是你每隔十秒打一次电话问编辑部：「有新闻吗？有新闻吗？」——既烦人又总慢半拍。SSE 的办法是：你<strong>打通一个电话就一直挂着</strong>，编辑部那头<strong>一有新消息就立刻念给你听</strong>，你什么都不用做，只管听。更妙的是几个细节：你一拨通，编辑部<strong>第一句先报「连上了」</strong>（server.connected）让你安心；之后哪怕一时没新闻，对方也会每隔十秒「喂、还在吗」地<strong>响一声</strong>（heartbeat），免得线路被中间的总机当成空闲给掐了；而且——这点最关键——<strong>你一拨通的瞬间，编辑部就开始为你攒稿了</strong>，哪怕第一条还在路上，期间发生的新闻一条都不会漏。这通「永不挂断、主动播报、定时报平安、接通即开始攒」的电话，就是 SSE。
+</div>
+
+<h2>为什么是 SSE，而不是轮询或 WebSocket</h2>
+<p>客户端要跟上服务器的变化，理论上有三条路。<strong>轮询</strong>：客户端每隔几秒问一次「有变化吗」——简单，但要么浪费（大多数时候没变化）、要么迟钝（间隔越大越慢）。<strong>WebSocket</strong>：开一条双向全双工通道——强大，但它是<strong>另一套协议</strong>，要单独握手、单独处理，对「只需要服务器→客户端单向推」的场景属于杀鸡用牛刀。<strong>SSE</strong> 取了个巧妙的中间点：它就是一个<strong>普通的 HTTP GET 请求</strong>，只不过响应体<strong>永远不结束</strong>，服务器源源不断往里写文本。</p>
+<div class="cols">
+  <div class="col"><h4>轮询 Polling</h4><p>客户端反复问。简单，但浪费带宽或反应迟钝，二选一。</p></div>
+  <div class="col"><h4>WebSocket</h4><p>双向全双工。强大，但是另一套协议，单向场景下过重。</p></div>
+  <div class="col"><h4>SSE（opencode 选这个）</h4><p>就是个不结束的 HTTP GET。单向推送、纯文本、浏览器原生支持、断线自动重连。</p></div>
+</div>
+<p>对 opencode 的需求来说，SSE 简直是量身定做：事件<strong>本来就是单向的</strong>（服务器有事告诉客户端，客户端没什么要实时回推的）；它<strong>就是 HTTP</strong>，于是上一课那套路由组、中间件、鉴权全都自动复用，不必为它另起炉灶；浏览器还<strong>原生支持</strong> <span class="mono">EventSource</span>、断了会自动重连。一个「不结束的 GET」，就把实时推送这件事，轻轻巧巧地塞进了既有的 HTTP 骨架里。</p>
+<p>这里其实藏着一条很值得记住的设计哲学：<strong>能复用既有骨架，就别另造一套</strong>。WebSocket 不是不好，而是它带来的「另一套协议、另一套鉴权、另一套调试工具」的成本，只有在真正需要双向实时时才划算。opencode 的场景是清一色的「服务器播报、客户端收听」，于是它果断选了那个<strong>能让上一课所有基础设施原封不动复用</strong>的方案。这种「先问需求的形状、再挑最贴合的工具」的判断力，比记住三种技术的优劣表更重要——它解释的不是「SSE 是什么」，而是「为什么是 SSE」。</p>
+
+<h2>event 组：一个端点，却返回一条流</h2>
+<p>翻开 <span class="mono">groups/event.ts</span>，整个组干净得出奇——<strong>只有一个端点</strong> <span class="mono">subscribe</span>，路径 <span class="mono">GET /event</span>。但它的 <span class="mono">success</span> 类型，藏着全部玄机：</p>
+<pre class="code"><span class="cm">// groups/event.ts —— success 不是 JSON，而是事件流</span>
+HttpApiEndpoint.<span class="fn">get</span>(<span class="st">"subscribe"</span>, <span class="st">"/event"</span>, {
+  query: WorkspaceRoutingQuery,
+  success: Schema.String.<span class="fn">pipe</span>(
+    HttpApiSchema.<span class="fn">asText</span>({ contentType: <span class="st">"text/event-stream"</span> })),
+})</pre>
+<p>看见 <span class="mono">contentType: "text/event-stream"</span> 了吗？这一行就是「我返回的不是一坨 JSON，而是一条 SSE 流」的官方声明。在上一课的契约世界里，这依然是一份规规矩矩的契约——只不过它承诺的回执，是<strong>一条永不终结的文本河</strong>，而非一次性的对象。组的末尾照例挂着三道中间件（实例上下文、工作区路由、鉴权），说明这条流和别的端点一样，<strong>要先过安检、要认领是哪个实例的事</strong>。声明部分到此为止，真正把河水接出来的活，在 handler 里。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">端点</div><div class="v">只有一个：subscribe（GET /event）</div></div>
+  <div class="cell"><div class="k">success</div><div class="v">text/event-stream —— 不是 JSON，是 SSE 流</div></div>
+  <div class="cell"><div class="k">中间件</div><div class="v">实例上下文 + 工作区路由 + 鉴权，照常把关</div></div>
+</div>
+
+<h2>handler 里的流水线：从总线到 SSE</h2>
+<p><span class="mono">handlers/event.ts</span> 是这一课的高潮。它把「core 里到处发生的事件」一路接成「写给客户端的 SSE 文本」，中间是一条优雅的 Effect <span class="mono">Stream</span> 流水线。我们顺着水流走一遍：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">events.listen(...) —— 立刻向实例事件总线登记一个监听器</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">每来一个事件，offer 进一个 unbounded 队列（先攒着，不丢）</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">addFinalizer(unsubscribe) —— 连接断了就注销监听，绝不泄漏</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">Stream.fromQueue → filter：只留属于「本实例本工作区」的事件</span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">merge 心跳流 + disposed 流，再 SSE 编码成文本，流式写回</span></div>
+</div>
+<p>第 1、2 步藏着一个<strong>极其重要、又极易被忽略</strong>的正确性细节。注意源码里那句注释：监听器是<strong>「eager（提前）」</strong>登记的——在 HTTP 响应体那个 fiber 还没真正开始吐数据之前，监听就已经挂好、事件已经开始往队列里攒了。为什么非这样不可？设想反过来：如果先开始发响应、再去登记监听，那么<strong>「发响应」和「登记监听」之间的那一瞬间</strong>里发生的事件，就会<strong>永远漏掉</strong>——客户端以为自己订阅了，却恰好错过了刚连上那一刻的几条消息。把登记提前到最前面，再配一个<strong>无界队列</strong>当蓄水池，就堵死了这个缝隙：<strong>从你订阅的第一刻起，事件只进队列、绝不丢失</strong>。</p>
+<div class="flow">
+  <div class="node">core 各处<span class="sub">发布 EventV2 事件</span></div>
+  <div class="arrow">→</div>
+  <div class="node">事件总线<span class="sub">listen 登记（eager）</span></div>
+  <div class="arrow">→</div>
+  <div class="node">unbounded 队列<span class="sub">蓄水·不丢</span></div>
+  <div class="arrow">→</div>
+  <div class="node">filter<span class="sub">只留本实例</span></div>
+  <div class="arrow">→</div>
+  <div class="node">SSE 流<span class="sub">写回客户端</span></div>
+</div>
+<p>第 4 步的 <span class="mono">filter</span> 也值得说一句。一台机器上可能同时跑着多个实例、多个工作区的会话，但事件总线是<strong>全局共享</strong>的——大家的事件都往同一条总线上发。所以每一条 SSE 连接都得<strong>戴上一副「过滤眼镜」</strong>：只放行 <span class="mono">directory</span> 和 <span class="mono">workspaceID</span> 都对得上自己的事件。这样一来，同一台 server 上 A 工作区的客户端，绝不会串台收到 B 工作区的动静。<strong>一条共享总线、N 副过滤眼镜</strong>——这就是多实例隔离在事件层的实现。</p>
+<p>顺带留意那个队列选的是<strong>无界（unbounded）</strong>，这背后是一次有意的取舍。无界意味着：哪怕客户端读得慢、网络发得慢，生产者那头<strong>永远不会被堵住</strong>——core 里发事件的代码该跑就跑，绝不会因为某个客户端卡了而被反压拖慢。代价是内存：万一某条连接彻底不读了，队列会一直涨。opencode 在这里选了<strong>「宁可多占点内存，也绝不丢事件、绝不拖慢核心」</strong>，并用前面那个 <span class="mono">addFinalizer</span> 兜底——连接一断就注销监听、释放队列，把内存风险收口在「连接存活期间」。从这个小小的 unbounded 里，你能读出 opencode 对事件流的态度：<strong>事件的完整与核心的流畅，优先于内存的精打细算</strong>。</p>
+
+<h2>开场白、心跳、与谢幕</h2>
+<p>最后一步把流真正组装成 SSE 响应，这里有三个贴心的设计，对应一段连接的<strong>一生</strong>。开场：流的第一条永远是 <span class="mono">server.connected</span>，等于电话接通后那句「连上了」，让客户端确认订阅成功。中场：把真正的业务事件流，和一条<strong>每 10 秒一跳的心跳流</strong>（<span class="mono">server.heartbeat</span>）<span class="mono">merge</span> 在一起。谢幕：整条流 <span class="mono">takeUntil</span> 收到 <span class="mono">server.instance.disposed</span>——实例被销毁，河就到此为止，优雅地流干、关闭。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">server.connected</div><div class="v">开场白·流的第一条·确认订阅成功</div></div>
+  <div class="cell"><div class="k">server.heartbeat</div><div class="v">每 10s 一跳·报平安·防连接被掐</div></div>
+  <div class="cell"><div class="k">server.instance.disposed</div><div class="v">谢幕信号·takeUntil 据此结束整条流</div></div>
+</div>
+<p>这三条「带 server. 前缀」的事件，和真正的业务事件（message.updated、tool.start 之类）混在同一条流里，但角色完全不同：业务事件是<strong>河里的水</strong>，而这三条是<strong>河的开闸、心跳与关闸</strong>——它们不携带业务信息，只负责管理这条连接本身的生命周期。把「连接管理」也做成事件、和数据走同一条管道，是个很干净的设计：客户端只需<strong>一套</strong>处理事件的逻辑，连「我连上了没」「对面还活着吗」「该收尾了」这些控制信号，都顺着同一条河自然流过来，不必另开旁路。</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">t=0</span><span class="tl-desc">server.connected —— 「连上了」，订阅确认</span></div>
+  <div class="tl-item"><span class="tl-time">t=0.3s</span><span class="tl-desc">message.updated、tool.start… 真实业务事件陆续推来</span></div>
+  <div class="tl-item"><span class="tl-time">每 10s</span><span class="tl-desc">server.heartbeat —— 「还在」，防止线路被当空闲掐掉</span></div>
+  <div class="tl-item"><span class="tl-time">t=end</span><span class="tl-desc">server.instance.disposed —— 实例销毁，takeUntil 结束这条流</span></div>
+</div>
+<p>那条<strong>心跳</strong>看似无聊，实则是工程上的救命设计。现实里，客户端和 server 之间常隔着代理、负载均衡、网关——这些中间设备最爱干一件事：<strong>把「一段时间没动静」的连接当成死链给掐了</strong>。一旦 AI 正在长考、十几秒没有新事件，连接就可能被中途掐断。每 10 秒发一个 <span class="mono">server.heartbeat</span>，等于不断告诉沿途所有设备「这条线还活着，别动它」。响应头里那句 <span class="mono">Cache-Control: no-cache, no-transform</span> 也是同样的苦心——<strong>no-transform</strong> 是在央求中间的代理：千万别自作聪明地缓冲、压缩、改写我这条流，逐条原样放行就好。实时系统的细节，全在这些和基础设施「斗智斗勇」的小动作里。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>把这一课放回全局：opencode 里<strong>「读」状态有两条通道</strong>——一次性的查询（GET 会话、消息，第 10 课那些普通端点），和持续的推送（这一课的 SSE）。两者分工明确：</p>
+  <ul>
+    <li><strong>core 各处</strong>发布 EventV2 事件到共享<strong>事件总线</strong>（GlobalBus / 实例总线）。</li>
+    <li><strong>event handler</strong> 把总线接成 SSE：eager 监听 → 无界队列蓄水 → 按实例过滤 → 合并心跳 → 编码推出。</li>
+    <li><strong>客户端</strong>（TUI/网页/桌面）连一次 <span class="mono">GET /event</span>，就拿到一条实时的状态河，多端天然同步。</li>
+  </ul>
+  <p>这条河的「下游」是谁、客户端拿到事件后怎么把它喂进自己的本地状态？那是第 54 课（events → store）的故事。这一课你只要记住：<strong>实时，是推出来的，不是问出来的</strong>。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>SSE 响应的组装，是一段教科书级的 Stream 拼接——开场白 ++ (业务事件 merge 心跳) → SSE 编码 → 文本：</p>
+  <pre class="code"><span class="cm">// 简化自 handlers/event.ts</span>
+HttpServerResponse.<span class="fn">stream</span>(
+  Stream.<span class="fn">make</span>({ type: <span class="st">"server.connected"</span>, ... })  <span class="cm">// 开场白</span>
+    .<span class="fn">pipe</span>(
+      Stream.<span class="fn">concat</span>(output.<span class="fn">pipe</span>(
+        Stream.<span class="fn">merge</span>(heartbeat, { haltStrategy: <span class="st">"left"</span> }))),  <span class="cm">// 业务+心跳</span>
+      Stream.<span class="fn">map</span>(eventData),
+      Stream.<span class="fn">pipeThroughChannel</span>(Sse.<span class="fn">encode</span>()),  <span class="cm">// 编成 SSE 线格式</span>
+      Stream.encodeText,
+    ),
+  { contentType: <span class="st">"text/event-stream"</span>,
+    headers: { <span class="st">"Cache-Control"</span>: <span class="st">"no-cache, no-transform"</span> } })</pre>
+  <p>每一段 <span class="mono">.pipe</span> 都是一道工序：先放开场白，接上「业务事件与心跳合流」的主体，逐条变成 SSE 事件对象，过 <span class="mono">Sse.encode()</span> 编成 <span class="mono">data: ...\n\n</span> 的线缆格式，最后转成字节流写回。<strong>声明式的流水线，把「实时推送」这件复杂的事，写成了一串可读的管道。</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li>opencode 用 <strong>SSE</strong>（一个永不结束的 HTTP GET）做服务器→客户端的实时推送：比轮询省、比 WebSocket 轻，且自动复用既有 HTTP 骨架。</li>
+    <li><span class="mono">event</span> 组只有一个端点，玄机在 <span class="mono">success</span> 的 <span class="mono">contentType: "text/event-stream"</span>——契约承诺的是一条流，不是一个对象。</li>
+    <li>handler 的流水线：<strong>eager 登记监听 → 无界队列蓄水 → 按实例/工作区 filter → 合并心跳 → SSE 编码推出</strong>。</li>
+    <li><strong>提前登记监听</strong>是关键正确性细节：堵住「开始响应」与「登记监听」之间的缝隙，订阅那一刻起事件绝不丢失。</li>
+    <li><strong>心跳（每 10s）+ no-transform</strong> 是为了对抗中间代理：防连接被当空闲掐断、防流被缓冲改写。多端实时一致的根，就是这条河。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Of the last lesson's 21 groups, most are one-shot "you ask, I answer" deals: GET the session list, POST to create a session. But one group is special — <span class="mono">event</span>. It has <strong>a single endpoint</strong>, yet once that endpoint connects it <strong>never hangs up</strong>, instead becoming a long river that <strong>continuously pushes to the client</strong>. This lesson dissects that river: when the server's internal state changes (a new message arrives, a tool starts running, a session's status flips), how does it tell every watching client <strong>in real time</strong>? The answer is <strong>SSE (Server-Sent Events)</strong>, and its headwater is an <strong>event bus</strong> running through core.</p>
+<p>Why does this river deserve its own lesson? Because it's the lifeline of opencode's <strong>multi-client real-time consistency</strong>. The AI spitting out one character at a time in your TUI, tool-call statuses flipping live — these <strong>aren't computed by the TUI itself</strong>; the server pushes them down this SSE river. The web and desktop clients connect to the <strong>same river</strong>, so what they see is naturally in sync. Grasp this lesson and you'll know where opencode's "switch clients, identical progress" magic is rooted.</p>
+
+<div class="card analogy">
+  <div class="tag">📡 Analogy</div>
+  Imagine you subscribe to a <strong>live news feed</strong>. The old way (polling) is calling the newsroom every ten seconds: "Any news? Any news?" — annoying and always a beat behind. The SSE way: you <strong>dial once and keep the line open</strong>, and the newsroom <strong>reads each new item to you the instant it breaks</strong>; you do nothing but listen. Better still, a few details: the moment you connect, they <strong>first say "you're connected"</strong> (server.connected) to reassure you; then even with no news, they <strong>chirp every ten seconds</strong> ("still there?") (heartbeat), lest some switchboard in the middle mistake the line for idle and cut it; and — most crucial — <strong>the instant you dial in, they start saving copy for you</strong>, so even while the first item is still en route, nothing breaking in the meantime is missed. This "never hangs up, broadcasts actively, pings periodically, starts saving on connect" call is SSE.
+</div>
+
+<h2>Why SSE, not polling or WebSocket</h2>
+<p>To keep up with the server's changes, a client has, in theory, three roads. <strong>Polling</strong>: the client asks "any change?" every few seconds — simple, but either wasteful (mostly nothing changed) or sluggish (the longer the interval, the slower). <strong>WebSocket</strong>: open a bidirectional full-duplex channel — powerful, but it's <strong>a separate protocol</strong> needing its own handshake and handling, overkill for a "server→client one-way push" scenario. <strong>SSE</strong> takes a clever middle point: it's just an <strong>ordinary HTTP GET request</strong>, except the response body <strong>never ends</strong> and the server keeps writing text into it.</p>
+<div class="cols">
+  <div class="col"><h4>Polling</h4><p>Client asks repeatedly. Simple, but pick one: wasted bandwidth or sluggish reaction.</p></div>
+  <div class="col"><h4>WebSocket</h4><p>Bidirectional full-duplex. Powerful, but a separate protocol, too heavy for one-way.</p></div>
+  <div class="col"><h4>SSE (opencode's pick)</h4><p>Just a GET that never ends. One-way push, plain text, native browser support, auto-reconnect.</p></div>
+</div>
+<p>For opencode's needs, SSE is tailor-made: events are <strong>one-way by nature</strong> (the server has things to tell the client; the client has nothing to push back in real time); it <strong>is HTTP</strong>, so the last lesson's route groups, middleware, and auth all auto-reuse with no separate setup; and browsers <strong>natively support</strong> <span class="mono">EventSource</span> and auto-reconnect on drop. One "GET that never ends" slips real-time push neatly into the existing HTTP skeleton.</p>
+<p>There's a design philosophy here worth remembering: <strong>if you can reuse the existing skeleton, don't build another</strong>. WebSocket isn't bad; its cost — "another protocol, another auth, another set of debugging tools" — only pays off when you truly need bidirectional real-time. opencode's scenario is uniformly "server broadcasts, client listens," so it decisively chose the option that <strong>lets all of last lesson's infrastructure be reused untouched</strong>. This "ask the shape of the need first, then pick the most fitting tool" judgment matters more than memorizing a pros-and-cons table of three technologies — it explains not "what SSE is" but "why SSE."</p>
+
+<h2>The event group: one endpoint, but it returns a stream</h2>
+<p>Open <span class="mono">groups/event.ts</span> and the whole group is startlingly clean — <strong>just one endpoint</strong>, <span class="mono">subscribe</span>, path <span class="mono">GET /event</span>. But its <span class="mono">success</span> type hides the whole trick:</p>
+<pre class="code"><span class="cm">// groups/event.ts — success is not JSON but an event stream</span>
+HttpApiEndpoint.<span class="fn">get</span>(<span class="st">"subscribe"</span>, <span class="st">"/event"</span>, {
+  query: WorkspaceRoutingQuery,
+  success: Schema.String.<span class="fn">pipe</span>(
+    HttpApiSchema.<span class="fn">asText</span>({ contentType: <span class="st">"text/event-stream"</span> })),
+})</pre>
+<p>See <span class="mono">contentType: "text/event-stream"</span>? That one line is the official declaration of "what I return is not a blob of JSON but an SSE stream." In last lesson's contract world, this is still a perfectly proper contract — only the receipt it promises is <strong>a never-ending river of text</strong>, not a one-shot object. The group's tail carries three middlewares as usual (instance context, workspace routing, auth), meaning this stream, like any endpoint, <strong>passes security first and claims which instance it belongs to</strong>. The declaration ends here; the real work of piping the water out is in the handler.</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">endpoint</div><div class="v">just one: subscribe (GET /event)</div></div>
+  <div class="cell"><div class="k">success</div><div class="v">text/event-stream — not JSON, an SSE stream</div></div>
+  <div class="cell"><div class="k">middleware</div><div class="v">instance context + workspace routing + auth, guarding as usual</div></div>
+</div>
+
+<h2>The pipeline in the handler: from bus to SSE</h2>
+<p><span class="mono">handlers/event.ts</span> is this lesson's climax. It pipes "events happening all over core" into "SSE text written to the client," via an elegant Effect <span class="mono">Stream</span> pipeline. Let's walk the current:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">events.listen(...) — register a listener on the instance event bus immediately</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">every event arriving is offered into an unbounded queue (buffered, not dropped)</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">addFinalizer(unsubscribe) — connection drops, listener unregisters, never leaks</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">Stream.fromQueue → filter: keep only events for "this instance, this workspace"</span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">merge a heartbeat stream + a disposed stream, then SSE-encode to text, stream back</span></div>
+</div>
+<p>Steps 1 and 2 hide a correctness detail that is <strong>extremely important yet easily overlooked</strong>. Note the comment in the source: the listener is registered <strong>"eagerly"</strong> — before the HTTP response-body fiber even starts emitting, the listener is already hooked up and events are already piling into the queue. Why must it be this way? Picture the reverse: if you started sending the response first and only then registered the listener, any event in that <strong>instant between "start responding" and "register listener"</strong> would be <strong>lost forever</strong> — the client thinks it subscribed but happens to miss the few messages from the very moment it connected. Moving registration to the very front, paired with an <strong>unbounded queue</strong> as a reservoir, seals this gap: <strong>from the first moment you subscribe, events only enter the queue, never dropped</strong>.</p>
+<div class="flow">
+  <div class="node">all over core<span class="sub">publish EventV2 events</span></div>
+  <div class="arrow">→</div>
+  <div class="node">event bus<span class="sub">listen registered (eager)</span></div>
+  <div class="arrow">→</div>
+  <div class="node">unbounded queue<span class="sub">buffer · no drop</span></div>
+  <div class="arrow">→</div>
+  <div class="node">filter<span class="sub">keep this instance</span></div>
+  <div class="arrow">→</div>
+  <div class="node">SSE stream<span class="sub">write to client</span></div>
+</div>
+<p>Step 4's <span class="mono">filter</span> deserves a word too. One machine may run sessions for several instances and workspaces at once, but the event bus is <strong>globally shared</strong> — everyone's events go onto the same bus. So each SSE connection must <strong>put on a pair of "filter glasses"</strong>: only let through events whose <span class="mono">directory</span> and <span class="mono">workspaceID</span> match its own. That way, on the same server, workspace A's client never crosses wires to receive workspace B's activity. <strong>One shared bus, N pairs of filter glasses</strong> — that's multi-instance isolation at the event layer.</p>
+<p>Note in passing that the queue chosen is <strong>unbounded</strong>, a deliberate tradeoff. Unbounded means: even if the client reads slowly or the network sends slowly, the producer side is <strong>never blocked</strong> — the event-publishing code in core runs as it should, never slowed by backpressure from a stuck client. The cost is memory: if some connection stops reading entirely, the queue grows. Here opencode chose <strong>"rather spend a bit more memory than ever drop an event or ever slow the core,"</strong> backstopped by that <span class="mono">addFinalizer</span> — the moment a connection drops, the listener unregisters and the queue is released, capping the memory risk to "while the connection lives." From this tiny unbounded you can read opencode's stance on event streams: <strong>completeness of events and smoothness of core take priority over penny-pinching memory</strong>.</p>
+
+<h2>Opening line, heartbeat, and curtain call</h2>
+<p>The last step assembles the stream into an actual SSE response, with three thoughtful designs matching a connection's <strong>whole life</strong>. Opening: the stream's first item is always <span class="mono">server.connected</span>, like "you're connected" right after the call goes through, confirming the subscription. Middle: the real business-event stream is <span class="mono">merge</span>d with a <strong>heartbeat stream that ticks every 10 seconds</strong> (<span class="mono">server.heartbeat</span>). Curtain call: the whole stream <span class="mono">takeUntil</span> it receives <span class="mono">server.instance.disposed</span> — the instance is destroyed, the river ends here, draining and closing gracefully.</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">server.connected</div><div class="v">opening · stream's first item · confirms subscription</div></div>
+  <div class="cell"><div class="k">server.heartbeat</div><div class="v">every 10s · "still alive" · keeps the connection from being cut</div></div>
+  <div class="cell"><div class="k">server.instance.disposed</div><div class="v">curtain signal · takeUntil ends the whole stream on it</div></div>
+</div>
+<p>These three "server.-prefixed" events mix into the same stream as real business events (message.updated, tool.start, and so on), but their role is entirely different: business events are <strong>the water in the river</strong>, while these three are <strong>the river's opening gate, heartbeat, and closing gate</strong> — they carry no business info, only manage this connection's own lifecycle. Making "connection management" into events too, traveling the same pipe as data, is a very clean design: the client needs only <strong>one</strong> set of event-handling logic, and even control signals like "am I connected," "is the other side still alive," "time to wrap up" flow down the same river naturally, with no side channel.</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">t=0</span><span class="tl-desc">server.connected — "you're connected," subscription confirmed</span></div>
+  <div class="tl-item"><span class="tl-time">t=0.3s</span><span class="tl-desc">message.updated, tool.start… real business events stream in</span></div>
+  <div class="tl-item"><span class="tl-time">every 10s</span><span class="tl-desc">server.heartbeat — "still here," keeps the line from being cut as idle</span></div>
+  <div class="tl-item"><span class="tl-time">t=end</span><span class="tl-desc">server.instance.disposed — instance destroyed, takeUntil ends the stream</span></div>
+</div>
+<p>That <strong>heartbeat</strong> looks dull but is a lifesaving piece of engineering. In reality, proxies, load balancers, and gateways often sit between client and server — and their favorite trick is to <strong>cut a connection that's been quiet for a while as a dead link</strong>. The moment the AI is deep in thought and a dozen seconds pass with no new event, the connection could be severed mid-way. Sending a <span class="mono">server.heartbeat</span> every 10 seconds keeps telling every device along the path "this line is alive, leave it be." The <span class="mono">Cache-Control: no-cache, no-transform</span> in the response headers comes from the same care — <strong>no-transform</strong> begs the intermediary proxies: don't cleverly buffer, compress, or rewrite my stream; pass it through item by item. The details of a real-time system all live in these little "outsmart-the-infrastructure" moves.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture</div>
+  <p>Place this lesson back in the whole: opencode has <strong>two channels for "reading" state</strong> — one-shot queries (GET sessions, messages, the ordinary endpoints of Lesson 10), and continuous push (this lesson's SSE). Their division of labor is clear:</p>
+  <ul>
+    <li><strong>All over core</strong>, EventV2 events are published to a shared <strong>event bus</strong> (GlobalBus / instance bus).</li>
+    <li><strong>The event handler</strong> pipes the bus into SSE: eager listen → unbounded queue buffer → filter by instance → merge heartbeat → encode and push out.</li>
+    <li><strong>Clients</strong> (TUI/web/desktop) connect once to <span class="mono">GET /event</span> and get a real-time river of state, naturally in sync across ends.</li>
+  </ul>
+  <p>Who is this river's "downstream," and how does a client feed received events into its own local state? That's Lesson 54's story (events → store). For this lesson, just remember: <strong>real-time is pushed, not asked for</strong>.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p>Assembling the SSE response is a textbook Stream concatenation — opening ++ (business events merge heartbeat) → SSE encode → text:</p>
+  <pre class="code"><span class="cm">// simplified from handlers/event.ts</span>
+HttpServerResponse.<span class="fn">stream</span>(
+  Stream.<span class="fn">make</span>({ type: <span class="st">"server.connected"</span>, ... })  <span class="cm">// opening</span>
+    .<span class="fn">pipe</span>(
+      Stream.<span class="fn">concat</span>(output.<span class="fn">pipe</span>(
+        Stream.<span class="fn">merge</span>(heartbeat, { haltStrategy: <span class="st">"left"</span> }))),  <span class="cm">// business+heartbeat</span>
+      Stream.<span class="fn">map</span>(eventData),
+      Stream.<span class="fn">pipeThroughChannel</span>(Sse.<span class="fn">encode</span>()),  <span class="cm">// encode to SSE wire format</span>
+      Stream.encodeText,
+    ),
+  { contentType: <span class="st">"text/event-stream"</span>,
+    headers: { <span class="st">"Cache-Control"</span>: <span class="st">"no-cache, no-transform"</span> } })</pre>
+  <p>Each <span class="mono">.pipe</span> is a stage: lay down the opening, attach the body of "business events and heartbeat merged," turn each into an SSE event object, run it through <span class="mono">Sse.encode()</span> into the <span class="mono">data: ...\n\n</span> wire format, and finally turn it into a byte stream written back. <strong>A declarative pipeline turns the complex matter of "real-time push" into a readable string of pipes.</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li>opencode uses <strong>SSE</strong> (an HTTP GET that never ends) for server→client real-time push: cheaper than polling, lighter than WebSocket, and auto-reuses the existing HTTP skeleton.</li>
+    <li>The <span class="mono">event</span> group has one endpoint; the trick is <span class="mono">success</span>'s <span class="mono">contentType: "text/event-stream"</span> — the contract promises a stream, not an object.</li>
+    <li>The handler pipeline: <strong>eager listen → unbounded queue buffer → filter by instance/workspace → merge heartbeat → SSE-encode and push</strong>.</li>
+    <li><strong>Registering the listener eagerly</strong> is the key correctness detail: it seals the gap between "start responding" and "register listener," so no event is lost from the moment of subscription.</li>
+    <li><strong>Heartbeat (every 10s) + no-transform</strong> fight intermediary proxies: prevent the connection being cut as idle, prevent the stream being buffered or rewritten. Multi-client real-time consistency is rooted in this river.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_12 = wip('SDK 生成', 'Generating the SDK')
 LESSON_13 = wip('多客户端传输', 'Multi-client transports')
