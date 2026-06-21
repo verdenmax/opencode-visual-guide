@@ -45,6 +45,48 @@ def _shuffle(opts, answer, seed):
 
 
 QUIZZES = {
+    "49-core-tables.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode 核心表网里，session 表扮演什么角色？删掉一个 session 会怎样？", "en": "In opencode's core table web, what role does the session table play? What happens when you delete a session?"},
+                "opts": [
+                    {"zh": "session 是整张表网的中枢——几乎所有表（message/part/session_message/session_input/epoch/todo）外键指回它且带 onDelete:cascade；删一个 session，其名下所有记录连根带走，数据库保证不留孤儿", "en": "session is the hub of the whole table web — nearly all tables (message/part/session_message/session_input/epoch/todo) FK back to it with onDelete:cascade; delete a session and all its records are uprooted, the DB guarantees no orphans"},
+                    {"zh": "session 只是一张普通表，删它不影响其它表", "en": "session is just an ordinary table, deleting it doesn't affect others"},
+                    {"zh": "删 session 需要应用代码手动逐表清理", "en": "Deleting a session requires app code to manually clean each table"},
+                    {"zh": "session 表存所有消息内容", "en": "The session table stores all message content"},
+                ],
+                "answer": 0,
+                "why": {"zh": "session 是整张表网的根/中枢：project→session（project_id），session→message→part（两级）、session→session_message/session_input/session_context_epoch/todo，几乎所有外键都带 onDelete:cascade。于是删一个 project，其下所有 session 跟着删；删一个 session，其下所有 message/part/session_message/input/epoch/todo 全部跟着删——「拔起树根连根带走所有枝叶」。这种「无孤儿」一致性不是靠应用代码小心手动删，而是靠外键约束由数据库强制兜底（也正因此 L48 那句 PRAGMA foreign_keys=ON 不可省——SQLite 默认不强制外键，必须显式打开 cascade 才生效）。session 自身还有 parent_id 自指外键，支持子会话（subagent 落盘）。", "en": "session is the root/hub of the whole table web: project→session (project_id), session→message→part (two levels), session→session_message/session_input/session_context_epoch/todo, nearly all FKs with onDelete:cascade. So delete a project, all its sessions follow; delete a session, all its message/part/session_message/input/epoch/todo follow — \"uproot the tree taking all branches.\" This \"no orphan\" consistency isn't from app code carefully deleting by hand but from FK constraints enforced as a backstop by the DB (and exactly why L48's PRAGMA foreign_keys=ON can't be omitted — SQLite doesn't enforce FKs by default, cascade only works if explicitly turned on). session itself also has a parent_id self-ref FK, supporting sub-sessions (subagent on disk)."},
+            },
+            {
+                "q": {"zh": "为什么 opencode 库里同时有 message+part（V1）和 session_message（V2）两套存消息的表？", "en": "Why does opencode's DB have both message+part (V1) and session_message (V2), two sets of tables storing messages?"},
+                "opts": [
+                    {"zh": "两代消息模型为平滑迁移而同堂——不可能一夜把所有历史会话从 V1 瞬切 V2，正确做法是两代在同一库共存一段时间，旧数据 V1 形态躺着、新数据 V2 写入，再慢慢迁移（L50 主题）", "en": "Two generations of message model coexist for smooth migration — you can't snap all historical sessions from V1 to V2 overnight; the right way is the two coexist in the same DB for a while, old data in V1 form, new data written in V2, then slowly migrate (L50's theme)"},
+                    {"zh": "V1 存文字、V2 存图片，分工不同", "en": "V1 stores text, V2 stores images, different duties"},
+                    {"zh": "纯属冗余设计失误", "en": "Pure redundant design mistake"},
+                    {"zh": "V2 是 V1 的实时备份", "en": "V2 is a real-time backup of V1"},
+                ],
+                "answer": 0,
+                "why": {"zh": "「新旧同堂」不是混乱，而是大型有状态系统演进的常态与智慧：你不可能某个深夜「啪」地把所有历史会话从 V1 瞬切到 V2，风险太大。正确做法是让两代模型在同一库共存一段时间——旧数据继续以 V1（message+part，data 是 JSON 大对象，两级结构）躺着、新数据以 V2（session_message，单表+seq+type）写入，再用专门迁移过程慢慢把 V1 翻译成 V2（正是 L50 主题）。这张「同堂」快照本身就是 opencode 正从 V1 向 V2 演进途中的活化石，揭示一条工程真理：真实世界的 schema 从不是定稿蓝图，而是还在续写的历史。两代差异更多在「怎么编号/入箱/上下文落盘」的编排层，而非「一条消息长什么样」的内容层。", "en": "\"Old and new under one roof\" isn't chaos but the norm and wisdom of large stateful systems evolving: you can't, one late night, snap all historical sessions from V1 to V2 — too risky. The right way is to let the two coexist in the same DB for a while — old data lying in V1 (message+part, data is a big JSON object, two-level structure), new data written in V2 (session_message, single table+seq+type), then slowly translate V1 into V2 with a dedicated migration (exactly L50's theme). This \"under one roof\" snapshot is itself a living fossil of opencode mid-evolution from V1 toward V2, revealing an engineering truth: a real-world schema is never a finalized blueprint but a history still being written. The generational difference is more at the orchestration level of \"how to number/inbox/persist context\" than the content level of \"what a message looks like.\""},
+            },
+            {
+                "q": {"zh": "V2 的 session_input 是个「durable 输入箱」：你发的话先「入箱」(admitted_seq)、再由运行器「晋升」成可见 session_message(promoted_seq)。为什么不直接塞进对话？", "en": "V2's session_input is a \"durable inbox\": a sentence you send is first \"admitted\" (admitted_seq), then \"promoted\" by the runner into a visible session_message (promoted_seq). Why not stuff it straight into the conversation?"},
+                "opts": [
+                    {"zh": "先持久入箱再晋升，能保证即使进程在「收到输入」和「处理输入」之间崩溃，输入也已稳稳躺在库里，重启后接着处理——输入永不丢失", "en": "Admit durably first then promote guarantees that even if the process crashes between \"receiving input\" and \"processing input,\" the input already lies safely in the DB and is processed after restart — input is never lost"},
+                    {"zh": "为了让输入显示得更快", "en": "To make input display faster"},
+                    {"zh": "为了节省数据库空间", "en": "To save database space"},
+                    {"zh": "因为 SQLite 不支持直接插入消息", "en": "Because SQLite can't insert messages directly"},
+                ],
+                "answer": 0,
+                "why": {"zh": "session_input 是 V2 最精巧的一笔——durable（持久化）输入箱。发给 agent 的话不直接进对话，而是先作为一行 session_input 持久「入箱」（记 admitted_seq），之后串行运行器在安全边界把它「晋升」成可见 session_message（记 promoted_seq）；delivery 字段区分插队(steer)还是排队(queue)。先入箱再晋升的意义：即使进程在「收到」和「处理」之间崩溃，输入也已落库，重启能接着处理——永不丢失。这背后是 seq 这个无名英雄：session_message 用 unique(session,seq) 定序防重、session_input 用 admitted_seq/promoted_seq 分离记账、event 用 unique(aggregate,seq) 编号——单调序号+唯一索引同时给「全序」和「幂等」，重启的运行器只需问「晋升到第几号」就知从哪继续，绝不重复晋升、绝不漏。", "en": "session_input is V2's most exquisite stroke — a durable inbox. A sentence to the agent doesn't go straight into the conversation but is first durably \"admitted\" as a session_input row (record admitted_seq), then the serial runner \"promotes\" it into a visible session_message at a safe boundary (record promoted_seq); the delivery field distinguishes cut-in (steer) vs queue. The point of admit-first-promote-later: even if the process crashes between \"received\" and \"processed,\" the input is already in the DB and can be processed after restart — never lost. Behind this is seq, the unsung hero: session_message uses unique(session,seq) to order and prevent dups, session_input uses admitted_seq/promoted_seq for separate journaling, event uses unique(aggregate,seq) to number — monotonic number + unique index gives both \"total order\" and \"idempotency,\" a restarted runner need only ask \"promoted to what number\" to know where to resume, never re-promoting, never missing."},
+            },
+        ],
+        "open": [
+            {"zh": "课里点出一条贯穿全库的列设计哲学：需要被查询/排序/做约束的字段（id/session_id/type/seq）立成结构化真列，而千变万化的松散负载（消息内容）塞进 text({mode:\"json\"}) 列。请你解释这种「结构化骨架 + JSON 血肉」混搭的取舍：它分别从关系型数据库和文档型数据库各取了什么长处？什么时候一个字段「值得」从 JSON 里提升为真列？反过来，把本该是真列的东西埋进 JSON 会带来什么麻烦（查询、索引、约束、迁移）？结合你用过的系统谈谈。", "en": "The lesson points out a column-design philosophy running through the whole DB: fields needing query/sort/constraint (id/session_id/type/seq) become structured real columns, while the endlessly-varying loose payload (message content) goes into a text({mode:\"json\"}) column. Explain the trade-off of this \"structured skeleton + JSON flesh\" mix: what does it take from relational DBs and document DBs respectively? When is a field \"worth\" promoting from JSON to a real column? Conversely, what trouble does burying what should be a real column into JSON cause (query, index, constraint, migration)? Discuss from systems you've used."},
+            {"zh": "课里强调 opencode 把「顺序与一致性」直接编码进 schema 的索引约束——session_message 的 unique(session,seq)、session_input 的 admitted_seq/promoted_seq、event 的 unique(aggregate,seq)——而非寄望应用代码每次记得检查，让「数据库结构本身成为正确性的最后一道防线」。请你谈谈「把不变量交给数据库约束兜底」相比「在应用层手动维护」的优劣：前者强在哪（崩溃/并发/多进程下仍可靠）？又有什么代价（约束冲突如何优雅处理、跨表/跨服务的不变量数据库管不了怎么办）？你会怎样划分「哪些不变量该下沉到 DB、哪些该留在应用层」？", "en": "The lesson stresses opencode encodes \"order and consistency\" directly into the schema's index constraints — session_message's unique(session,seq), session_input's admitted_seq/promoted_seq, event's unique(aggregate,seq) — rather than hoping app code remembers to check each time, letting \"the database structure itself be the last line of defense for correctness.\" Discuss the pros/cons of \"delegating invariants to DB constraints as a backstop\" versus \"manually maintaining them in the app layer\": where is the former strong (still reliable under crash/concurrency/multi-process)? What are its costs (how to gracefully handle constraint conflicts, what about cross-table/cross-service invariants the DB can't manage)? How would you divide \"which invariants should sink into the DB, which stay in the app layer\"?"},
+        ],
+    },
+
     "48-drizzle-sqlite.html": {
         "mcq": [
             {
