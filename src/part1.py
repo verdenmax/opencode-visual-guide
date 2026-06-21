@@ -602,5 +602,235 @@ LESSON_02 = {
 </div>
 """,
 }
-LESSON_03 = wip('一次对话的生命周期', 'Lifecycle of one prompt')
+LESSON_03 = {
+    "zh": r"""
+<p class="lead">前两课你拿到了全景图。现在我们做一件最能打通任督二脉的事：<strong>跟着一条 prompt 走完全程</strong>。你在 TUI 敲下"帮我修个 bug"回车，到屏幕上一个字一个字地冒出回复——中间这一路，请求<strong>自上而下</strong>穿过整座塔，结果再<strong>自下而上</strong>冒回来，而最关键的中段会<strong>反复循环</strong>。把这一趟看清楚，后面 61 课你都知道自己正站在哪一跳。</p>
+<p>为什么值得为"一次对话"专门花一整课？因为它是 opencode 所有复杂度的<strong>汇合点</strong>：传输层、路由、上下文组装、模型协议、工具执行、并发调度、持久化、前端渲染——几乎每一个子系统，都会在这趟短短几秒的旅程里露一次脸。先把这条<strong>主干道</strong>从头到尾走通，建立起"谁在前、谁在后、谁会重复"的骨架感，再回头逐个深挖那些岔路，你就不会"只见树木、不见森林"。可以说，这一课是后面所有深水区课程的<strong>导览图</strong>：每讲一个模块，你都能把它精准地挂回这趟旅程的某一跳上。</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 生活类比</div>
+  把一次对话想成餐厅里的<strong>一张点单</strong>。你（客户端）把单子递进窗口；<strong>领班</strong>（server）登记、把它送进后厨；<strong>主厨</strong>（大模型）看一眼说"先去拿食材"——但主厨只发指令、不亲自跑腿，<strong>打荷</strong>（工具执行）替他取菜、切配、下锅，再把半成品端回来给主厨看；主厨接着说下一步……如此往返几轮，直到主厨说"出餐"。整个过程后厨的每个动作都<strong>实时报给前台</strong>，你在座位上就能看到"备菜中、烹饪中、即将上桌"。
+</div>
+
+<h2>鸟瞰：一座塔，上下各一趟</h2>
+<p>先把整条路压成一张图。请求从最上面的客户端出发，逐层下沉到模型；模型要调工具时，结果又逐层上浮、再下沉——<strong>下行是"请求"，上行是"结果与事件"</strong>。这趟往返的中段（组装上下文 → 调模型 → 执行工具）会重复多次，直到模型不再要工具。</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">① 客户端</span><span class="name">TUI prompt 组件 · app.tsx</span></div>
+    <div class="ld">收按键、提交 prompt；订阅事件流往屏幕上画</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">②③ 传输 + server</span><span class="name">RPC worker · Effect HttpApi</span></div>
+    <div class="ld">把请求送进 server 的 session 路由组；事件经 SSE/RPC 回流</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">④–⑩ 会话引擎</span><span class="name">input → coordinator → runner/llm.ts</span></div>
+    <div class="ld">组装上下文、跑 agent 循环、执行工具、持久化</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">⑥⑦ 模型接入</span><span class="name">LLM 协议层 · provider</span></div>
+    <div class="ld">编码成 provider 协议、流式拿回 LLMEvent</div></div>
+</div>
+<div class="cols">
+  <div class="col"><h4>↓ 下行（请求）</h4><p>按键 → 序列化成 HTTP 请求 → session handler → 投影历史 + System Context → LLM 请求 → provider。一路<strong>把意图收拢</strong>。</p></div>
+  <div class="col"><h4>↑ 上行（结果 / 事件）</h4><p>流式 token、工具结果、持久化产生的事件 → GlobalBus → SSE → TUI 批量渲染。一路<strong>把进展广播</strong>。</p></div>
+</div>
+<p>这张"下行 / 上行"图，是读懂 opencode 最省力的心智模型。<strong>下行是一个收敛的过程</strong>：你模糊的一句"帮我修个 bug"，经过会话登记、历史投影、上下文渲染，被一步步<strong>翻译成模型能吃的精确请求</strong>；每往下一层，信息就更结构化一分，最终收拢成一次干净的模型调用。<strong>上行则是一个发散的过程</strong>：模型吐出的文本碎片、工具跑出的结果、持久化顺手产生的记录，被打散成一个个<strong>事件</strong>向上广播，谁订阅谁就看得到。两股流方向相反、却同时进行——下行在"问"，上行在"答与报告"。后面每讲一个模块，你都可以先问自己：它在下行还是上行？属于哪一层？理解立刻就有了坐标。这也是为什么这趟旅程值得在第一部分就走一遍：它是整本书的<strong>地图坐标系</strong>。</p>
+
+<h2>第 1–3 跳：从按键到 server</h2>
+<p>你敲下的字符先落进 TUI 的 prompt 组件（<span class="mono">packages/tui/src/component/prompt</span>）。回车后，TUI 不是发网络请求——富终端有个巧妙设计：<strong>server 就跑在同一进程的一个 Worker 里</strong>。<span class="mono">cli/cmd/tui.ts</span> 用 <span class="mono">createWorkerFetch</span> 把 SDK 的 <span class="mono">fetch</span> 偷偷换成"对 Worker 发 RPC"，于是前端代码照常调 SDK，底层却<strong>零网络开销</strong>（第 13 课细讲）。</p>
+<div class="flow">
+  <div class="node"><div class="nt">按键</div><div class="nd">prompt 组件</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">createWorkerFetch</div><div class="nd">SDK.fetch → RPC</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">worker.ts</div><div class="nd">Server.listen</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">HttpApi</div><div class="nd">session 路由组</div></div>
+</div>
+<p>worker（<span class="mono">cli/tui/worker.ts</span>）里跑着真正的 <span class="mono">Server.listen</span>，还顺手架了条回程：<span class="mono">GlobalBus.on("event", e =&gt; Rpc.emit("global.event", e))</span>——server 内部每冒一个事件，就经 RPC 推回前端。server 本身（<span class="mono">server/server.ts</span>）<strong>不是 Hono</strong>，而是 Effect 的 <span class="mono">HttpApi + OpenApi</span> 架在 <span class="mono">NodeHttpServer</span> 上（第 9 课）。</p>
+<p>为什么富 TUI 要这么绕——明明可以起个本地 HTTP server、前端用 fetch 连过去？因为那样要占端口、要处理网络错误、还多一层序列化开销。opencode 的取巧之处在于：让 server 跑在<strong>同进程的一个 Worker 线程</strong>里，再把 SDK 底层的 <span class="mono">fetch</span> 偷换成"对 Worker 发一条 RPC 消息"。这样前端代码<strong>一行都不用改</strong>——它以为自己在调一个普通的 HTTP SDK，底层却是进程内通信：零网络、零端口、还自动复用 server 那套完整的类型化接口。妙就妙在它<strong>可逆</strong>：当你用 <span class="mono">opencode serve</span> 把 server 起成真正的网络服务时，同一套 SDK 又能无缝改走真 HTTP，前端依旧无感。<strong>同一接口、两种传输</strong>——这是 opencode "一个内核多张脸"在传输层的精确落地，第 13 课会把这套 worker 机制整段拆开。</p>
+
+<h2>第 4–7 跳：组装上下文，开口问模型</h2>
+<p>请求进了 session handler，就交给 V2 会话引擎。它不直接"调模型"，而是先走三步准备：</p>
+<table class="t">
+  <tr><th>跳</th><th>做什么</th><th>源码锚点</th></tr>
+  <tr><td>④ 收件箱</td><td>prompt 先落成一条<strong>事件溯源</strong>的输入记录，再唤醒运行器</td><td><span class="mono">session/input.ts</span> → <span class="mono">run-coordinator.ts</span></td></tr>
+  <tr><td>⑤ 上下文</td><td>渲染<strong>基线 System Context</strong>（指令、日期、skill…）</td><td><span class="mono">system-context/index.ts</span></td></tr>
+  <tr><td>⑥ 建请求</td><td>把投影历史翻译成 LLM 消息、解析模型</td><td><span class="mono">runner/to-llm-message.ts</span> · <span class="mono">model.ts</span></td></tr>
+  <tr><td>⑦ 发起流</td><td><span class="mono">llm.stream()</span> 经协议适配器发给 provider</td><td><span class="mono">llm/src/route/client.ts</span></td></tr>
+</table>
+<p>第 ⑦ 跳拿回的不是一坨完整答复，而是一条<strong>流</strong>——类型签名直白地写着 <span class="mono">Stream.Stream&lt;LLMEvent, LLMError&gt;</span>：文本碎片、推理、工具调用请求、用量，全都作为一个个 <span class="mono">LLMEvent</span> 陆续吐出来。server 一边收一边<strong>增量持久化</strong>，所以哪怕中途断了也不全丢。</p>
+<p>这里值得停一下：第 ⑦ 跳为什么是"流"而不是"一次性返回"？因为大模型是<strong>逐 token 生成</strong>的，等它整段写完再返回，你就得干等十几秒、屏幕上什么也没有。流式则让 server 一拿到碎片就<strong>边收、边持久化、边发事件</strong>，于是你几乎瞬间看到第一个字往外蹦。更关键的是，<strong>工具调用也藏在这条流里</strong>——模型可能写了半句话，突然插一句"我要调 edit 工具"，runner 必须在流的<strong>中途</strong>就把它揪出来执行，而不能等整段说完。所以这一跳的真实姿态不是"问完、等、拿答案"，而是"<strong>一边听、一边记、一边随时准备干活</strong>"。把这点想清楚，你才会理解为什么 V2 的 runner 不是一个简单的 request/response 函数，而是一台围着事件流转的状态机。</p>
+<p>还有一步"隐形的准备"值得点名：第 ⑤ 跳的 <strong>System Context</strong>。模型并不是只看你这一句话——在你的话被发出去之前，server 会先渲染一段<strong>基线系统上下文</strong>：当前日期、项目里的 <span class="mono">AGENTS.md</span> 指令、可用的 skill 清单、当前是 build 还是 plan agent 等等，拼在整段对话的最前面。它就像每次问诊前先递给医生的一份病历，让模型"开口就懂你的处境"。这段上下文怎么组装、变了之后又怎么增量地通知模型，是 opencode 最独特的设计之一，第五部分整章都在讲它。这里你只需记住：<strong>每次开口问模型之前，都有一段你看不见、却至关重要的上下文被悄悄拼上去</strong>。</p>
+
+<h2>第 8–10 跳：agent 循环的心跳</h2>
+<p>这是整趟旅程的<strong>心脏</strong>。当流里出现一个"工具调用"事件，runner 不会傻等，而是把它丢进一个 <span class="mono">FiberSet</span> <strong>并发</strong>地执行（同一步要"读三个文件"就三个一起跑）；工具由 <span class="mono">ToolRegistry</span> 落实，危险操作先过权限闸门。等这一轮工具都结算完，runner <strong>重新加载投影历史</strong>、再开<strong>下一个</strong> provider turn——把工具结果喂回去让模型接着想。</p>
+<div class="vflow">
+  <div class="step"><b>组装</b>　reload 投影历史 + System Context</div>
+  <div class="step"><b>问一轮</b>　一次 <span class="mono">llm.stream(request)</span></div>
+  <div class="step"><b>干活</b>　tool-call → FiberSet 并发 settle → 持久化结果</div>
+  <div class="step"><b>判断</b>　还有工具调用？是→回到顶；否→收尾</div>
+  <div class="step"><b>护栏</b>　步数 &lt; <span class="mono">MAX_STEPS = 25</span>，否则 StepLimitExceeded</div>
+</div>
+<p>这条"<strong>问一轮 → 干一轮 → 再问</strong>"的循环，正是第 1 课说的 agent 循环。它最多转 25 圈（一个硬护栏，防止模型无限调工具打转），第 17 课会把 <span class="mono">runner/llm.ts</span> 一行行拆开。</p>
+<p>两个设计选择特别能体现 V2 的考量。其一，工具用 <span class="mono">FiberSet</span> <strong>并发</strong>执行而非排队：模型一步里要"读 a、读 b、读 c"时，三个读操作同时跑、一起回来，既更快，也让模型一次看到更完整的上下文。其二，每轮结束要<strong>重新加载投影历史</strong>再续问，而不是把工具结果直接拼到内存里的消息数组上——因为历史才是<strong>持久化的事实来源</strong>，重新投影能保证：即使进程崩了重启、或有别的输入半路插进来，模型下一轮看到的永远是"当前最准的会话状态"。这两点都指向同一种克制：<strong>不依赖内存里的临时状态，一切以持久化为准</strong>。这种"以事实为准、可随时重建"的思路，是 V2 相对 V1 最大的气质差别，第四部分会反复印证。</p>
+<p>循环转起来之后，你并不是只能干等。opencode 允许你<strong>中途插话</strong>——模型还在干活时，你再敲一句"等等，先别动那个文件"，这条新输入会作为一条新的收件箱记录被接住，在下一个<strong>安全边界</strong>融入当前活动，悄悄改变接下来的走向。这正是为什么第 ④ 跳要把输入做成<strong>事件溯源的收件箱</strong>，而不是一个普通的函数参数：因为"对话"本质上是<strong>可以随时被你插队、纠偏的活物</strong>，而不是一道发出去就只能等结果的命令。这种"随时可被引导"的手感，是 agent 好不好用的关键，也是 V2 在并发模型上反复打磨的原因。</p>
+
+<h2>第 11 跳：事件流回，画到屏上</h2>
+<p>循环每推进一点，增量持久化就<strong>顺手发事件</strong>到 <span class="mono">GlobalBus</span>；事件经 SSE 事件组（<span class="mono">groups/event.ts</span>）或 RPC 回程涌向客户端。TUI 在 <span class="mono">context/sdk.tsx</span> 里订阅 <span class="mono">sdk.global.event(...)</span>，但<strong>不是来一个画一个</strong>——它按 ~16ms 一帧<strong>攒一批再渲染</strong>，于是你看到的是顺滑的逐字流，而不是疯狂闪烁。</p>
+<div class="flow">
+  <div class="node"><div class="nt">增量持久化</div><div class="nd">发事件</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">GlobalBus</div><div class="nd">SSE / RPC</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">sdk.global.event</div><div class="nd">订阅</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">16ms 批渲染</div><div class="nd">Solid store → 屏幕</div></div>
+</div>
+<p>这一跳的"批渲染"也不只是为了好看。事件可能<strong>来得非常密</strong>——逐 token 的文本、工具的进度、用量统计，一秒钟几百条；若来一条就触发一次终端重绘，CPU 会被刷屏拖垮、画面还会撕裂。攒够 ~16ms（约一帧）再统一渲染，既省算力又顺滑。而这套"<strong>一切先成事件</strong>"的回流机制还有个隐藏红利：因为每个状态变化都广播了出去，<strong>多个客户端能同时盯着同一个会话</strong>，断线重连也只需重放事件就能追上进度。你甚至可以一边在 TUI 里看、一边在网页端打开同一个会话——两边追的是同一条事件流。第三部分讲事件总线、第十部分讲 TUI 渲染时，都会再回到这一跳。</p>
+
+<div class="card macro">
+  <div class="tag">🌍 宏观理解</div>
+  一次对话 = <strong>一趟下行的请求</strong> + <strong>中段反复的 agent 循环</strong> + <strong>一路上行的事件流</strong>。下行把意图收拢到一次 <span class="mono">llm.stream</span>；中段"问一轮、干一轮"最多转 25 圈；上行让每个状态变化都先成事件、再被持久化与渲染。看任何一课，先问自己：我现在站在这趟旅程的哪一跳？
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 细节 / 源码对应</div>
+  把第 8–10 跳的循环骨架抽出来（大幅简化自 <span class="inline">packages/core/src/session/runner/llm.ts</span>）：
+<pre class="code"><span class="cm">// 每个 provider turn 恰好一次 llm.stream；工具并发结算后再续下一轮</span>
+<span class="kw">while</span> (openActivity) {
+  <span class="kw">for</span> (<span class="kw">let</span> step = 0; step &lt; <span class="fn">MAX_STEPS</span>; step++) {
+    <span class="kw">const</span> events = llm.<span class="fn">stream</span>(request)        <span class="cm">// 一轮，拿回 LLMEvent 流</span>
+    <span class="kw">for</span> <span class="kw">await</span> (<span class="kw">const</span> e <span class="kw">of</span> events) {
+      <span class="kw">if</span> (e.type === <span class="st">"tool-call"</span>)
+        toolMaterialization.<span class="fn">settle</span>(e)         <span class="cm">// 丢进 FiberSet 并发执行</span>
+      persist(e)                                <span class="cm">// 增量持久化 → 发事件</span>
+    }
+    <span class="kw">if</span> (!hadToolCalls) <span class="kw">break</span>                  <span class="cm">// 模型不再要工具 → 收尾</span>
+    request = <span class="fn">reloadProjectedHistory</span>()        <span class="cm">// 把工具结果喂回，开下一轮</span>
+  }
+}</pre>
+  记住三个关键词：<strong>一轮一次 stream</strong>、<strong>FiberSet 并发结算</strong>、<strong>有界 25 步</strong>。
+</div>
+
+<div class="card key">
+  <div class="tag">✅ 本课要点</div>
+  <ul>
+    <li>一次对话是一趟<strong>下行请求 + 中段循环 + 上行事件</strong>的往返。</li>
+    <li>富 TUI 用<strong>进程内 RPC worker</strong>连 server，零网络、复用同一套 SDK。</li>
+    <li>server 是 <strong>Effect HttpApi</strong>（不是 Hono）；事件经 <strong>GlobalBus</strong> 回流。</li>
+    <li>agent 循环 = <strong>问一轮 → FiberSet 并发干一轮 → 喂回再问</strong>，上限 <span class="mono">MAX_STEPS=25</span>。</li>
+    <li>TUI 按 <strong>~16ms 批渲染</strong>事件，所以是顺滑流而非闪烁。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">The first two lessons gave you the map. Now we do the one thing that connects everything: <strong>follow one prompt all the way through</strong>. You type "fix this bug" in the TUI and hit enter, and a reply streams out character by character — in between, the request travels <strong>down</strong> the whole tower and results bubble <strong>up</strong>, while the crucial middle stretch <strong>loops repeatedly</strong>. See this round trip clearly and, for the next 61 lessons, you'll always know which hop you're standing on.</p>
+<p>Why spend a whole lesson on "one conversation"? Because it's the <strong>confluence</strong> of all of opencode's complexity: transport, routing, context assembly, model protocol, tool execution, concurrency scheduling, persistence, front-end rendering — nearly every subsystem makes an appearance in this few-second journey. Walk this <strong>main road</strong> end to end first, building a skeleton sense of "what comes before what, and what repeats," and the deep-dive lessons later won't make you "miss the forest for the trees." This lesson is the <strong>tour map</strong> for every deep-water lesson ahead: each module you meet, you can hang precisely onto one hop of this journey.</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 Analogy</div>
+  Picture one conversation as a <strong>restaurant order ticket</strong>. You (the client) hand the ticket through the window; the <strong>maître d'</strong> (the server) logs it and sends it to the kitchen; the <strong>head chef</strong> (the LLM) glances and says "go get the ingredients first" — but the chef only gives orders, never runs around; the <strong>line cook</strong> (tool execution) fetches, preps, and cooks, then brings the half-finished dish back for the chef to inspect; the chef calls the next step… round and round for a few rounds until the chef says "plate it." Throughout, every kitchen action is <strong>reported live to the front desk</strong>, so from your seat you see "prepping, cooking, almost ready."
+</div>
+
+<h2>Bird's eye: one tower, two passes</h2>
+<p>First compress the whole route into one picture. The request starts at the topmost client and sinks layer by layer to the model; when the model wants a tool, results float up and then sink again — <strong>downward is "request," upward is "results and events."</strong> The middle of this round trip (assemble context → ask the model → run tools) repeats several times, until the model stops asking for tools.</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">① Client</span><span class="name">TUI prompt component · app.tsx</span></div>
+    <div class="ld">Take keystrokes, submit the prompt; subscribe to the event stream to paint the screen</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">②③ Transport + server</span><span class="name">RPC worker · Effect HttpApi</span></div>
+    <div class="ld">Send the request into the server's session route group; events flow back via SSE/RPC</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">④–⑩ Session engine</span><span class="name">input → coordinator → runner/llm.ts</span></div>
+    <div class="ld">Assemble context, run the agent loop, execute tools, persist</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">⑥⑦ Model access</span><span class="name">LLM protocol layer · provider</span></div>
+    <div class="ld">Encode into the provider protocol, stream LLMEvents back</div></div>
+</div>
+<div class="cols">
+  <div class="col"><h4>↓ Down (request)</h4><p>keystroke → serialize into an HTTP request → session handler → projected history + System Context → LLM request → provider. All the way, <strong>converging your intent</strong>.</p></div>
+  <div class="col"><h4>↑ Up (results / events)</h4><p>streamed tokens, tool results, events from persistence → GlobalBus → SSE → TUI batched render. All the way, <strong>broadcasting progress</strong>.</p></div>
+</div>
+<p>This "down / up" picture is the cheapest mental model for reading opencode. <strong>Down is a converging process</strong>: your vague sentence, through session logging, history projection, and context rendering, is step by step <strong>translated into a precise request the model can eat</strong>; each layer down, the information gets more structured, finally converging into one clean model call. <strong>Up is a diverging process</strong>: the model's text fragments, the tool results, the records persistence produces — all shattered into individual <strong>events</strong> broadcast upward, visible to whoever subscribes. Two streams, opposite directions, running at once — down is "asking," up is "answering and reporting." For every module later, ask yourself first: is it on the way down or up? Which layer? Understanding instantly gets a coordinate. That's why this journey is worth walking in Part 1: it's the whole book's <strong>map coordinate system</strong>.</p>
+
+<h2>Hops 1–3: from keystroke to server</h2>
+<p>The characters you type land first in the TUI's prompt component (<span class="mono">packages/tui/src/component/prompt</span>). On enter, the TUI doesn't send a network request — the rich terminal has a clever design: <strong>the server runs in a Worker inside the same process</strong>. <span class="mono">cli/cmd/tui.ts</span> uses <span class="mono">createWorkerFetch</span> to quietly swap the SDK's <span class="mono">fetch</span> for "send an RPC to the Worker," so the front-end code calls the SDK as usual while underneath there is <strong>zero network overhead</strong> (Lesson 13).</p>
+<div class="flow">
+  <div class="node"><div class="nt">keystroke</div><div class="nd">prompt component</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">createWorkerFetch</div><div class="nd">SDK.fetch → RPC</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">worker.ts</div><div class="nd">Server.listen</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">HttpApi</div><div class="nd">session route group</div></div>
+</div>
+<p>The worker (<span class="mono">cli/tui/worker.ts</span>) runs the real <span class="mono">Server.listen</span> and also wires a return path: <span class="mono">GlobalBus.on("event", e =&gt; Rpc.emit("global.event", e))</span> — every event the server emits is pushed back to the front-end over RPC. The server itself (<span class="mono">server/server.ts</span>) is <strong>not Hono</strong>, but Effect's <span class="mono">HttpApi + OpenApi</span> on <span class="mono">NodeHttpServer</span> (Lesson 9).</p>
+<p>Why does the rich TUI bother with this detour — couldn't it just start a local HTTP server and connect with fetch? Because that would occupy a port, force network-error handling, and add a serialization layer. opencode's trick: run the server in a <strong>Worker thread in the same process</strong>, then swap the SDK's underlying <span class="mono">fetch</span> for "send one RPC message to the Worker." The front-end code <strong>doesn't change a single line</strong> — it thinks it's calling an ordinary HTTP SDK, but underneath it's in-process: zero network, zero ports, reusing the server's full typed interface. The beauty is it's <strong>reversible</strong>: when you start the server as a real network service with <span class="mono">opencode serve</span>, the same SDK seamlessly switches to real HTTP, front-end none the wiser. <strong>One interface, two transports</strong> — opencode's "one core, many faces" landing precisely at the transport layer; Lesson 13 unpacks this worker mechanism in full.</p>
+
+<h2>Hops 4–7: assemble context, ask the model</h2>
+<p>Once the request hits the session handler, it's handed to the V2 session engine. It doesn't "call the model" directly; it first takes three prep steps:</p>
+<table class="t">
+  <tr><th>Hop</th><th>What</th><th>Source anchor</th></tr>
+  <tr><td>④ Inbox</td><td>the prompt first becomes an <strong>event-sourced</strong> input record, then wakes the runner</td><td><span class="mono">session/input.ts</span> → <span class="mono">run-coordinator.ts</span></td></tr>
+  <tr><td>⑤ Context</td><td>render the <strong>baseline System Context</strong> (instructions, date, skills…)</td><td><span class="mono">system-context/index.ts</span></td></tr>
+  <tr><td>⑥ Build request</td><td>translate projected history into LLM messages, resolve the model</td><td><span class="mono">runner/to-llm-message.ts</span> · <span class="mono">model.ts</span></td></tr>
+  <tr><td>⑦ Open the stream</td><td><span class="mono">llm.stream()</span> sends to the provider via a protocol adapter</td><td><span class="mono">llm/src/route/client.ts</span></td></tr>
+</table>
+<p>Hop ⑦ returns not a finished answer but a <strong>stream</strong> — the type signature says it plainly: <span class="mono">Stream.Stream&lt;LLMEvent, LLMError&gt;</span>. Text fragments, reasoning, tool-call requests, usage — all spat out as individual <span class="mono">LLMEvent</span>s over time. The server <strong>persists incrementally</strong> as it receives, so even a mid-stream disconnect doesn't lose everything.</p>
+<p>One more "invisible prep" deserves a name: hop ⑤'s <strong>System Context</strong>. The model doesn't only see your sentence — before your words go out, the server renders a <strong>baseline system context</strong>: the current date, the project's <span class="mono">AGENTS.md</span> instructions, the available skill list, whether the current agent is build or plan, all prepended to the conversation. It's like a chart handed to a doctor before each visit, so the model "understands your situation the moment it opens its mouth." How this context is assembled, and how changes are incrementally announced to the model, is one of opencode's most distinctive designs — Part 5 is devoted to it. Here, just remember: <strong>before every single model call, an invisible but crucial slice of context is quietly prepended</strong>.</p>
+
+<h2>Hops 8–10: the agent loop's heartbeat</h2>
+<p>This is the <strong>heart</strong> of the whole journey. When a "tool-call" event appears in the stream, the runner doesn't sit and wait — it tosses it into a <span class="mono">FiberSet</span> and runs it <strong>concurrently</strong> (asked to "read three files" in one step, all three run together); the tool is carried out by the <span class="mono">ToolRegistry</span>, with dangerous operations gated by a permission check first. Once this round's tools all settle, the runner <strong>reloads projected history</strong> and opens the <strong>next</strong> provider turn — feeding tool results back so the model can keep thinking.</p>
+<div class="vflow">
+  <div class="step"><b>Assemble</b>　reload projected history + System Context</div>
+  <div class="step"><b>Ask a round</b>　one <span class="mono">llm.stream(request)</span></div>
+  <div class="step"><b>Do work</b>　tool-call → FiberSet concurrent settle → persist results</div>
+  <div class="step"><b>Decide</b>　more tool calls? yes → back to top; no → wrap up</div>
+  <div class="step"><b>Guardrail</b>　steps &lt; <span class="mono">MAX_STEPS = 25</span>, else StepLimitExceeded</div>
+</div>
+<p>This "<strong>ask a round → do a round → ask again</strong>" loop is exactly the agent loop from Lesson 1. It turns at most 25 times (a hard guardrail against the model spinning on tool calls forever); Lesson 17 takes <span class="mono">runner/llm.ts</span> apart line by line.</p>
+<p>Two design choices really show V2's thinking. First, tools run <strong>concurrently</strong> via <span class="mono">FiberSet</span> rather than queued: when the model asks in one step to "read a, read b, read c," the three reads run together and return together — faster, and letting the model see fuller context at once. Second, each round ends by <strong>reloading projected history</strong> before continuing, rather than splicing tool results onto an in-memory message array — because history is the <strong>persisted source of truth</strong>, and re-projecting guarantees that even if the process crashed and restarted, or another input cut in midway, the model's next round always sees "the most accurate current session state." Both point to the same restraint: <strong>don't rely on temporary in-memory state; everything defers to persistence</strong>. This "truth-first, rebuildable-anytime" mindset is V2's biggest temperamental difference from V1, confirmed again and again in Part 4.</p>
+<p>Once the loop is spinning, you're not stuck just waiting. opencode lets you <strong>cut in midway</strong> — while the model is working, type "wait, don't touch that file yet," and this new input is caught as a new inbox record and, at the next <strong>safe boundary</strong>, folds into the active activity, quietly bending what happens next. That's exactly why hop ④ makes input an <strong>event-sourced inbox</strong> rather than a plain function argument: because a "conversation" is fundamentally <strong>a living thing you can interrupt and correct anytime</strong>, not a command that, once issued, only waits for a result. This "steerable anytime" quality is key to whether an agent feels good to use, and the reason V2 polishes its concurrency model so hard.</p>
+
+<h2>Hop 11: events flow back, painted to screen</h2>
+<p>Every time the loop advances a bit, incremental persistence <strong>emits an event</strong> to <span class="mono">GlobalBus</span>; events surge toward the client via the SSE event group (<span class="mono">groups/event.ts</span>) or the RPC return path. The TUI subscribes to <span class="mono">sdk.global.event(...)</span> in <span class="mono">context/sdk.tsx</span> — but <strong>not one-paint-per-event</strong>; it <strong>batches a frame's worth every ~16ms</strong> before rendering, so what you see is a smooth character stream, not frantic flicker.</p>
+<div class="flow">
+  <div class="node"><div class="nt">incremental persist</div><div class="nd">emit event</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">GlobalBus</div><div class="nd">SSE / RPC</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">sdk.global.event</div><div class="nd">subscribe</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">16ms batch render</div><div class="nd">Solid store → screen</div></div>
+</div>
+<p>This hop's "batched render" isn't only for looks. Events can <strong>come very densely</strong> — per-token text, tool progress, usage stats, hundreds a second; if each one triggered a terminal repaint, the CPU would choke and the screen would tear. Batching ~16ms (about one frame) before rendering saves cycles and stays smooth. And this "<strong>everything becomes an event first</strong>" return mechanism has a hidden bonus: because every state change is broadcast, <strong>multiple clients can watch one session at once</strong>, and a reconnect just replays events to catch up. You could even watch in the TUI and open the same session in the web client — both follow the same event stream. Part 3 (the event bus) and Part 10 (TUI rendering) both return here.</p>
+
+<div class="card macro">
+  <div class="tag">🌍 Big picture</div>
+  One conversation = <strong>a downward request</strong> + <strong>a repeating agent loop in the middle</strong> + <strong>an upward event stream</strong>. Down converges intent into one <span class="mono">llm.stream</span>; the middle "ask a round, do a round" turns at most 25 times; up makes every state change become an event first, then persisted and rendered. For any lesson, ask yourself first: which hop of this journey am I standing on?
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  The loop skeleton of hops 8–10 (heavily simplified from <span class="inline">packages/core/src/session/runner/llm.ts</span>):
+<pre class="code"><span class="cm">// exactly one llm.stream per provider turn; settle tools concurrently, then continue</span>
+<span class="kw">while</span> (openActivity) {
+  <span class="kw">for</span> (<span class="kw">let</span> step = 0; step &lt; <span class="fn">MAX_STEPS</span>; step++) {
+    <span class="kw">const</span> events = llm.<span class="fn">stream</span>(request)        <span class="cm">// one round, returns an LLMEvent stream</span>
+    <span class="kw">for</span> <span class="kw">await</span> (<span class="kw">const</span> e <span class="kw">of</span> events) {
+      <span class="kw">if</span> (e.type === <span class="st">"tool-call"</span>)
+        toolMaterialization.<span class="fn">settle</span>(e)         <span class="cm">// toss into a FiberSet, run concurrently</span>
+      persist(e)                                <span class="cm">// incremental persist → emit event</span>
+    }
+    <span class="kw">if</span> (!hadToolCalls) <span class="kw">break</span>                  <span class="cm">// model stops asking for tools → wrap up</span>
+    request = <span class="fn">reloadProjectedHistory</span>()        <span class="cm">// feed tool results back, next round</span>
+  }
+}</pre>
+  Three keywords to remember: <strong>one stream per round</strong>, <strong>FiberSet concurrent settle</strong>, <strong>bounded 25 steps</strong>.
+</div>
+
+<div class="card key">
+  <div class="tag">✅ Key points</div>
+  <ul>
+    <li>One conversation is a round trip: <strong>downward request + middle loop + upward events</strong>.</li>
+    <li>The rich TUI connects via an <strong>in-process RPC worker</strong> — zero network, reusing the same SDK.</li>
+    <li>The server is <strong>Effect HttpApi</strong> (not Hono); events flow back via <strong>GlobalBus</strong>.</li>
+    <li>The agent loop = <strong>ask a round → settle tools concurrently via FiberSet → feed back and ask again</strong>, capped at <span class="mono">MAX_STEPS=25</span>.</li>
+    <li>The TUI <strong>batch-renders events ~16ms</strong> at a time, so it's a smooth stream, not flicker.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_04 = wip('V1 与 V2：架构迁移', 'V1 vs V2: the migration')

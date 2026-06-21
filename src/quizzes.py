@@ -175,6 +175,47 @@ QUIZZES = {
             },
         ],
     },
+    "03-request-lifecycle.html": {
+        "mcq": [
+            {
+                "q": {"zh": "富终端 TUI 是怎么和 server 通信的？", "en": "How does the rich TUI talk to the server?"},
+                "opts": [
+                    {"zh": "通过本地 HTTP 网络请求", "en": "Via a local HTTP network request"},
+                    {"zh": "通过进程内 RPC worker，把 SDK 的 fetch 换成 RPC，零网络", "en": "Via an in-process RPC worker that swaps the SDK fetch for RPC, zero network"},
+                    {"zh": "直接读写 SQLite 数据库", "en": "By reading and writing SQLite directly"},
+                    {"zh": "通过 stdin/stdout 管道", "en": "Through stdin/stdout pipes"},
+                ],
+                "answer": 1,
+                "why": {"zh": "cli/cmd/tui.ts 的 createWorkerFetch 把 SDK 的 fetch 换成对 Worker 的 RPC；同一套 SDK 接口，只有 serve 模式才走真 HTTP。", "en": "createWorkerFetch in cli/cmd/tui.ts swaps the SDK fetch for RPC to a Worker; the same SDK interface only uses real HTTP in serve mode."},
+            },
+            {
+                "q": {"zh": "agent 循环的护栏 MAX_STEPS 是多少、为什么要有它？", "en": "What is the agent loop guardrail MAX_STEPS, and why have it?"},
+                "opts": [
+                    {"zh": "25，防止模型无限调用工具、原地打转", "en": "25, to stop the model from calling tools forever and spinning in place"},
+                    {"zh": "10，用来限制一次能调几个工具", "en": "10, to limit how many tools can be called at once"},
+                    {"zh": "100，用来限制总 token 数", "en": "100, to cap total tokens"},
+                    {"zh": "没有上限，一直转到模型停", "en": "No cap; it loops until the model stops"},
+                ],
+                "answer": 0,
+                "why": {"zh": "runner/llm.ts 里 MAX_STEPS = 25；超过就抛 StepLimitExceeded，是防失控的硬护栏。", "en": "runner/llm.ts sets MAX_STEPS = 25; exceeding it throws StepLimitExceeded — a hard guardrail against runaway loops."},
+            },
+            {
+                "q": {"zh": "为什么每轮结束要重新加载投影历史，而不是把工具结果拼到内存数组上？", "en": "Why reload projected history each round instead of splicing tool results onto an in-memory array?"},
+                "opts": [
+                    {"zh": "因为历史是持久化的事实来源，重投影保证崩溃重启或被插队后仍看到最准状态", "en": "Because history is the persisted source of truth; re-projecting guarantees the most accurate state even after a crash/restart or an interrupting input"},
+                    {"zh": "纯粹为了省内存", "en": "Purely to save memory"},
+                    {"zh": "因为大模型协议强制要求", "en": "Because the LLM protocol mandates it"},
+                    {"zh": "因为这样更快", "en": "Because it is faster"},
+                ],
+                "answer": 0,
+                "why": {"zh": "V2 的克制：不依赖内存临时状态，一切以持久化为准、可随时重建——崩溃或中途插话都不会让模型看到过时状态。", "en": "V2's restraint: never rely on temporary in-memory state; everything defers to persistence and is rebuildable — neither a crash nor a mid-flight interruption leaves the model with stale state."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说请求向下收敛、结果向上发散。挑一个你感兴趣的子系统（比如工具执行或事件总线），说说它在下行还是上行、落在哪一层？", "en": "The lesson says requests converge downward and results diverge upward. Pick a subsystem you care about (e.g. tool execution or the event bus) and say whether it is on the way down or up, and which layer."},
+            {"zh": "富 TUI 用进程内 RPC worker 换来了什么好处？如果改用真正的网络 server（serve 模式），哪些地方会不一样、又有哪些代价？", "en": "What does the in-process RPC worker buy the rich TUI? If you switched to a real network server (serve mode), what would differ, and at what cost?"},
+        ],
+    },
 }
 
 def render(fname, lang):
