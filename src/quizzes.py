@@ -45,6 +45,48 @@ def _shuffle(opts, answer, seed):
 
 
 QUIZZES = {
+    "48-drizzle-sqlite.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode 用 Drizzle「代码即 schema」定义表，列名一律用 snake_case（如 project_id）而非 camelCase，主要好处是什么？", "en": "opencode defines tables with Drizzle \"code-as-schema,\" using snake_case column names (e.g. project_id) not camelCase; the main benefit is?"},
+                "opts": [
+                    {"zh": "Drizzle 默认直接拿字段名当列名——写 project_id: text() 列名就是 project_id，无需再把列名当字符串重写一遍（不必 projectID: text(\"project_id\")），省掉一类字段名/列名对不上的低级错误", "en": "Drizzle by default takes the field name as the column name — write project_id: text() and the column is project_id, no rewriting the column name as a string (no projectID: text(\"project_id\")), eliminating a class of field/column-name mismatch bugs"},
+                    {"zh": "snake_case 查询更快", "en": "snake_case queries are faster"},
+                    {"zh": "SQLite 只支持 snake_case 列名", "en": "SQLite only supports snake_case column names"},
+                    {"zh": "为了和 Python 风格统一", "en": "To match Python style"},
+                ],
+                "answer": 0,
+                "why": {"zh": "Drizzle 默认把字段名直接当列名：写 project_id: text()，列名就是 project_id，无需再写 projectID: text(\"project_id\") 把列名当字符串重复一遍。用 snake_case 字段名，字段名与列名天然一致，省掉一整类「字段名和列名字符串对不上」的低级错误——这是 opencode 全库的命名约定。课里还点出 Timestamps 复用片段（time_created $default、time_updated $onUpdate）：把横切所有表的公共结构抽成对象、各表 ...Timestamps 展开，正是「代码即 schema」相对裸 SQL 的红利——SQL 复制粘贴不了，代码可以。", "en": "Drizzle by default takes the field name as the column name: write project_id: text() and the column is project_id, no need for projectID: text(\"project_id\") rewriting the column name as a string. Using snake_case field names, field and column names naturally match, eliminating a whole class of \"field name and column-name string mismatch\" bugs — opencode's whole-codebase naming convention. The lesson also notes the Timestamps reusable fragment (time_created $default, time_updated $onUpdate): abstracting common structure cutting across all tables into an object, each table spreading ...Timestamps, is exactly \"code-as-schema\"'s dividend over raw SQL — SQL can't be copy-pasted, code can."},
+            },
+            {
+                "q": {"zh": "面对「一个全新空库」和「一个用了半年的老库」，opencode 的迁移系统 apply() 分别怎么做？", "en": "Facing \"a brand-new empty DB\" and \"an old DB used for half a year,\" how does opencode's migration apply() handle each?"},
+                "opts": [
+                    {"zh": "双路径——新空库：直接套 schema.gen 完整快照建好所有最新表 + 把全部三十多个迁移一次记「已完成」(不重放)；老库：applyOnly 读 migration 日志、只补跑还没记过的迁移", "en": "Dual path — new empty DB: apply schema.gen full snapshot to build all latest tables + mark all thirty-some migrations \"completed\" at once (no replay); old DB: applyOnly reads the migration journal, backfills only migrations not yet recorded"},
+                    {"zh": "两种库都从头重放全部三十多个迁移", "en": "Both DBs replay all thirty-some migrations from scratch"},
+                    {"zh": "新库不建表、等用户手动建", "en": "New DB builds no tables, waits for the user to build manually"},
+                    {"zh": "老库每次启动都重建整个库", "en": "Old DB rebuilds the entire DB on every startup"},
+                ],
+                "answer": 0,
+                "why": {"zh": "apply() 先查 sqlite_master 看库里有没有表，分两条路：① 全新空库（无表）→ 跑 schema.gen 那份完整快照一步建好所有最新表，再建 migration 日志表、把全部三十多个迁移一次性记成「已完成」——新用户绝不重放历史。② 已有 session 表 → applyOnly：读 migration 日志里已完成的 id 集合，遍历全部迁移、只补跑那些还没记过的，每跑一个记一笔。这个「新库套快照、老库补增量」设计让新用户首次启动又快又干净、老用户平滑升级不丢数据。背后两件武器：增量迁移链（历史视角）+ schema.gen 完整快照（当下视角），由 drizzle-kit 同时维护并保证一致。", "en": "apply() first queries sqlite_master for whether the DB has tables, splitting two paths: ① brand-new empty DB (no tables) → run schema.gen's full snapshot to build all latest tables in one step, then create the migration journal table, marking all thirty-some migrations \"completed\" at once — new users never replay history. ② has session table → applyOnly: read the set of completed ids from the migration journal, iterate all migrations, backfill only those not yet recorded, logging each. This \"snapshot for new, increment for old\" design makes new users' first launch fast and clean, old users upgrade smoothly without losing data. Two weapons behind it: the incremental migration chain (historical view) + schema.gen full snapshot (present view), both maintained by drizzle-kit and guaranteed consistent."},
+            },
+            {
+                "q": {"zh": "迁移系统靠什么保证「同一个 ALTER TABLE 重启一百次也不会执行两遍」，以及「表改了一半、日志没记」的撕裂状态不会出现？", "en": "What lets the migration system guarantee \"the same ALTER TABLE won't execute twice across a hundred restarts\" and that a torn \"table half-changed, journal unrecorded\" state never appears?"},
+                "opts": [
+                    {"zh": "migration 日志表(id+time_completed)记已跑过的→幂等；每个迁移裹在 db.transaction 里(升级 SQL 与记账同生共死)；整个 apply 被 Semaphore(1) 串行化", "en": "the migration journal table (id+time_completed) records what's run → idempotent; each migration wrapped in db.transaction (upgrade SQL and logging live or die together); the whole apply serialized by Semaphore(1)"},
+                    {"zh": "每次迁移前手动备份数据库", "en": "Manually back up the DB before each migration"},
+                    {"zh": "靠 SQLite 自动去重 ALTER 语句", "en": "Relying on SQLite to auto-dedupe ALTER statements"},
+                    {"zh": "迁移只在第一次安装时跑，之后永不再跑", "en": "Migrations run only on first install, never again"},
+                ],
+                "answer": 0,
+                "why": {"zh": "三道纪律：① 幂等——migration 日志表(就两列 id+time_completed)记着哪些迁移跑过了，applyOnly 遍历时跳过已记录的，所以重启多少次同一迁移都不会重跑。② 事务——每个迁移裹在 db.transaction 里：升级 SQL 和「往日志插一笔」要么一起提交、要么一起回滚，绝不会出现「表改了一半日志却没记」的撕裂。③ 串行——整个 apply 被 Semaphore(1) 信号量串行化，同一时刻只允许一个迁移流程在跑，杜绝多进程同时升级互相打架。配合 database.ts 的 PRAGMA（WAL 读写并发、foreign_keys=ON 让 cascade 生效等），整套存储既稳又能扛并发。", "en": "Three disciplines: ① idempotent — the migration journal table (just two columns id+time_completed) records which migrations ran, applyOnly skips recorded ones while iterating, so no matter how many restarts the same migration won't rerun. ② transactional — each migration wrapped in db.transaction: the upgrade SQL and \"insert a journal entry\" either both commit or both roll back, never a torn \"table half-changed, journal unrecorded\" state. ③ serial — the whole apply serialized by a Semaphore(1), only one migration flow at a time, preventing multiple processes upgrading at once and fighting. Combined with database.ts's PRAGMAs (WAL read/write concurrency, foreign_keys=ON making cascade effective, etc.), the whole storage is both stable and concurrency-tolerant."},
+            },
+        ],
+        "open": [
+            {"zh": "课里讲 apply() 有个防呆：如果库里「有表、却偏偏没有 session 表」，opencode 不贸然建表，而是直接报错退出——因为这极可能意味着 OPENCODE_DB 指错了别的程序的数据库。请你谈谈这种「对来历不明的库宁停勿乱」的设计哲学：它体现了什么样的工程克制？再结合你用过的工具（迁移框架、构建工具、配置加载器），举一个「工具自作主张反而酿成大祸」的反例，说明「拒绝动手」有时为何比「尽力修复」更安全。", "en": "The lesson covers a guard in apply(): if the DB \"has tables yet lacks a session table,\" opencode won't rashly build tables but errors out directly — because this very likely means OPENCODE_DB points at some other program's database. Discuss this \"for a DB of unknown origin, rather stop than meddle\" design philosophy: what engineering restraint does it embody? Then, from tools you've used (migration frameworks, build tools, config loaders), give a counterexample of \"a tool acting on its own initiative causing disaster,\" explaining why \"refuse to act\" is sometimes safer than \"try hard to fix.\""},
+            {"zh": "课里说同一套表结构有两种等价表述：增量迁移链（历史视角，一笔笔怎么改过来的）和 schema.gen 完整快照（当下视角，现在长什么样），drizzle-kit 同时维护二者并保证一致。请你解释：为什么「新库用快照、老库用增量」这种双轨制是必要的？如果只保留增量链（新库也从头重放三十多个迁移）会有什么问题？如果只保留快照（丢掉历史迁移）又会有什么问题？这种「历史 vs 当下」的双重表述，在你熟悉的其他系统（如 git、事件溯源、Redux）里有没有类似的影子？", "en": "The lesson says the same table structure has two equivalent expressions: the incremental migration chain (historical view, how it was changed step by step) and the schema.gen full snapshot (present view, what it looks like now), both maintained by drizzle-kit and guaranteed consistent. Explain: why is this \"snapshot for new, increment for old\" dual track necessary? What problem arises if only the incremental chain is kept (new DBs also replay thirty-some migrations from scratch)? What problem if only the snapshot is kept (dropping historical migrations)? Does this \"history vs present\" dual expression have echoes in other systems you know (e.g. git, event sourcing, Redux)?"},
+        ],
+    },
+
     "47-provider-plugins.html": {
         "mcq": [
             {
