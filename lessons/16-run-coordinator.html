@@ -328,8 +328,310 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第四部分 · Session 与 agent 循环</span><span class="lang-en">Part 4 · Session Core</span></div>
     <h1><span class="lang-zh">运行协调器</span><span class="lang-en">The run coordinator</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《运行协调器》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“运行协调器”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "The run coordinator" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "The run coordinator" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">上一课，prompt 被稳稳地<strong>入账</strong>进了收件箱，并摇响了一记<strong>建议性的铃</strong>（<span class="mono">wake</span>）。可铃响了，谁来应？谁负责<strong>从收件箱里把输入一条条取出、按序号执行，同时死死保证「同一个会话绝不会被两股执行同时蹂躏」</strong>？这就是这一课的主角——<strong>运行协调器（run coordinator）</strong>。如果说收件箱解决了「怎么稳稳收下」，协调器解决的就是「怎么有序取出」。它是 opencode 会话引擎的<strong>调度中枢</strong>：一边吸收纷至沓来的执行请求，一边把它们驯服成<strong>每会话严格串行、跨会话自由并发</strong>的干净节奏。</p>
+<p>为什么这层调度值得专讲？因为它是「<strong>并发正确性</strong>」的兜底人。一个 agent 会话的执行，绝不能容忍两份同时跑——它们会抢同一段历史、同一批工具状态，瞬间把数据搅成一团乱麻。但若简单粗暴地「全局只许一个会话跑」，又会让你开十个会话时只能干等。协调器要的是那个微妙的平衡点：<strong>同一会话内，至多一条执行链在跑；不同会话间，谁也不挡谁。</strong>这一课就拆开它是用什么精巧的状态机，把「串行」与「并发」这对看似矛盾的需求，同时、优雅地满足的。</p>
+
+<div class="card analogy">
+  <div class="tag">🚉 生活类比</div>
+  把每个会话想成一座<strong>火车站</strong>，每座站只有<strong>一条单轨</strong>。一座站的轨道上，<strong>同一时刻只容一列车</strong>跑——这就是「同会话串行」：绝不让两列车在一条轨上对撞。但<strong>不同的站各有各的轨</strong>，互不干涉，可以同时各跑各的——这就是「跨会话并发」。现在看信号：「<strong>发车</strong>」（run）是一道明确的调度令，要么发出一列新车，要么并入正在跑的那列。「<strong>有货</strong>」（wake）只是货场摇的一记铃：「轨上可能有新货要拉了」——可如果车正在跑，你<strong>不会</strong>再硬塞一列，只是按下一个「跑完这趟再多兜一圈」的标记。哪怕这铃在一趟车的途中摇了十次，也只换来<strong>一次</strong>额外兜圈（因为一趟车本就把轨上所有货一次拉完）。一站一轨、车随铃动、铃多归一——这套调度，就是运行协调器。
+</div>
+
+<h2>核心铁律：同会话串行，跨会话并发</h2>
+<p>协调器的全部设计，都围着源码注释里的一句话转：「<strong>每个 key 至多跑一条排空链，不同 key 可并发排空</strong>」。这里的 key 就是会话 ID。把它翻成两条铁律：</p>
+<div class="cols">
+  <div class="col"><h4>🚆 同会话：严格串行</h4><p>同一个会话，任一时刻<strong>至多一条执行链</strong>在跑。第二个请求来了，不另起炉灶，而是<strong>并入</strong>当前这条链。从根上杜绝了「两股执行抢同一份历史」。</p></div>
+  <div class="col"><h4>🚄 跨会话：自由并发</h4><p>不同会话各有各的执行链，<strong>互不阻塞</strong>。你开十个会话，它们能同时推进，谁也不必排队等别人。</p></div>
+</div>
+<p>实现这条铁律的，是一个朴素到家的数据结构：协调器内部维护一个 <span class="mono">Map&lt;Key, Entry&gt;</span>——<strong>每个会话一个 Entry</strong>（一条「执行车道」）。同一个会话 ID 永远命中同一个 Entry，于是它的所有请求都被这唯一的 Entry 串成一条线；而不同会话 ID 命中不同 Entry，天然互不相干、各跑各的。<strong>「串行」与「并发」的全部魔法，就藏在「按 key 分桶」这一下里</strong>——这其实正是第 8 课 <span class="mono">KeyedMutex</span>「同 key 串行、异 key 并行」那个理念，在会话执行这一层被打磨成了一个更精巧的专用版本。</p>
+<p>值得停下来体会「为什么必须串行」。一个 agent 会话的执行，会不断<strong>读写同一份共享状态</strong>：当前的消息历史、各个工具的状态、累计的 token 账单。若放任两趟执行同时跑，它们就会像两只手同时改一张纸——A 刚写下半句，B 把它覆盖，最后谁也说不清这张纸到底该是什么样。这类 bug 还特别阴险：它只在「恰好两个请求撞在一起」的罕见时刻才发作，平时测都测不出来。协调器用「同会话至多一条链」这条硬规则，把这种竞态<strong>从结构上彻底排除</strong>——不是靠加锁去亡羊补牢，而是让「两趟同时跑」这件事<strong>根本无法发生</strong>。这是比「小心翼翼地加锁」高明得多的解法：最好的并发 bug，是那些被设计得压根不可能出现的。</p>
+<div class="flow">
+  <div class="node">收件箱<span class="sub">admit + wake（第 15 课）</span></div>
+  <div class="arrow">→</div>
+  <div class="node">运行协调器<span class="sub">按会话分车道</span></div>
+  <div class="arrow">drain →</div>
+  <div class="node">SessionRunner.run<span class="sub">真正的 agent 循环（第 17 课）</span></div>
+</div>
+
+<h2>run 与 wake：一个发车、一个摇铃</h2>
+<p>协调器对外的两个主要动作，对应类比里的「发车」与「摇铃」，语义截然不同。<strong><span class="mono">run</span>（发车）</strong>是<strong>显式</strong>的执行请求：会话空闲就起一条新链，会话正忙就<strong>并入</strong>当前链——并入时调用方仍拿到「显式执行」的语义（比如它能等到这趟真正跑完）。<strong><span class="mono">wake</span>（摇铃）</strong>则是<strong>建议性</strong>的：它只是报告「持久层可能有新活了」——空闲时它会起一条链，但若正忙，它<strong>只登记一个被合并的后续</strong>，绝不另起第二条。</p>
+<div class="cols">
+  <div class="col"><h4>run · 显式发车</h4><p>主动要求执行。起链，或<strong>并入</strong>当前链。用于「明确就是要现在跑这个会话」（比如续跑 resume）。</p></div>
+  <div class="col"><h4>wake · 建议摇铃</h4><p>报告「可能有活」。空闲起链；忙则<strong>合并</strong>成至多一个后续。第 15 课 admit 之后摇的，就是这记铃。</p></div>
+</div>
+<p>两者的分野，正好接住了上一课的设计：admit 之后调的是 <span class="mono">wake</span>——因为入账只是「可能有活了」的一记提示，至于真去排空、什么时候排，交给协调器拿捏。而像「用户明确点了续跑」这种<strong>非它不可</strong>的请求，走的才是 <span class="mono">run</span>。<strong>建议的归 wake、命令的归 run</strong>，这条线划得和第 15 课「持久的归 admit、建议的归 wake」一脉相承。这种「把不同强度的意图，用不同的动词显式区分开」的做法，你在这套代码里会一再遇到——它让调度器永远知道「这一下到底是非跑不可，还是跑不跑都行」，从而做出恰如其分的取舍。</p>
+
+<h2>coalesce：十次摇铃，一次兜圈</h2>
+<p>协调器最妙的一笔，是 <span class="mono">coalesce</span>（合并）。设想一个会话正在排空（drain 正跑），这期间又有五个 prompt 入账、摇了五次 <span class="mono">wake</span>。天真的做法会排五次队、跑五趟。但协调器只留<strong>至多一个</strong>「待办后续」：这五次 wake 全被<strong>折叠成一个</strong>。为什么一个就够？因为一趟 drain 本就会把收件箱里<strong>当前所有合格的行一次扫光</strong>——所以只需要在当前这趟跑完后，<strong>再补跑一趟</strong>去兜住「我这趟跑的途中又新来的那些」，一趟足矣。</p>
+<pre class="code"><span class="cm">// 简化自 session/run-coordinator.ts</span>
+<span class="kw">const</span> coalesce = (left, right) =&gt; {
+  <span class="kw">if</span> (left?._tag === <span class="st">"run"</span> || right._tag === <span class="st">"run"</span>)
+    <span class="kw">return</span> { _tag: <span class="st">"run"</span> }          <span class="cm">// ① run 压倒 wake</span>
+  <span class="kw">return</span> { _tag: <span class="st">"wake"</span>, seq: <span class="fn">maxSeq</span>(left?.seq, right.seq) }  <span class="cm">// ② wake 取最新 seq</span>
+}</pre>
+<p>合并规则只有两条，却字字千金。<strong>① run 压倒 wake</strong>：待办里只要掺进一个显式 run，合并结果就是 run——「命令」永远盖过「建议」，因为有人明确要求执行，就不能被降格成一记可有可无的铃。<strong>② wake 取最新 seq</strong>：两记 wake 合并时，保留<strong>更大的那个序号</strong>——这样后续那趟排空，知道至少要追到「目前已知最新入账的那条」为止，一条都不漏。<strong>合并不是丢弃，而是「取并集里最强的那个意图」</strong>：要么升格成 run，要么追上最新的 seq。十记铃声归并成一次精准的兜圈，既不空跑、也不漏单。</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">t0</span><span class="tl-desc">drain 开始跑（处理当前收件箱所有合格行）</span></div>
+  <div class="tl-item"><span class="tl-time">t1–t5</span><span class="tl-desc">途中又来 5 个 prompt：wake×5，全被 coalesce 成 1 个待办</span></div>
+  <div class="tl-item"><span class="tl-time">t6</span><span class="tl-desc">本趟 drain 结束 → 看到那 1 个待办</span></div>
+  <div class="tl-item"><span class="tl-time">t7</span><span class="tl-desc">补跑 1 趟，一次扫光这 5 个新来的 → 回到 idle</span></div>
+</div>
+<p>为什么不怕「合并把活漏掉」？关键在那个 seq。每记 wake 都带着「目前已知最新入账序号」，合并时取最大值；而一趟 drain 的契约是「把截至某序号为止、所有合格的行全部处理完」。于是即便途中来了一百记 wake，只要合并后的待办记着那个最大的 seq，补跑的这一趟就<strong>保证覆盖到第一百条</strong>。<strong>用「一个带最新进度的待办」顶替「一长串重复待办」</strong>——这是把幂等思想从第 15 课的「按 id 去重」，推进到了调度层的「按 seq 收敛」。少跑了无数趟冗余 drain，却一笔活都没少干。</p>
+
+<h2>那台状态机：idle → draining → 收尾</h2>
+<p>把上面这些拼起来，每条会话车道其实就是一台小小的<strong>状态机</strong>，源码注释画得明明白白：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">idle</span><span class="t-txt">空闲：没有执行链在跑</span></div>
+  <div class="t-row"><span class="t-num">→</span><span class="t-txt">来一个 run/wake → 起一条排空链，进入 draining</span></div>
+  <div class="t-row"><span class="t-num">draining</span><span class="t-txt">正在排空：期间再来的 run/wake 不另起，只 coalesce 成"至多一个待办后续"</span></div>
+  <div class="t-row"><span class="t-num">→</span><span class="t-txt">本趟跑完，若有待办 → 再补跑一趟（coalesced rerun）</span></div>
+  <div class="t-row"><span class="t-num">idle</span><span class="t-txt">待办也清空了 → 回到空闲，静待下一记铃</span></div>
+</div>
+<p>这台状态机的美，在于它把「<strong>至多一条链在跑</strong>」这个不变量焊得死死的：无论外面 run、wake 来得多猛、多密，一个会话<strong>同时最多只有一趟 drain 在跑、外加最多一个待办</strong>。它既不会因为请求太密而并发失控，也不会因为合并而漏掉任何一笔已入账的活。还有第三个动作 <span class="mono">interrupt</span>（中断）：它能停掉当前这条执行链——这是「能干净地喊停一个正在长考的 agent」的底层开关，我们留到第 20 课再细看它怎么和「有界步数、错误处理」配合。这里只需记住：协调器不只管「怎么开跑」，也管「怎么停下」。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">run(key)</div><div class="v">显式发车：起链或并入当前链</div></div>
+  <div class="cell"><div class="k">wake(key, seq?)</div><div class="v">建议摇铃：起链或合并一个后续</div></div>
+  <div class="cell"><div class="k">awaitIdle(key)</div><div class="v">等这条链彻底跑完、回到空闲</div></div>
+  <div class="cell"><div class="k">interrupt(key, seq?)</div><div class="v">停掉当前执行链（第 20 课细看）</div></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>协调器是收件箱（第 15 课）与 agent 循环（第 17 课）之间的<strong>调度枢纽</strong>，也是「并发正确性」的守门人：</p>
+  <ul>
+    <li><strong>铁律</strong>：同会话至多一条执行链（串行）、跨会话各跑各的（并发）——靠 <span class="mono">Map&lt;Key, Entry&gt;</span> 按会话分车道实现，是第 8 课 KeyedMutex 的精装版。</li>
+    <li><strong>run vs wake</strong>：run 是显式发车（起链或并入）；wake 是建议摇铃（起链或合并后续）。第 15 课 admit 后摇的是 wake。</li>
+    <li><strong>coalesce</strong>：途中纷至的请求折叠成至多一个后续——run 压倒 wake、wake 取最新 seq；十记铃声归一次精准兜圈。</li>
+    <li><strong>状态机</strong>：idle → draining → 至多一次合并补跑 → idle，把「至多一条链」焊死。</li>
+  </ul>
+  <p>那么，被协调器一趟趟「drain」出来、真正喂给模型去跑的，到底是怎样一个循环？它怎么把一条用户消息，变成「想→调工具→看结果→再想」的反复推进？那就是下一课的主角——<strong>V2 agent 循环（第 17 课）</strong>，opencode 这颗大脑真正"思考"的地方。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>协调器并不知道「排空」具体在干嘛——它只是个通用的串行+合并外壳，真正的活由传进来的 <span class="mono">drain</span> 回调决定。看 <span class="mono">SessionExecution</span> 是怎么把二者接起来的：</p>
+  <pre class="code"><span class="cm">// 简化自 session/execution/local.ts</span>
+<span class="kw">const</span> coordinator = <span class="kw">yield</span>* SessionRunCoordinator.<span class="fn">make</span>({
+  drain: (sessionID, mode) =&gt;                       <span class="cm">// ← 协调器只负责"何时、串行地"调它</span>
+    SessionRunner.Service.<span class="fn">use</span>((runner) =&gt;
+      runner.<span class="fn">run</span>({ sessionID, force: mode === <span class="st">"run"</span> })),  <span class="cm">// ← 真正的 agent 循环</span>
+})
+<span class="cm">// SessionExecution 把三个动作直接转接给协调器：</span>
+{ resume: coordinator.run, wake: coordinator.wake, interrupt: coordinator.interrupt }</pre>
+  <p>这是一处漂亮的<strong>关注点分离</strong>：协调器只懂「按 key 串行、合并、起停」这套<strong>纯调度</strong>逻辑，对「排空时到底跑什么」一无所知；而具体的 agent 循环（<span class="mono">SessionRunner.run</span>）则完全不操心并发与排队。注意那个 <span class="mono">force: mode === "run"</span>——它把「这趟是显式发车还是建议摇铃」原样透传给 runner，让下游也能区分对待。<strong>调度与执行解耦</strong>，各自都能被单独读懂、单独测试。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li>运行协调器是收件箱与 agent 循环之间的<strong>调度枢纽</strong>：应答 <span class="mono">wake</span> 的铃，把入账的输入有序地排空执行。</li>
+    <li><strong>核心铁律</strong>：同一会话至多一条执行链（<strong>串行</strong>），不同会话各跑各的（<strong>并发</strong>）——靠 <span class="mono">Map&lt;Key, Entry&gt;</span> 按会话分车道，是 KeyedMutex 的精装版。</li>
+    <li><strong>run（显式发车）</strong>起链或并入当前链；<strong>wake（建议摇铃）</strong>起链或只登记一个合并后续。admit 之后摇的是 wake。</li>
+    <li><strong>coalesce</strong>把途中纷至的请求折叠成至多一个后续：<strong>run 压倒 wake、wake 取最新 seq</strong>，十记铃声归一次精准补跑、不空跑不漏单。</li>
+    <li>每条车道是一台 <strong>idle→draining→至多一次补跑→idle</strong> 的状态机，把「至多一条链」焊死；<span class="mono">interrupt</span> 提供干净喊停的开关（第 20 课）。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. 运行协调器的核心铁律是什么？</div>
+  <ol class="opts">
+    <li>每个会话最多三条链</li>
+    <li>同一会话至多一条执行链（串行），不同会话各跑各的（并发）</li>
+    <li>所有会话完全并发、无任何限制</li>
+    <li>全局只许一个会话跑</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。靠内部一个 Map<Key,Entry>（每会话一个 Entry/车道）：同会话 ID 命中同一 Entry → 串成一条线；异会话 ID 命中不同 Entry → 各跑各的。是第 8 课 KeyedMutex「同 key 串行、异 key 并行」的精装版。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. run 和 wake 的区别是？</div>
+  <ol class="opts">
+    <li>两者完全等价</li>
+    <li>run 用于读、wake 用于写</li>
+    <li>run 同步、wake 异步，没别的区别</li>
+    <li>run 是显式发车（起链或并入当前链）；wake 是建议摇铃（空闲起链，忙则只合并一个后续）</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。run 是「命令」：明确要求执行（如 resume）。wake 是「建议」：报告可能有活——第 15 课 admit 后摇的就是 wake。建议的归 wake、命令的归 run，与第 15 课「持久的归 admit、建议的归 wake」一脉相承。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. 一趟 drain 进行中又来了 5 个 wake，coalesce 会怎么处理？</div>
+  <ol class="opts">
+    <li>折叠成至多一个待办后续（保留最新 seq），本趟结束后补跑一趟即可一次扫光</li>
+    <li>立刻并发起 5 条新链</li>
+    <li>直接丢弃这 5 个 wake</li>
+    <li>排成 5 趟队，依次跑 5 趟</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。一趟 drain 本就扫光收件箱当前所有合格行，故只需一个后续兜住途中新来的。合并规则：run 压倒 wake；wake 取最新 seq——补跑那趟据此保证覆盖到最新一条，不空跑不漏单。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里说「最好的并发 bug，是那些被设计得压根不可能出现的」——协调器用「同会话至多一条链」从结构上排除竞态，而非事后加锁。对比这两种思路（结构性排除 vs 加锁补救），各自的代价和好处是什么？</li>
+    <li>协调器把「纯调度」（按 key 串行/合并/起停）和「具体排空时跑什么」（SessionRunner.run）彻底解耦，drain 只是个传进来的回调。这种解耦对「单独测试调度逻辑」有什么好处？</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">Last lesson, the prompt was steadily <strong>admitted</strong> into the inbox and rang an <strong>advisory bell</strong> (<span class="mono">wake</span>). But the bell rang — who answers? Who <strong>pulls inputs from the inbox one by one, executes them in sequence order, while ironclad-guaranteeing "the same session is never ravaged by two executions at once"</strong>? That's this lesson's star — the <strong>run coordinator</strong>. If the inbox solved "how to receive steadily," the coordinator solves "how to pull in order." It's opencode's session engine's <strong>scheduling hub</strong>: absorbing the flood of incoming execution requests on one side, taming them into a clean rhythm that's <strong>strictly serial within a session, freely concurrent across sessions</strong> on the other.</p>
+<p>Why does this scheduling layer deserve its own lesson? Because it's the backstop of <strong>concurrency correctness</strong>. An agent session's execution must never tolerate two running at once — they'd grab the same history, the same tool states, instantly churning the data into a tangle. But crudely "only one session may run globally" would force you to wait idle when you open ten sessions. The coordinator wants that delicate balance: <strong>within one session, at most one execution chain runs; across sessions, no one blocks anyone.</strong> This lesson unpacks the clever state machine it uses to satisfy "serial" and "concurrent" — these seemingly contradictory needs — at once and elegantly.</p>
+
+<div class="card analogy">
+  <div class="tag">🚉 Analogy</div>
+  Think of each session as a <strong>train station</strong>, each with <strong>a single track</strong>. On one station's track, <strong>only one train runs at a time</strong> — that's "serial within a session": never let two trains collide on one track. But <strong>different stations have their own tracks</strong>, mutually independent, running at the same time — that's "concurrent across sessions." Now the signals: "<strong>depart</strong>" (run) is an explicit dispatch order — either send out a new train or merge into the running one. "<strong>cargo ready</strong>" (wake) is just a bell rung at the yard: "there may be new cargo to haul" — but if a train is running, you <strong>don't</strong> jam in a second; you just press a "do one more round after this trip" marker. Even if this bell rings ten times during a trip, it buys only <strong>one</strong> extra round (because one trip already hauls all the cargo on the track at once). One station one track, trains move on the bell, many bells fold into one — this scheduling is the run coordinator.
+</div>
+
+<h2>The iron law: serial within a session, concurrent across</h2>
+<p>The coordinator's whole design revolves around one line in the source comment: "<strong>Runs at most one drain chain per key while allowing different keys to drain concurrently.</strong>" Here the key is the session ID. Translated into two iron laws:</p>
+<div class="cols">
+  <div class="col"><h4>🚆 same session: strictly serial</h4><p>One session, at any instant <strong>at most one execution chain</strong> runs. A second request comes? Not a new fire; it <strong>merges</strong> into the current chain. Root-out of "two executions grabbing the same history."</p></div>
+  <div class="col"><h4>🚄 across sessions: freely concurrent</h4><p>Different sessions each have their own chain, <strong>mutually non-blocking</strong>. Open ten sessions and they advance together, none queuing behind another.</p></div>
+</div>
+<p>What implements this law is a structure plain to the bone: the coordinator keeps a <span class="mono">Map&lt;Key, Entry&gt;</span> internally — <strong>one Entry per session</strong> (an "execution lane"). The same session ID always hits the same Entry, so all its requests are strung into one line by that sole Entry; while different session IDs hit different Entries, naturally unrelated, each running its own. <strong>All the magic of "serial" and "concurrent" hides in this one move of "bucket by key"</strong> — this is in fact Lesson 8's <span class="mono">KeyedMutex</span> idea of "same key serial, different key parallel," polished into a more refined specialized version at the session-execution layer.</p>
+<p>It's worth pausing on "why serial is mandatory." An agent session's execution constantly <strong>reads and writes the same shared state</strong>: the current message history, each tool's state, the cumulative token bill. Let two executions run at once and they'd be like two hands editing one sheet of paper — A writes half a sentence, B overwrites it, and in the end no one can say what the sheet should be. Such bugs are also especially insidious: they fire only in the rare moment "two requests happen to collide," untestable in normal times. The coordinator uses the hard rule of "at most one chain per session" to <strong>structurally eliminate</strong> this race — not patching with locks after the fact, but making "two running at once" <strong>simply impossible</strong>. That's a far cleverer solution than "carefully add locks": the best concurrency bugs are the ones designed to be impossible.</p>
+<div class="flow">
+  <div class="node">inbox<span class="sub">admit + wake (Lesson 15)</span></div>
+  <div class="arrow">→</div>
+  <div class="node">run coordinator<span class="sub">lane by session</span></div>
+  <div class="arrow">drain →</div>
+  <div class="node">SessionRunner.run<span class="sub">the real agent loop (Lesson 17)</span></div>
+</div>
+
+<h2>run and wake: one departs, one rings</h2>
+<p>The coordinator's two main actions, matching the analogy's "depart" and "ring," differ sharply in meaning. <strong><span class="mono">run</span> (depart)</strong> is an <strong>explicit</strong> execution request: idle session starts a new chain, busy session <strong>merges</strong> into the current chain — and on merge the caller still gets "explicit run" semantics (e.g. it can await this trip's actual completion). <strong><span class="mono">wake</span> (ring)</strong> is <strong>advisory</strong>: it merely reports "durable work may now be available" — while idle it starts a chain, but if busy it <strong>only registers one coalesced follow-up</strong>, never a second chain.</p>
+<div class="cols">
+  <div class="col"><h4>run · explicit depart</h4><p>Actively demand execution. Start a chain, or <strong>merge</strong> into the current one. For "I definitely want this session run now" (e.g. resume).</p></div>
+  <div class="col"><h4>wake · advisory ring</h4><p>Report "there may be work." Idle starts a chain; busy <strong>coalesces</strong> into at most one follow-up. After Lesson 15's admit, this is the bell that's rung.</p></div>
+</div>
+<p>Their divide neatly catches last lesson's design: after admit, <span class="mono">wake</span> is called — because admission is only a hint of "there may be work," and whether and when to actually drain is left to the coordinator's judgment. A request that <strong>must</strong> run, like "the user explicitly clicked resume," takes <span class="mono">run</span>. <strong>Advisory goes to wake, command goes to run</strong>, a line drawn in the same lineage as Lesson 15's "durable goes to admit, advisory goes to wake." This habit of "explicitly distinguishing intents of different strength with different verbs" recurs throughout this code — it lets the scheduler always know "is this a must-run or a maybe-run," and thus make exactly the right trade-off.</p>
+
+<h2>coalesce: ten bells, one extra round</h2>
+<p>The coordinator's cleverest stroke is <span class="mono">coalesce</span>. Suppose a session is draining (a drain is running), and during it five more prompts are admitted, ringing <span class="mono">wake</span> five times. The naive way queues five times and runs five trips. But the coordinator keeps <strong>at most one</strong> "pending follow-up": those five wakes are <strong>folded into one</strong>. Why is one enough? Because one drain already <strong>sweeps all currently-eligible rows in the inbox at once</strong> — so you only need, after the current trip finishes, <strong>one more trip</strong> to catch "those that arrived mid-trip," and one suffices.</p>
+<pre class="code"><span class="cm">// simplified from session/run-coordinator.ts</span>
+<span class="kw">const</span> coalesce = (left, right) =&gt; {
+  <span class="kw">if</span> (left?._tag === <span class="st">"run"</span> || right._tag === <span class="st">"run"</span>)
+    <span class="kw">return</span> { _tag: <span class="st">"run"</span> }          <span class="cm">// (1) run dominates wake</span>
+  <span class="kw">return</span> { _tag: <span class="st">"wake"</span>, seq: <span class="fn">maxSeq</span>(left?.seq, right.seq) }  <span class="cm">// (2) wake keeps newest seq</span>
+}</pre>
+<p>Two rules only, yet every word is gold. <strong>(1) run dominates wake</strong>: if the pending mixes in one explicit run, the merged result is run — "command" always overrides "advice," because if someone explicitly demanded execution, it can't be demoted to a dispensable bell. <strong>(2) wake keeps the newest seq</strong>: merging two wakes keeps <strong>the larger sequence number</strong> — so the follow-up drain knows to catch at least up to "the latest known admission so far," missing none. <strong>Coalescing isn't discarding but "taking the strongest intent in the union"</strong>: either upgrade to run, or catch up to the latest seq. Ten bell-rings merge into one precise extra round — no idle running, no missed tickets.</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">t0</span><span class="tl-desc">drain starts (processes all currently-eligible inbox rows)</span></div>
+  <div class="tl-item"><span class="tl-time">t1–t5</span><span class="tl-desc">5 more prompts arrive mid-trip: wake×5, all coalesced into 1 pending</span></div>
+  <div class="tl-item"><span class="tl-time">t6</span><span class="tl-desc">this drain ends → sees that 1 pending</span></div>
+  <div class="tl-item"><span class="tl-time">t7</span><span class="tl-desc">one extra round sweeps the 5 newcomers at once → back to idle</span></div>
+</div>
+<p>Why not fear "coalescing drops work"? The key is that seq. Each wake carries "the latest known admission sequence," and merging keeps the max; while a drain's contract is "process all eligible rows up to some sequence." So even if a hundred wakes arrive mid-trip, as long as the coalesced pending remembers that max seq, the extra round is <strong>guaranteed to cover the hundredth</strong>. <strong>Replacing "a long string of duplicate pendings" with "one pending carrying the latest progress"</strong> — this pushes the idempotency idea from Lesson 15's "dedupe by id" onward to the scheduling layer's "converge by seq." Countless redundant drains skipped, yet not one ticket of work lost.</p>
+
+<h2>That state machine: idle → draining → wind-down</h2>
+<p>Put the above together and each session lane is really a tiny <strong>state machine</strong>, drawn plainly in the source comment:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">idle</span><span class="t-txt">idle: no execution chain running</span></div>
+  <div class="t-row"><span class="t-num">→</span><span class="t-txt">a run/wake arrives → start a drain chain, enter draining</span></div>
+  <div class="t-row"><span class="t-num">draining</span><span class="t-txt">draining: further run/wake don't start anew, only coalesce into "at most one pending follow-up"</span></div>
+  <div class="t-row"><span class="t-num">→</span><span class="t-txt">this trip ends; if a pending exists → one more trip (coalesced rerun)</span></div>
+  <div class="t-row"><span class="t-num">idle</span><span class="t-txt">pending also cleared → back to idle, awaiting the next bell</span></div>
+</div>
+<p>This state machine's beauty is welding the invariant "<strong>at most one chain runs</strong>" shut: however fierce and dense the outside run/wake come, one session has <strong>at most one drain running plus at most one pending</strong> at a time. It won't lose concurrency control from too-dense requests, nor miss any admitted work due to coalescing. There's also a third action, <span class="mono">interrupt</span>: it can stop the current execution chain — the underlying switch for "cleanly halting an agent deep in thought," which we leave to Lesson 20 to see how it pairs with "bounded steps, error handling." Here just remember: the coordinator manages not only "how to start" but "how to stop."</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">run(key)</div><div class="v">explicit depart: start a chain or merge the current</div></div>
+  <div class="cell"><div class="k">wake(key, seq?)</div><div class="v">advisory ring: start a chain or coalesce a follow-up</div></div>
+  <div class="cell"><div class="k">awaitIdle(key)</div><div class="v">wait until this chain fully finishes, back to idle</div></div>
+  <div class="cell"><div class="k">interrupt(key, seq?)</div><div class="v">stop the current execution chain (Lesson 20)</div></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture</div>
+  <p>The coordinator is the <strong>scheduling hub</strong> between the inbox (Lesson 15) and the agent loop (Lesson 17), and the gatekeeper of "concurrency correctness":</p>
+  <ul>
+    <li><strong>Iron law</strong>: at most one chain per session (serial), each session running its own (concurrent) — via a <span class="mono">Map&lt;Key, Entry&gt;</span> laning by session, a deluxe edition of Lesson 8's KeyedMutex.</li>
+    <li><strong>run vs wake</strong>: run is explicit depart (start or merge); wake is advisory ring (start or coalesce a follow-up). After Lesson 15's admit it's wake that's rung.</li>
+    <li><strong>coalesce</strong>: mid-trip requests fold into at most one follow-up — run dominates wake, wake keeps newest seq; ten bells become one precise extra round.</li>
+    <li><strong>state machine</strong>: idle → draining → at most one coalesced rerun → idle, welding "at most one chain" shut.</li>
+  </ul>
+  <p>So what kind of loop is it that the coordinator "drains" out, trip by trip, and actually feeds the model to run? How does it turn one user message into the repeated advance of "think → call tool → see result → think again"? That's next lesson's star — the <strong>V2 agent loop (Lesson 17)</strong>, where this brain of opencode truly "thinks."</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p>The coordinator doesn't know what "drain" actually does — it's just a generic serial+coalesce shell, and the real work is decided by the <span class="mono">drain</span> callback passed in. See how <span class="mono">SessionExecution</span> wires the two:</p>
+  <pre class="code"><span class="cm">// simplified from session/execution/local.ts</span>
+<span class="kw">const</span> coordinator = <span class="kw">yield</span>* SessionRunCoordinator.<span class="fn">make</span>({
+  drain: (sessionID, mode) =&gt;                       <span class="cm">// ← coordinator only decides "when, serially" to call it</span>
+    SessionRunner.Service.<span class="fn">use</span>((runner) =&gt;
+      runner.<span class="fn">run</span>({ sessionID, force: mode === <span class="st">"run"</span> })),  <span class="cm">// ← the real agent loop</span>
+})
+<span class="cm">// SessionExecution forwards its three actions straight to the coordinator:</span>
+{ resume: coordinator.run, wake: coordinator.wake, interrupt: coordinator.interrupt }</pre>
+  <p>This is a lovely <strong>separation of concerns</strong>: the coordinator understands only the <strong>pure scheduling</strong> logic of "serial by key, coalesce, start/stop," knowing nothing of "what to run on drain"; while the concrete agent loop (<span class="mono">SessionRunner.run</span>) needn't worry at all about concurrency and queuing. Note that <span class="mono">force: mode === "run"</span> — it passes "is this trip an explicit depart or an advisory ring" through to the runner verbatim, so the downstream can also treat them differently. <strong>Scheduling decoupled from execution</strong>, each readable and testable on its own.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li>The run coordinator is the <strong>scheduling hub</strong> between inbox and agent loop: it answers the <span class="mono">wake</span> bell and drains admitted inputs into execution, in order.</li>
+    <li><strong>Iron law</strong>: at most one execution chain per session (<strong>serial</strong>), different sessions running their own (<strong>concurrent</strong>) — via <span class="mono">Map&lt;Key, Entry&gt;</span> laning by session, a deluxe KeyedMutex.</li>
+    <li><strong>run (explicit depart)</strong> starts or merges the current chain; <strong>wake (advisory ring)</strong> starts or only registers one coalesced follow-up. After admit it's wake that's rung.</li>
+    <li><strong>coalesce</strong> folds mid-trip requests into at most one follow-up: <strong>run dominates wake, wake keeps newest seq</strong>, ten bells into one precise rerun — no idle running, no missed tickets.</li>
+    <li>Each lane is an <strong>idle→draining→at most one rerun→idle</strong> state machine welding "at most one chain" shut; <span class="mono">interrupt</span> gives the clean-halt switch (Lesson 20).</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. What is the run coordinator's core iron law?</div>
+  <ol class="opts">
+    <li>At most three chains per session</li>
+    <li>At most one execution chain per session (serial), different sessions each running their own (concurrent)</li>
+    <li>All sessions fully concurrent with no limit</li>
+    <li>Only one session may run globally</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Via an internal Map<Key,Entry> (one Entry/lane per session): same session ID hits the same Entry → strung into one line; different IDs hit different Entries → each runs its own. A deluxe edition of Lesson 8's KeyedMutex.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. What's the difference between run and wake?</div>
+  <ol class="opts">
+    <li>The two are entirely equivalent</li>
+    <li>run for reads, wake for writes</li>
+    <li>run is sync, wake is async, no other difference</li>
+    <li>run is explicit depart (start or merge the current chain); wake is advisory ring (idle starts a chain, busy only coalesces one follow-up)</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. run is a command: explicitly demand execution (e.g. resume). wake is advice: report there may be work — what's rung after Lesson 15's admit. Advisory to wake, command to run, of one lineage with Lesson 15.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. Five wakes arrive during a running drain — how does coalesce handle them?</div>
+  <ol class="opts">
+    <li>Fold into at most one pending follow-up (keeping the newest seq); one extra round after this trip sweeps them all</li>
+    <li>Immediately start 5 new chains concurrently</li>
+    <li>Discard the 5 wakes outright</li>
+    <li>Queue 5 trips and run them one by one</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. One drain already sweeps all currently-eligible rows, so one follow-up suffices for mid-trip arrivals. Rules: run dominates wake; wake keeps the newest seq — so the rerun is guaranteed to cover the latest, no idle running, no missed tickets.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson says “the best concurrency bugs are the ones designed to be impossible” — the coordinator structurally eliminates races via “at most one chain per session” rather than locking after the fact. Compare the two approaches (structural elimination vs lock-patching): costs and benefits of each?</li>
+    <li>The coordinator fully decouples “pure scheduling” (serial/coalesce/start-stop by key) from “what to run on drain” (SessionRunner.run), with drain just a passed-in callback. What does this decoupling buy for “testing the scheduling logic in isolation”?</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="15-input-inbox.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">事件溯源输入收件箱</span><span class="lang-en">The event-sourced inbox</span></div></a><a class="next" href="17-agent-loop.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">V2 agent 循环</span><span class="lang-en">The V2 agent loop</span></div></a></div>
 </div>
 <script>

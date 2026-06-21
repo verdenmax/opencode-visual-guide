@@ -708,6 +708,47 @@ QUIZZES = {
             {"zh": "为什么 opencode 用 admitted_seq / promoted_seq 两个序号，而不是一个布尔的「已处理/未处理」状态位？序号比状态位多给了什么？", "en": "Why does opencode use two numbers (admitted_seq / promoted_seq) rather than one boolean “processed/unprocessed” status bit? What does a sequence give that a status bit doesn't?"},
         ],
     },
+    "16-run-coordinator.html": {
+        "mcq": [
+            {
+                "q": {"zh": "运行协调器的核心铁律是什么？", "en": "What is the run coordinator's core iron law?"},
+                "opts": [
+                    {"zh": "同一会话至多一条执行链（串行），不同会话各跑各的（并发）", "en": "At most one execution chain per session (serial), different sessions each running their own (concurrent)"},
+                    {"zh": "全局只许一个会话跑", "en": "Only one session may run globally"},
+                    {"zh": "所有会话完全并发、无任何限制", "en": "All sessions fully concurrent with no limit"},
+                    {"zh": "每个会话最多三条链", "en": "At most three chains per session"},
+                ],
+                "answer": 0,
+                "why": {"zh": "靠内部一个 Map<Key,Entry>（每会话一个 Entry/车道）：同会话 ID 命中同一 Entry → 串成一条线；异会话 ID 命中不同 Entry → 各跑各的。是第 8 课 KeyedMutex「同 key 串行、异 key 并行」的精装版。", "en": "Via an internal Map<Key,Entry> (one Entry/lane per session): same session ID hits the same Entry → strung into one line; different IDs hit different Entries → each runs its own. A deluxe edition of Lesson 8's KeyedMutex."},
+            },
+            {
+                "q": {"zh": "run 和 wake 的区别是？", "en": "What's the difference between run and wake?"},
+                "opts": [
+                    {"zh": "run 是显式发车（起链或并入当前链）；wake 是建议摇铃（空闲起链，忙则只合并一个后续）", "en": "run is explicit depart (start or merge the current chain); wake is advisory ring (idle starts a chain, busy only coalesces one follow-up)"},
+                    {"zh": "run 同步、wake 异步，没别的区别", "en": "run is sync, wake is async, no other difference"},
+                    {"zh": "run 用于读、wake 用于写", "en": "run for reads, wake for writes"},
+                    {"zh": "两者完全等价", "en": "The two are entirely equivalent"},
+                ],
+                "answer": 0,
+                "why": {"zh": "run 是「命令」：明确要求执行（如 resume）。wake 是「建议」：报告可能有活——第 15 课 admit 后摇的就是 wake。建议的归 wake、命令的归 run，与第 15 课「持久的归 admit、建议的归 wake」一脉相承。", "en": "run is a command: explicitly demand execution (e.g. resume). wake is advice: report there may be work — what's rung after Lesson 15's admit. Advisory to wake, command to run, of one lineage with Lesson 15."},
+            },
+            {
+                "q": {"zh": "一趟 drain 进行中又来了 5 个 wake，coalesce 会怎么处理？", "en": "Five wakes arrive during a running drain — how does coalesce handle them?"},
+                "opts": [
+                    {"zh": "折叠成至多一个待办后续（保留最新 seq），本趟结束后补跑一趟即可一次扫光", "en": "Fold into at most one pending follow-up (keeping the newest seq); one extra round after this trip sweeps them all"},
+                    {"zh": "排成 5 趟队，依次跑 5 趟", "en": "Queue 5 trips and run them one by one"},
+                    {"zh": "直接丢弃这 5 个 wake", "en": "Discard the 5 wakes outright"},
+                    {"zh": "立刻并发起 5 条新链", "en": "Immediately start 5 new chains concurrently"},
+                ],
+                "answer": 0,
+                "why": {"zh": "一趟 drain 本就扫光收件箱当前所有合格行，故只需一个后续兜住途中新来的。合并规则：run 压倒 wake；wake 取最新 seq——补跑那趟据此保证覆盖到最新一条，不空跑不漏单。", "en": "One drain already sweeps all currently-eligible rows, so one follow-up suffices for mid-trip arrivals. Rules: run dominates wake; wake keeps the newest seq — so the rerun is guaranteed to cover the latest, no idle running, no missed tickets."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说「最好的并发 bug，是那些被设计得压根不可能出现的」——协调器用「同会话至多一条链」从结构上排除竞态，而非事后加锁。对比这两种思路（结构性排除 vs 加锁补救），各自的代价和好处是什么？", "en": "The lesson says “the best concurrency bugs are the ones designed to be impossible” — the coordinator structurally eliminates races via “at most one chain per session” rather than locking after the fact. Compare the two approaches (structural elimination vs lock-patching): costs and benefits of each?"},
+            {"zh": "协调器把「纯调度」（按 key 串行/合并/起停）和「具体排空时跑什么」（SessionRunner.run）彻底解耦，drain 只是个传进来的回调。这种解耦对「单独测试调度逻辑」有什么好处？", "en": "The coordinator fully decouples “pure scheduling” (serial/coalesce/start-stop by key) from “what to run on drain” (SessionRunner.run), with drain just a passed-in callback. What does this decoupling buy for “testing the scheduling logic in isolation”?"},
+        ],
+    },
 }
 
 def render(fname, lang):
