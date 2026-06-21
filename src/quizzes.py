@@ -995,6 +995,47 @@ QUIZZES = {
             {"zh": "看那条时间线：一个源绝大多数轮都在「沉默」，只有真变化的那轮才花 token。把这套「平时沉默、有变化才泛涟漪」的设计，和「每轮把全部环境信息重灌一遍」对比，在一个聊几小时的会话里差别有多大？", "en": "Look at that timeline: a source is silent most rounds, spending tokens only when it truly changes. Compare this \"silent normally, ripple only on change\" design with \"re-pour all environment info every round\" — how big is the difference in a session lasting hours?"},
         ],
     },
+    "23-context-registry.html": {
+        "mcq": [
+            {
+                "q": {"zh": "注册表的 register 为什么用 Effect.acquireRelease（作用域绑定）？", "en": "Why does the registry's register use Effect.acquireRelease (scope-bound)?"},
+                "opts": [
+                    {"zh": "注册即声明「在此作用域内存在」，作用域一关必然自动注销——根除「忘了删、源变幽灵」的泄漏", "en": "Registration declares \"exists within this scope\"; scope closes and deregistration necessarily happens — uprooting the \"forgot to remove, source becomes a ghost\" leak"},
+                    {"zh": "为了让注册更快", "en": "To make registration faster"},
+                    {"zh": "为了加密源", "en": "To encrypt sources"},
+                    {"zh": "没有特别理由", "en": "No particular reason"},
+                ],
+                "answer": 0,
+                "why": {"zh": "acquireRelease 把获取与释放配成一对、绑在作用域上，作用域结束释放必然执行。一个源 register 进来、所属作用域关闭时自动摘除，无需手动清理、无路径能遗漏。长跑服务里开关无数会话/插件，靠人记得删迟早漏一处。", "en": "acquireRelease pairs acquire and release bound to a scope; when the scope ends, release necessarily runs. A source registers and is auto-removed when its scope closes — no manual cleanup, no path can miss it. In long-running services opening/closing countless sessions/plugins, relying on humans to remember would leak eventually."},
+            },
+            {
+                "q": {"zh": "load() 为什么要「按 key 排序」？", "en": "Why does load() \"sort by key\"?"},
+                "opts": [
+                    {"zh": "给汇总钉一个确定顺序（与注册先后无关）——保证可复现、且不让顺序变动假性触发 diff", "en": "Nail a deterministic order on the gathering (independent of registration order) — ensuring reproducibility and preventing order changes from falsely triggering a diff"},
+                    {"zh": "为了让 key 短的源排前面", "en": "To put shorter-key sources first"},
+                    {"zh": "为了删除重复的源", "en": "To delete duplicate sources"},
+                    {"zh": "排序能让 load 更快", "en": "Sorting makes load faster"},
+                ],
+                "answer": 0,
+                "why": {"zh": "不排序时源的顺序取决于注册先后（受加载时序/并发等偶然因素影响），拼出的 baseline 顺序就飘忽：既不可复现、又会让 diff 误判「变了」。凡要被比较/复现的东西都不能依赖偶然顺序——并发去观察、排序来定序，快与稳两不耽误。", "en": "Without sorting, source order depends on registration order (affected by load timing/concurrency), so the baseline order wavers: not reproducible, and makes the diff misjudge \"changed.\" Anything to be compared/reproduced mustn't depend on incidental order — observe concurrently, sort to order; speed and stability both kept."},
+            },
+            {
+                "q": {"zh": "课里说注册表是「指挥与编排者」而非「内容生产者」，这意味着什么？", "en": "The lesson calls the registry a \"conductor/orchestrator,\" not a \"content producer.\" What does this mean?"},
+                "opts": [
+                    {"zh": "它不知道也不关心任何源观察什么(都是不透明 SystemContext)，只管谁在册/什么顺序/怎么并发收齐——故加多少种源都零改动", "en": "It doesn't know or care what any source observes (all opaque SystemContext), only handling who's listed/in what order/how to gather concurrently — so any number of new sources needs zero change"},
+                    {"zh": "它自己生成所有上下文内容", "en": "It generates all context content itself"},
+                    {"zh": "它指挥模型怎么回答", "en": "It directs how the model answers"},
+                    {"zh": "它是个 UI 组件", "en": "It's a UI component"},
+                ],
+                "answer": 0,
+                "why": {"zh": "第 21 课 make 藏起了源的值类型，对注册表每个源都是不透明 SystemContext。它只做纯编排：谁在册、按什么序、怎么并发。编排与内容彻底分离=无限扩展：写多少稀奇的源，注册表一行不改。又是「把会变的与不变的分开」。", "en": "Lesson 21's make hid the source's value type, so to the registry each source is an opaque SystemContext. It does pure orchestration: who's listed, in what order, how concurrent. Orchestration fully separated from content = infinite extension: however many odd sources, the registry needs no change. Again \"separate the variable from the invariant.\""},
+            },
+        ],
+        "open": [
+            {"zh": "课里说「凡要被比较、被复现的东西，都不能依赖偶然的顺序」——并发的代价是完成先后不确定，不能让它泄漏到结果。结合你写过的并发代码，举一个「顺序随机泄漏进结果、导致不可复现」的坑。", "en": "The lesson says \"anything to be compared or reproduced must not depend on incidental order\" — concurrency's cost is uncertain completion order, which mustn't leak into the result. From your own concurrent code, give a pitfall where \"order randomness leaked into the result, breaking reproducibility.\""},
+            {"zh": "Entry 里的 load 是 Effect<SystemContext>（一段「怎么观察」的描述），而非一个死值。这让每次 load() 都重新观察、拿到最新环境。如果改成注册时就存死一个值，会丢失什么能力？", "en": "An Entry's load is Effect<SystemContext> (a description of \"how to observe\"), not a dead value. This makes each load() re-observe, getting the latest environment. If you instead stored a fixed value at registration time, what ability would you lose?"},
+        ],
+    },
 }
 
 def render(fname, lang):

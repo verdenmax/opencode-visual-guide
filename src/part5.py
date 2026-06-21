@@ -403,7 +403,214 @@ compare: (previous) =&gt; Option.<span class="fn">match</span>(<span class="fn">
 </div>
 """,
 }
-LESSON_23 = wip('System Context Registry', 'The context registry')
+LESSON_23 = {
+    "zh": r"""
+<p class="lead">前两课，我们把<strong>单个源</strong>讲透了：它懂得观察、比较、渲染自己。但还剩一个朴素却关键的问题没答——<strong>系统里到底有哪些源？谁来把它们攒到一起？</strong><span class="mono">core/date</span>、<span class="mono">core/environment</span>、还有将来插件可能贡献的源……它们散落各处，总得有个地方让它们「报到登记」，再在需要时被统一收齐、一起观察、拼成那个传给 <span class="mono">combine</span> 的完整列表。这就是这一课的主角——<strong>系统上下文注册表（SystemContextRegistry）</strong>。它看着不起眼，却藏着两个极漂亮的设计：<strong>注册是「带生命周期」的</strong>（来去自动），<strong>汇总是「确定有序」的</strong>（结果稳定）。读懂这个小小的注册表，你就看清了 opencode 怎么把一堆来路各异的源，管成一份井井有条的清单。</p>
+<p>为什么「攒源」这件事需要一个专门的注册表，而不是写死一个数组？因为源的来源是<strong>动态且分散</strong>的。内置源（环境、日期）由 core 提供，但还有指令上下文、未来插件贡献的源——它们在<strong>不同时机、不同地方</strong>加入。更要命的是，有些源是<strong>有寿命的</strong>：一个插件加载时贡献了它的源，卸载时这个源就该<strong>干净地消失</strong>，绝不能赖在清单上变成幽灵。写死的数组应付不了这种「随用随加、用完即走」的动态。注册表用 Effect 的两件法宝——<strong>作用域（Scope）</strong>和 <strong>Ref</strong>——把这件事办得既灵活又不漏。这一课就拆开它。</p>
+
+<div class="card analogy">
+  <div class="tag">📖 生活类比</div>
+  把注册表想成一栋办公楼门厅里的<strong>签到簿</strong>。每个部门（一个源）开门营业时，就在簿子上<strong>签到</strong>；打烊时，<strong>自动签退</strong>——没有哪个部门走了还赖在簿子上（这就是「带生命周期的注册」：来去自动，靠的是 Effect 的作用域）。当楼里要出一份<strong>全楼现况报告</strong>时，前台就翻开签到簿，做三件事：先按<strong>部门名的字母顺序</strong>排好（这样每次报告的顺序都一样、可对照）；再<strong>同时</strong>给所有在册部门打电话问「你现在什么情况」（并发观察，谁也不等谁）；最后把各家的回话<strong>汇编成一份报告</strong>。一本会自动签到签退、还总按固定顺序汇编的签到簿——这就是系统上下文注册表。它不生产情报，只负责「<strong>谁在册</strong>」和「<strong>怎么收齐</strong>」。
+</div>
+
+<h2>注册表的形状：两个方法</h2>
+<p>注册表的接口朴素到极点——一个 <span class="mono">Entry</span>（一条登记）加两个方法：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">Entry</div><div class="v">{ key, load }：一条登记 = 命名空间 key + 怎么观察它</div></div>
+  <div class="cell"><div class="k">register(entry)</div><div class="v">把一个源登记进来（作用域绑定，来去自动）</div></div>
+  <div class="cell"><div class="k">load()</div><div class="v">收齐当前所有源、并发观察、合并成一个 SystemContext</div></div>
+</div>
+<p>注意 <span class="mono">Entry</span> 里那个 <span class="mono">load</span> 的类型是 <span class="mono">Effect&lt;SystemContext&gt;</span>——也就是说，登记的不是一个<strong>死的值</strong>，而是一段<strong>「怎么观察出值」的描述</strong>。这点很关键：注册表存的是「<strong>怎么取</strong>」，不是「取到的<strong>什么</strong>」。于是每次 <span class="mono">load()</span> 都会<strong>重新跑一遍</strong>这些观察，拿到的永远是<strong>此刻最新</strong>的环境——而不是注册那一刻的旧快照。把「源」存成「一段可重复执行的观察」，正是它能随时反映最新世界的根。</p>
+
+<h2>register：带生命周期的注册</h2>
+<p>注册表内部，其实就是一个 <span class="mono">Ref</span>（一个可变的引用单元）裹着一个<strong>源列表</strong>。源通过 <span class="mono">register(entry)</span> 加入——而这里第一个漂亮设计是：注册用了 <span class="mono">Effect.acquireRelease</span>，是<strong>作用域绑定</strong>的。</p>
+<pre class="code"><span class="cm">// 简化自 system-context/registry.ts</span>
+register: (entry) =&gt; Effect.<span class="fn">acquireRelease</span>(
+  <span class="cm">// 获取：把 entry 加进列表（重名直接 die）</span>
+  Ref.<span class="fn">modify</span>(entries, (cur) =&gt; cur.<span class="fn">some</span>(e =&gt; e.key === entry.key)
+    ? [<span class="kw">false</span>, cur] : [<span class="kw">true</span>, [...cur, entry]]),
+  <span class="cm">// 释放：作用域结束时，把 entry 从列表移除</span>
+  (entry) =&gt; Ref.<span class="fn">update</span>(entries, (cur) =&gt; cur.<span class="fn">filter</span>(e =&gt; e !== entry)),
+)</pre>
+<p><span class="mono">acquireRelease</span> 是 Effect 里「资源安全」的看家招式（第 7 课的远亲）：它把「获取」和「释放」<strong>配成一对</strong>，绑定在一个作用域上——作用域一结束，释放<strong>必然执行</strong>。用在这里，意思就是：一个源 <span class="mono">register</span> 进来，它就在列表里待着；可一旦它所属的那个作用域关闭（比如贡献它的插件被卸载），它<strong>会被自动从列表里摘掉</strong>，干净利落、绝不残留。<strong>注册和注销，被焊成了一枚硬币的两面</strong>——你只管声明「在这个作用域里，加上这个源」，离场清理的活，框架替你包了。这就根除了「忘了注销、源越积越多、最后清单里全是早该消失的幽灵」这类经典内存/状态泄漏。这种「把清理绑死在获取上」的纪律，在长跑的服务里尤其救命：一个 agent 进程可能开开关关无数会话、加加卸卸无数插件，若每一处都靠人记得手动清理，迟早有一处会漏——而漏掉的代价，是状态里悄悄堆积的垃圾，和某天莫名其妙的诡异行为。<span class="mono">acquireRelease</span> 把这份「记得清理」的心智负担，从程序员肩上彻底卸了下来。</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">作用域开</span><span class="tl-desc">插件加载 → register 它的源 → 进入 entries 列表</span></div>
+  <div class="tl-item"><span class="tl-time">存续期</span><span class="tl-desc">每次 load() 都会观察到它，贡献进上下文</span></div>
+  <div class="tl-item"><span class="tl-time">作用域关</span><span class="tl-desc">插件卸载 → release 必然触发 → 自动从 entries 摘除</span></div>
+  <div class="tl-item"><span class="tl-time">此后</span><span class="tl-desc">load() 再也观察不到它 —— 无残留、无幽灵</span></div>
+</div>
+<div class="cols">
+  <div class="col"><h4>❌ 手动 register / unregister</h4><p>加的时候记得加，走的时候<strong>得记得删</strong>。一旦某条路径忘了删（异常、提前 return），源就永远赖在清单上，成幽灵。</p></div>
+  <div class="col"><h4>✅ 作用域绑定（acquireRelease）</h4><p>注册即声明「在此作用域内存在」。作用域一关，<strong>必然</strong>注销。无需手动清理，无路径能遗漏。</p></div>
+</div>
+<p>顺带留意那个<strong>重名检查</strong>：往列表里加之前，先看有没有同 <span class="mono">key</span> 的，已经有了就 <span class="mono">die</span>（直接判定为程序错误）。这和第 21 课 <span class="mono">combine</span> 拒绝重复 key 是一脉相承的纪律——<strong>每个源的命名空间 key 必须全局唯一</strong>，因为整个增量机制都靠 key 来认领「这是哪个源的快照」。两个源撞了 key，比较时就会张冠李戴，所以宁可在注册的那一刻就硬性拦下，绝不放它进门。</p>
+
+<h2>load：确定有序地汇总</h2>
+<p>当系统需要当前的完整上下文时，调 <span class="mono">load()</span>。它干三件事，每一件都有讲究：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">取出当前所有在册 entry</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">按 key 排序（toSorted）—— 确定的顺序，与注册先后无关</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">并发 load 每个源（concurrency: unbounded），再 combine 成一个</span></div>
+</div>
+<p>第 2 步那个「<strong>按 key 排序</strong>」，看着随手，实则至关重要。设想不排序：源在列表里的顺序，取决于它们<strong>注册的先后</strong>——而注册先后可能受加载时序、并发等一堆偶然因素影响，今天是这个顺序、明天可能是那个。那么拼出来的 baseline 全文，顺序就会<strong>飘忽不定</strong>。这有两个坏处：一是<strong>不可复现</strong>（同样的环境，两次跑出来的上下文文本不一样，调试时抓狂）；二是<strong>干扰增量</strong>（顺序一变，diff 机制就以为「变了」，白白触发更新）。按 key 排序，等于给汇总钉了一个<strong>确定的顺序</strong>：无论源们以什么乱序注册进来，最终拼出的清单永远<strong>长一个样</strong>。<strong>确定性，是可复现与可比较的前提。</strong></p>
+<p>这个「按 key 排序」的小动作，其实触到了一个更深的工程原则：<strong>凡是要被比较、被复现的东西，都不能依赖偶然的顺序</strong>。并发是好东西，但并发的代价就是「完成的先后不确定」——如果让这种不确定性<strong>泄漏</strong>到最终结果的顺序里，那「可复现」「可 diff」这些性质就全毁了。聪明的做法，是<strong>享受并发的快，但在汇总时强行抹掉它带来的顺序随机</strong>——并发去观察，排序来定序，两者井水不犯河水。你会发现这正是注册表设计的精髓：它在同一个 <span class="mono">load</span> 里，<strong>既要了并发的快，又要了确定的稳</strong>，靠的就是把「观察」和「定序」拆成两个互不干扰的步骤。快与稳本不矛盾，前提是你想清楚——哪里该放手让它乱跑，哪里必须钉死。</p>
+<p>第 3 步那个「<strong>并发 load</strong>」也值得一提。每个源的 <span class="mono">load</span>（观察当前值）都是<strong>互相独立</strong>的——读目录、读日期、读 git 状态，谁也不依赖谁。所以注册表用 <span class="mono">concurrency: "unbounded"</span> 把它们<strong>一股脑同时发出去</strong>，而不是一个等一个地串行观察。在「都独立、且可能各自有点 IO 延迟」的场景下，并发能把总耗时从「各源耗时之和」压成「最慢那个源的耗时」。观察彼此独立、汇总要求有序——注册表把这两件事各用最合适的手段办了：<strong>观察求快（并发），排序求稳（按 key）。</strong></p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">① 排序</div><div class="v">toSorted by key：确定顺序，与注册先后无关 → 可复现、不假性 diff</div></div>
+  <div class="cell"><div class="k">② 并发观察</div><div class="v">forEach concurrency:unbounded：各源独立、同时发 → 求快</div></div>
+  <div class="cell"><div class="k">③ 合并</div><div class="v">combine：归一成一个 SystemContext，并再校验 key 唯一</div></div>
+</div>
+<p>把这三步合起来看，注册表其实在扮演一个<strong>「指挥与编排者」</strong>的角色，而非「内容生产者」。它自己<strong>不知道、也不关心</strong>任何一个源具体在观察什么——日期也好、git 状态也好，对它都是不透明的 <span class="mono">SystemContext</span>（第 21 课 <span class="mono">make</span> 藏起了类型）。它只负责三件纯粹「编排」的事：谁在册、按什么顺序、怎么并发收齐。这种<strong>「编排与内容彻底分离」</strong>的干净，正是这套设计能无限扩展的根：你写多少种稀奇古怪的源，注册表都<strong>一行不用改</strong>——因为它从头到尾就没碰过源的「内容」，只摆弄源的「名册」。这又一次印证了贯穿全书的那句话：<strong>把会变的（有哪些源）和不变的（怎么收集源）分开，系统就有了无限生长的空间。</strong></p>
+<div class="flow">
+  <div class="node">各路源<span class="sub">register（作用域绑定）</span></div>
+  <div class="arrow">→</div>
+  <div class="node">entries（Ref）<span class="sub">当前在册列表</span></div>
+  <div class="arrow">load →</div>
+  <div class="node">按 key 排序<span class="sub">确定顺序</span></div>
+  <div class="arrow">并发 load + combine</div>
+  <div class="node">一个 SystemContext<span class="sub">交给 initialize</span></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>三课下来，系统上下文的「生产侧」就完整了：</p>
+  <ul>
+    <li><strong>第 21 课</strong>：源的代数（make/combine，把异类源归一组合）。</li>
+    <li><strong>第 22 课</strong>：单个源的一生（codec 派生 encode/decode/equivalent；baseline/compare）。</li>
+    <li><strong>第 23 课·本课</strong>：注册表——<strong>带生命周期地</strong>收集源（acquireRelease，来去自动），<strong>确定有序地</strong>汇总（按 key 排序 + 并发 load + combine）。</li>
+  </ul>
+  <p>到这里，「有哪些源、怎么收齐、怎么各自刷新」都讲清了。但还有个大问题悬而未决：<span class="mono">load()</span> 拼出的这份上下文，<strong>怎么和一个具体的会话绑定、并持久化下来</strong>？那个被反复提到、还接着第 19 课 history.load 裁边线的 <span class="mono">baselineSeq</span>，到底是怎么来的？这就是下一课——<strong>上下文纪元（Context Epoch，第 24 课）</strong>——的核心：把「这一刻的系统上下文」<strong>钉成会话历史里一个带序号的锚点</strong>。生产侧讲完了，接下来看它怎么落进会话、变成持久的一笔。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">load</span> 的「排序 + 并发 + 合并」三连，在源码里就是紧凑的几行：</p>
+  <pre class="code"><span class="cm">// 简化自 system-context/registry.ts</span>
+load: () =&gt; Effect.<span class="fn">gen</span>(<span class="kw">function</span>* () {
+  <span class="kw">const</span> current = (<span class="kw">yield</span>* Ref.<span class="fn">get</span>(entries))
+    .<span class="fn">toSorted</span>((a, b) =&gt; a.key &lt; b.key ? -1 : a.key &gt; b.key ? 1 : 0)  <span class="cm">// ① 按 key 定序</span>
+  <span class="kw">return</span> SystemContext.<span class="fn">combine</span>(                                  <span class="cm">// ③ 合并成一个</span>
+    <span class="kw">yield</span>* Effect.<span class="fn">forEach</span>(current, (e) =&gt; e.load,
+      { concurrency: <span class="st">"unbounded"</span> }))                            <span class="cm">// ② 并发观察</span>
+})</pre>
+  <p>三行代码，三个决策。<span class="mono">toSorted</span> 用 key 给出<strong>确定顺序</strong>（不是 <span class="mono">sort</span> 原地改，而是返回新数组，不污染 Ref 里的原始登记顺序）；<span class="mono">forEach + concurrency: "unbounded"</span> 让所有源的观察<strong>并发</strong>跑；<span class="mono">combine</span> 把结果<strong>归一</strong>（并再次校验 key 唯一）。「该有序的地方有序、该并发的地方并发」——一个看似简单的「收集」操作，被这三个恰到好处的选择，做成了既快又稳又可复现的样子。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>注册表</strong>解决「系统里有哪些源、谁来攒齐」：内部是一个 <span class="mono">Ref</span> 裹着源列表，对外提供 <span class="mono">register</span> 和 <span class="mono">load</span>。</li>
+    <li><strong>register 带生命周期</strong>：用 <span class="mono">Effect.acquireRelease</span> 作用域绑定——注册即声明「在此作用域内存在」，作用域一关<strong>必然自动注销</strong>，根除「忘了删、源变幽灵」的泄漏。重名 key 直接 <span class="mono">die</span>。</li>
+    <li><strong>load 确定有序</strong>：① <strong>按 key 排序</strong>（与注册先后无关的确定顺序，保证可复现、不假性触发 diff）；② <strong>并发 load</strong>（各源观察互相独立，<span class="mono">concurrency: unbounded</span> 求快）；③ <strong>combine</strong> 归一。</li>
+    <li>设计精髓：<strong>观察求快（并发），排序求稳（按 key）</strong>——各用最合适的手段。</li>
+    <li>这一课收尾了系统上下文的「生产侧」；下一课（Context Epoch）讲它怎么<strong>落进会话、持久成带序号的锚点</strong>（baselineSeq）。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">The past two lessons covered a <strong>single source</strong> thoroughly: it knows how to observe, compare, render itself. But one plain yet crucial question remains — <strong>what sources does the system actually have? Who gathers them?</strong> <span class="mono">core/date</span>, <span class="mono">core/environment</span>, and sources plugins may contribute in future… they're scattered, so there must be a place for them to "check in," then be gathered, observed together, and stitched into that complete list passed to <span class="mono">combine</span>. That's this lesson's star — the <strong>system context registry (SystemContextRegistry)</strong>. It looks unremarkable but hides two beautiful designs: <strong>registration is "lifecycle-bound"</strong> (comes and goes automatically), and <strong>gathering is "deterministically ordered"</strong> (a stable result). Understand this little registry and you see how opencode manages a pile of differently-sourced sources into one orderly list.</p>
+<p>Why does "gathering sources" need a dedicated registry rather than a hard-coded array? Because sources come from <strong>dynamic and scattered</strong> origins. Built-in sources (environment, date) come from core, but there's also instruction context, sources future plugins contribute — they join at <strong>different times, different places</strong>. Worse, some sources have a <strong>lifespan</strong>: a plugin contributes its source on load, and on unload that source should <strong>cleanly vanish</strong>, never lingering on the list as a ghost. A hard-coded array can't handle this "add on demand, leave when done" dynamism. The registry uses Effect's two treasures — <strong>Scope</strong> and <strong>Ref</strong> — to do this flexibly and leak-free. This lesson unpacks it.</p>
+
+<div class="card analogy">
+  <div class="tag">📖 Analogy</div>
+  Think of the registry as a <strong>sign-in book</strong> in an office building's lobby. Each department (a source) <strong>signs in</strong> when it opens for business; <strong>signs out automatically</strong> when it closes — no department lingers on the book after leaving (this is "lifecycle-bound registration": comes and goes automatically, via Effect's scope). When the building needs a <strong>whole-building status report</strong>, the front desk opens the book and does three things: first sort by <strong>department name alphabetically</strong> (so every report's order is the same, comparable); then <strong>simultaneously</strong> call all listed departments asking "what's your situation now" (concurrent observation, no one waits); finally <strong>compile</strong> everyone's replies into one report. A sign-in book that auto-signs-in/out and always compiles in a fixed order — that's the system context registry. It produces no intel, only handles "<strong>who's listed</strong>" and "<strong>how to gather</strong>."
+</div>
+
+<h2>The registry's shape: two methods</h2>
+<p>The registry's interface is plain to the extreme — one <span class="mono">Entry</span> plus two methods:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">Entry</div><div class="v">{ key, load }: a listing = namespaced key + how to observe it</div></div>
+  <div class="cell"><div class="k">register(entry)</div><div class="v">list a source (scope-bound, comes and goes automatically)</div></div>
+  <div class="cell"><div class="k">load()</div><div class="v">gather all current sources, observe concurrently, combine into one SystemContext</div></div>
+</div>
+<p>Note that <span class="mono">Entry</span>'s <span class="mono">load</span> has type <span class="mono">Effect&lt;SystemContext&gt;</span> — meaning what's listed isn't a <strong>dead value</strong> but a <strong>description of "how to observe the value."</strong> This is key: the registry stores "<strong>how to fetch</strong>," not "<strong>what</strong> was fetched." So each <span class="mono">load()</span> <strong>reruns</strong> these observations, always getting <strong>the latest now</strong> — not a stale snapshot from registration time. Storing a "source" as "a repeatable observation" is the root of how it can reflect the latest world at any time.</p>
+
+<h2>register: lifecycle-bound registration</h2>
+<p>Inside, the registry is just a <span class="mono">Ref</span> (a mutable reference cell) wrapping a <strong>source list</strong>. Sources join via <span class="mono">register(entry)</span> — and the first beautiful design here is: registration uses <span class="mono">Effect.acquireRelease</span>, it's <strong>scope-bound</strong>.</p>
+<pre class="code"><span class="cm">// simplified from system-context/registry.ts</span>
+register: (entry) =&gt; Effect.<span class="fn">acquireRelease</span>(
+  <span class="cm">// acquire: add entry to the list (duplicate key → die)</span>
+  Ref.<span class="fn">modify</span>(entries, (cur) =&gt; cur.<span class="fn">some</span>(e =&gt; e.key === entry.key)
+    ? [<span class="kw">false</span>, cur] : [<span class="kw">true</span>, [...cur, entry]]),
+  <span class="cm">// release: on scope close, remove entry from the list</span>
+  (entry) =&gt; Ref.<span class="fn">update</span>(entries, (cur) =&gt; cur.<span class="fn">filter</span>(e =&gt; e !== entry)),
+)</pre>
+<p><span class="mono">acquireRelease</span> is Effect's signature move for "resource safety" (a relative of Lesson 7): it <strong>pairs</strong> "acquire" and "release," bound to a scope — when the scope ends, release <strong>necessarily runs</strong>. Used here, it means: a source <span class="mono">register</span>s and stays on the list; but once its owning scope closes (say the plugin contributing it is unloaded), it's <strong>automatically removed from the list</strong>, cleanly, with no residue. <strong>Registration and deregistration are welded into two sides of one coin</strong> — you just declare "in this scope, add this source," and the framework handles the exit cleanup. This uproots the classic memory/state leak of "forgot to deregister, sources pile up, the list fills with ghosts that should've vanished long ago." This discipline of "welding cleanup to acquisition" is especially lifesaving in long-running services: an agent process may open and close countless sessions, load and unload countless plugins, and if every spot relied on a human to remember manual cleanup, sooner or later one would leak — and the cost of a leak is garbage quietly piling in state, and one day inexplicable weird behavior. <span class="mono">acquireRelease</span> lifts this "remember to clean up" mental burden entirely off the programmer's shoulders.</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">scope opens</span><span class="tl-desc">plugin loads → register its source → enters the entries list</span></div>
+  <div class="tl-item"><span class="tl-time">lifetime</span><span class="tl-desc">every load() observes it, contributing to the context</span></div>
+  <div class="tl-item"><span class="tl-time">scope closes</span><span class="tl-desc">plugin unloads → release necessarily fires → auto-removed from entries</span></div>
+  <div class="tl-item"><span class="tl-time">thereafter</span><span class="tl-desc">load() never observes it again — no residue, no ghost</span></div>
+</div>
+<div class="cols">
+  <div class="col"><h4>❌ manual register / unregister</h4><p>Remember to add on the way in, <strong>remember to remove</strong> on the way out. Forget to remove on one path (exception, early return) and the source lingers on the list forever, a ghost.</p></div>
+  <div class="col"><h4>✅ scope-bound (acquireRelease)</h4><p>Registration declares "exists within this scope." Scope closes, deregistration <strong>necessarily</strong> happens. No manual cleanup, no path can miss it.</p></div>
+</div>
+<p>Note also the <strong>duplicate-key check</strong>: before adding to the list, check for an existing same <span class="mono">key</span>, and if present, <span class="mono">die</span> (deemed a program error outright). This is the same discipline as Lesson 21's <span class="mono">combine</span> rejecting duplicate keys — <strong>each source's namespaced key must be globally unique</strong>, because the whole incremental mechanism relies on keys to claim "this is which source's snapshot." Two sources colliding on a key would mix up snapshots during comparison, so better to hard-stop at registration time, never letting it in the door.</p>
+
+<h2>load: gathering deterministically ordered</h2>
+<p>When the system needs the current full context, it calls <span class="mono">load()</span>. It does three things, each with care:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">fetch all currently-listed entries</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">sort by key (toSorted) — a deterministic order, independent of registration order</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">concurrently load each source (concurrency: unbounded), then combine into one</span></div>
+</div>
+<p>Step 2's "<strong>sort by key</strong>" looks casual but is crucial. Imagine not sorting: a source's order in the list depends on its <strong>registration order</strong> — which can be affected by load timing, concurrency, and a heap of incidental factors, this order today, that order tomorrow. Then the stitched baseline full text's order would <strong>waver</strong>. Two harms: one, <strong>not reproducible</strong> (same environment, two runs produce different context text, maddening to debug); two, <strong>disrupts the increment</strong> (order changes, the diff mechanism thinks "it changed," pointlessly triggering an update). Sorting by key nails a <strong>deterministic order</strong> on the gathering: however out-of-order the sources register, the final stitched list always <strong>looks the same</strong>. <strong>Determinism is the prerequisite for reproducibility and comparability.</strong></p>
+<p>This little "sort by key" act actually touches a deeper engineering principle: <strong>anything to be compared or reproduced must not depend on incidental order</strong>. Concurrency is good, but its cost is "uncertain order of completion" — and if you let that uncertainty <strong>leak</strong> into the final result's order, properties like "reproducible" and "diffable" are destroyed. The smart move is to <strong>enjoy concurrency's speed but forcibly erase its order randomness when gathering</strong> — observe concurrently, sort to order, the two minding their own business. You'll find this is the registry design's essence: in one <span class="mono">load</span>, it <strong>wants both concurrency's speed and determinism's stability</strong>, by splitting "observe" and "order" into two non-interfering steps. Speed and stability aren't inherently at odds, provided you've thought it through — where to let it run loose, where to nail it down.</p>
+<p>Step 3's "<strong>concurrent load</strong>" is worth noting too. Each source's <span class="mono">load</span> (observing the current value) is <strong>mutually independent</strong> — reading the directory, the date, git status, none depends on another. So the registry uses <span class="mono">concurrency: "unbounded"</span> to fire them all <strong>at once</strong>, rather than observing serially one waiting for another. In a scenario of "all independent, each possibly with some IO latency," concurrency compresses total time from "the sum of all sources' times" to "the slowest source's time." Observation mutually independent, gathering requiring order — the registry handles each with the fittest means: <strong>observe for speed (concurrent), order for stability (by key).</strong></p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">① sort</div><div class="v">toSorted by key: deterministic order, independent of registration order → reproducible, no false diff</div></div>
+  <div class="cell"><div class="k">② observe concurrently</div><div class="v">forEach concurrency:unbounded: sources independent, fired at once → for speed</div></div>
+  <div class="cell"><div class="k">③ combine</div><div class="v">combine: unify into one SystemContext, re-checking key uniqueness</div></div>
+</div>
+<p>Put the three steps together and the registry is really playing a <strong>"conductor and orchestrator"</strong>, not a "content producer." It <strong>doesn't know or care</strong> what any source observes — date or git status, to it they're all opaque <span class="mono">SystemContext</span> (Lesson 21's <span class="mono">make</span> hid the type). It only handles three purely "orchestration" things: who's listed, in what order, how to gather concurrently. This cleanness of <strong>"orchestration fully separated from content"</strong> is the root of this design's infinite extensibility: however many strange sources you write, the registry <strong>needs not one line changed</strong> — because it never touched a source's "content" from start to finish, only juggled the source "roster." This proves again the line running through the book: <strong>separate the variable (what sources exist) from the invariant (how to gather sources), and the system has room to grow without limit.</strong></p>
+<div class="flow">
+  <div class="node">various sources<span class="sub">register (scope-bound)</span></div>
+  <div class="arrow">→</div>
+  <div class="node">entries (Ref)<span class="sub">current listed list</span></div>
+  <div class="arrow">load →</div>
+  <div class="node">sort by key<span class="sub">deterministic order</span></div>
+  <div class="arrow">concurrent load + combine</div>
+  <div class="node">one SystemContext<span class="sub">handed to initialize</span></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture</div>
+  <p>Three lessons in, system context's "production side" is complete:</p>
+  <ul>
+    <li><strong>Lesson 21</strong>: the source algebra (make/combine, unifying and composing heterogeneous sources).</li>
+    <li><strong>Lesson 22</strong>: a single source's life (codec derives encode/decode/equivalent; baseline/compare).</li>
+    <li><strong>Lesson 23 · this one</strong>: the registry — <strong>lifecycle-bound</strong> source collection (acquireRelease, comes and goes automatically), <strong>deterministically ordered</strong> gathering (sort by key + concurrent load + combine).</li>
+  </ul>
+  <p>By here, "what sources exist, how to gather, how each refreshes" is clear. But a big question hangs: this context that <span class="mono">load()</span> stitches — <strong>how is it bound to a concrete session and persisted</strong>? That repeatedly-mentioned <span class="mono">baselineSeq</span>, connecting to Lesson 19's history.load edge-trim, where does it come from? That's the core of next lesson — the <strong>Context Epoch (Lesson 24)</strong>: nailing "this moment's system context" into <strong>a numbered anchor in the session history</strong>. The production side covered, next we see how it lands in the session and becomes a persistent record.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p><span class="mono">load</span>'s "sort + concurrent + combine" trio is, in source, a compact few lines:</p>
+  <pre class="code"><span class="cm">// simplified from system-context/registry.ts</span>
+load: () =&gt; Effect.<span class="fn">gen</span>(<span class="kw">function</span>* () {
+  <span class="kw">const</span> current = (<span class="kw">yield</span>* Ref.<span class="fn">get</span>(entries))
+    .<span class="fn">toSorted</span>((a, b) =&gt; a.key &lt; b.key ? -1 : a.key &gt; b.key ? 1 : 0)  <span class="cm">// (1) order by key</span>
+  <span class="kw">return</span> SystemContext.<span class="fn">combine</span>(                                  <span class="cm">// (3) combine into one</span>
+    <span class="kw">yield</span>* Effect.<span class="fn">forEach</span>(current, (e) =&gt; e.load,
+      { concurrency: <span class="st">"unbounded"</span> }))                            <span class="cm">// (2) observe concurrently</span>
+})</pre>
+  <p>Three lines, three decisions. <span class="mono">toSorted</span> gives a <strong>deterministic order</strong> by key (not in-place <span class="mono">sort</span> but returning a new array, not polluting the Ref's original registration order); <span class="mono">forEach + concurrency: "unbounded"</span> runs all sources' observation <strong>concurrently</strong>; <span class="mono">combine</span> <strong>unifies</strong> the results (and re-checks key uniqueness). "Ordered where it should be ordered, concurrent where it should be concurrent" — a seemingly simple "gather" operation, made fast, stable, and reproducible by these three just-right choices.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li><strong>The registry</strong> solves "what sources exist, who gathers them": inside is a <span class="mono">Ref</span> wrapping a source list, exposing <span class="mono">register</span> and <span class="mono">load</span>.</li>
+    <li><strong>register is lifecycle-bound</strong>: via <span class="mono">Effect.acquireRelease</span> scope-binding — registration declares "exists within this scope," scope closes and deregistration <strong>necessarily happens automatically</strong>, uprooting the "forgot to remove, sources become ghosts" leak. A duplicate key outright <span class="mono">die</span>s.</li>
+    <li><strong>load is deterministically ordered</strong>: (1) <strong>sort by key</strong> (a deterministic order independent of registration order, ensuring reproducibility, no false diff); (2) <strong>concurrent load</strong> (sources observe independently, <span class="mono">concurrency: unbounded</span> for speed); (3) <strong>combine</strong> unifies.</li>
+    <li>Design essence: <strong>observe for speed (concurrent), order for stability (by key)</strong> — each by the fittest means.</li>
+    <li>This lesson wraps up system context's "production side"; next lesson (Context Epoch) covers how it <strong>lands in the session, persisted as a numbered anchor</strong> (baselineSeq).</li>
+  </ul>
+</div>
+""",
+}
 LESSON_24 = wip('Context Epoch', 'The Context Epoch')
 LESSON_25 = wip('会话中系统消息', 'Mid-conversation messages')
 LESSON_26 = wip('内置 Context Sources', 'Built-in sources')
