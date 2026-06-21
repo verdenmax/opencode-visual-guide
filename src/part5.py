@@ -811,6 +811,209 @@ LESSON_24 = {
 </div>
 """,
 }
-LESSON_25 = wip('会话中系统消息', 'Mid-conversation messages')
+LESSON_25 = {
+    "zh": r"""
+<p class="lead">上一课，纪元的 <span class="mono">prepare</span> 在环境变化时，<strong>publish 了一条 <span class="mono">ContextUpdated</span> 事件</strong>——我们说「模型下一轮重读历史时自然就读到了」，但没说<strong>它具体以什么形式、出现在历史的哪个位置</strong>。这一课就补上这关键一环。答案出奇地优雅：一条上下文更新，会被<strong>投影成一条 <span class="mono">System</span> 消息</strong>，<strong>原位插</strong>在会话历史里——就在它实际发生的那个时间点上。于是模型读历史时，会在恰当的位置看到「目录变成了 /src」这样一条系统旁白。这一课要让你看清：opencode 怎么把「对话中途的环境变化」，不靠任何特殊机制，<strong>无缝织进对话的时间线</strong>。</p>
+<p>为什么「变化出现在哪个位置」这么重要？因为<strong>时机就是意义</strong>。设想你在第 6 条消息时说「跑一下测试」，那会儿你在 <span class="mono">/proj</span> 目录；第 7 条消息时你 <span class="mono">cd</span> 到了 <span class="mono">/proj/src</span>；第 8 条你又说「再跑一次」。这两次「跑测试」，因为中间夹着一次目录切换，<strong>含义可能完全不同</strong>。如果模型只看到「当前目录是 /src」这一句、却不知道它是<strong>何时</strong>变的，它就无法理解第 6 条那个「测试」指的是别处——它丢失了<strong>因果的时间线</strong>。这一课的核心，就是 opencode 怎么用「原位插入的 System 消息」，把环境变化的<strong>时机</strong>，原原本本地保留下来。</p>
+
+<div class="card analogy">
+  <div class="tag">🎭 生活类比</div>
+  把一段会话想成一个<strong>剧本</strong>。演员的对白（user/assistant 消息）之间，剧本里穿插着<strong>舞台提示</strong>（System 消息）：「<em>（灯光转暗）</em>」「<em>（两人走进厨房）</em>」。这些提示的妙处，在于它们<strong>就印在对应的那一行旁边</strong>——演员读到某句台词时，能一眼看出此刻是在客厅还是厨房、灯亮还是灯暗。<strong>位置即时机</strong>：提示出现在剧本的哪一行，就代表那个变化发生在哪一刻。反过来想：要是把所有场景信息都<strong>钉在剧本扉页</strong>（「全剧地点：厨房」），演员就再也分不清哪句台词是在客厅说的、哪句是在厨房说的了——时间线被压扁了。opencode 处理上下文更新，走的正是「舞台提示」这条路：变化作为一条 System 旁白，<strong>原位插</strong>在它发生的那一刻，让模型像演员读剧本一样，时刻清楚「此情此景」。
+</div>
+
+<h2>System 消息：上下文更新的化身</h2>
+<p>回顾第 14 课那个八成员的 Message 联合，其中有一种是 <span class="mono">System</span>。它的定义朴素得很——一个 <span class="mono">type: "system"</span>，加一个 <span class="mono">text</span> 字段。而这个 <span class="mono">text</span> 字段的类型，藏着这一课的钥匙：</p>
+<pre class="code"><span class="cm">// session/message.ts</span>
+<span class="kw">class</span> System {
+  type: <span class="st">"system"</span>
+  text: SessionEvent.ContextUpdated.data.fields.text   <span class="cm">// ← 就是 ContextUpdated 的 text！</span>
+}</pre>
+<p>看见没？<span class="mono">System</span> 消息的 <span class="mono">text</span>，<strong>类型上直接复用了 <span class="mono">ContextUpdated</span> 事件的 text</strong>。这不是巧合，而是明示：<strong>一条 System 消息，就是一次上下文更新在对话历史里的「化身」</strong>。第 24 课 <span class="mono">reconcile</span> 算出的那段差异文本（「目录切到 /src」），先成为一个 <span class="mono">ContextUpdated</span> 事件，再被投影成一条 <span class="mono">System</span> 消息，最终作为对话里的一条旁白，被模型读到。<strong>事件是底账里的一笔，System 消息是它在报表（投影历史）里的样子</strong>——这正是第 19 课「事件 → 投影」那套机制，作用在上下文更新上的具体一例。</p>
+<p>这里要厘清一个常见的误会：很多人一听「System 消息」，会以为它就是那个老生常谈的「system prompt」（系统提示词，整段贴在对话最前面、定义 AI 人设的那一大段）。但 opencode 这里的 System 消息<strong>是另一回事</strong>：它不是开场那段一次性的角色设定，而是<strong>对话进行中、随环境变化而即时插入的一条条「旁白」</strong>。一个是<strong>开幕前的剧本说明</strong>（贴在最前、基本不变），一个是<strong>演出过程中的舞台提示</strong>（随剧情即时给出、各就各位）。把这两者分清楚很重要：opencode 真正的「开场设定」其实落在基线（baseline，第 24 课）里，而这一课的 System 消息，专指那些<strong>「中途才发生、所以要插在中途」</strong>的环境变化。理解了这个区分，你才能体会为什么它非得「原位」不可——开场设定无所谓位置，中途变化却字字看时机。混淆这两者，是新手读这套代码时最容易栽的一个跟头。说穿了：baseline 回答「这场对话从一开始处在什么世界」，System 消息回答「这个世界后来在哪一刻、怎么变了」。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">type</div><div class="v">"system" —— Message 联合八成员之一（第 14 课）</div></div>
+  <div class="cell"><div class="k">text</div><div class="v">复用 ContextUpdated.text —— 就是 reconcile 的差异文本</div></div>
+  <div class="cell"><div class="k">位置</div><div class="v">由事件的 seq 决定 —— 原位插在变化发生的那一刻</div></div>
+</div>
+
+<h2>投影：和其它事件走同一条流水线</h2>
+<p>这套设计最让人叫绝的，是它<strong>毫无特殊之处</strong>。打开投影器（<span class="mono">projector.ts</span>），你会看到一长串 <span class="mono">events.project(...)</span> 的登记——<span class="mono">Text</span>（文字）、<span class="mono">Tool</span>（工具）、<span class="mono">Reasoning</span>（思考）、<span class="mono">Shell</span>、<span class="mono">Step</span>…… 而 <span class="mono">ContextUpdated</span> 就<strong>安安静静地排在这一串里</strong>，和它们一模一样地被投影成消息。</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">你 cd 了 → 下次 prepare 的 reconcile 发现变化</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">publish 一条 ContextUpdated 事件（text=「目录切到 /src」，带 seq）</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">投影器把它和 Text/Tool 等事件一样，投影成一条 System 消息</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">System 消息按 seq 落在历史里 —— 正好在变化发生的位置</span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">下一轮 history.load 读出这段历史，模型原位读到这条旁白</span></div>
+</div>
+<p>「<span class="mono">ContextUpdated</span> 只是投影器列表里普普通通的一员」——这件事的份量，远比它听起来大。它意味着 opencode <strong>没有为「上下文更新」发明任何特殊通道</strong>：没有一个旁路的「系统提示注入器」，没有一段「每轮把环境拼到 prompt 开头」的特判逻辑。上下文更新，就是<strong>会话事件流里的一种普通事件</strong>，享受和文字、工具调用<strong>完全相同的待遇</strong>：一样地 publish、一样地投影、一样地按 seq 落位、一样地被 history.load 读出。<strong>把「特殊的东西」做成「不特殊」，是这套设计真正的高明之处</strong>——因为「不特殊」，它就自动继承了整条事件流水线的所有好处：持久、有序、可重放、原位。</p>
+<div class="flow">
+  <div class="node">ContextUpdated 事件<span class="sub">第 24 课 reconcile 产出</span></div>
+  <div class="arrow">project →</div>
+  <div class="node">投影器<span class="sub">和 Text/Tool 同一条流水线</span></div>
+  <div class="arrow">→</div>
+  <div class="node">System 消息<span class="sub">按 seq 原位落位</span></div>
+  <div class="arrow">history.load →</div>
+  <div class="node">模型原位读到<span class="sub">第 17 课循环</span></div>
+</div>
+<div class="cellgroup">
+  <div class="cell"><div class="k">Text.Started/Ended</div><div class="v">模型吐的文字 → text part</div></div>
+  <div class="cell"><div class="k">Tool.Called/Success…</div><div class="v">工具调用与结果 → tool part</div></div>
+  <div class="cell"><div class="k">Reasoning.Started/Ended</div><div class="v">模型思考 → reasoning part</div></div>
+  <div class="cell"><div class="k">ContextUpdated</div><div class="v">★ 上下文更新 → System 消息（和上面三个一视同仁）</div></div>
+</div>
+<p>看这张「投影器登记表」，你会更直观地体会那种「一视同仁」：模型的文字、工具的调用、内心的思考、环境的变化——在投影器眼里，<strong>全是「一种会话事件，投影成历史里的一笔」</strong>。它不关心这笔事件的来路是模型、是工具、还是系统对环境的观察；它只机械地、统一地把每种事件，按 seq 投影成历史里对应的那条消息或 part。这种「来源各异、待遇划一」的均质感，正是第 19 课「事件 → 投影」那套抽象的威力所在：<strong>只要你能把一件事表达成一个带 seq 的事件，它就能自动、原位地、可重放地，出现在模型读到的历史里。</strong>上下文更新，不过是又一个证明这套抽象有多通用的例子。</p>
+
+<h2>位置即意义：保住时间线</h2>
+<p>现在把前两节合起来，看它解决了开头那个难题。因为 System 消息<strong>按 seq 原位落在历史里</strong>，那段对话读起来就是这样的：</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">msg 6</span><span class="tl-desc">User：「跑一下测试」（此刻在 /proj）</span></div>
+  <div class="tl-item"><span class="tl-time">msg 7</span><span class="tl-desc">System：「目录切换到 /proj/src」←★ 上下文更新原位插入</span></div>
+  <div class="tl-item"><span class="tl-time">msg 8</span><span class="tl-desc">User：「再跑一次」（此刻在 /proj/src）</span></div>
+</div>
+<p>模型读到这段，<strong>时间线一目了然</strong>：它能清清楚楚看到，第一次「跑测试」时在 <span class="mono">/proj</span>，中间切了目录，第二次「跑测试」已经在 <span class="mono">/proj/src</span> 了。环境变化的<strong>因果位置</strong>，被这条原位的 System 旁白<strong>完整保住</strong>。对比一下「把当前目录钉在 prompt 扉页」的笨办法：模型只会看到「当前目录 /proj/src」，却完全不知道这个目录是第 7 条才变的——于是它无从理解第 6 条那个「测试」其实指向别处。<strong>位置，承载着时机；时机，承载着意义。</strong>opencode 用「上下文更新即原位 System 消息」这一招，把这份「时机的意义」一丝不漏地交给了模型。</p>
+<p>这件事还有一层更深的好处，关乎<strong>可重放</strong>。因为环境变化是一条<strong>原位的、不可变的事件</strong>，所以哪怕这个会话被关掉、几天后又打开，重新投影一遍历史，那条「第 7 条切了目录」的 System 消息<strong>依然原封不动地待在第 7 条的位置</strong>。换句话说，<strong>这段对话的「环境演变史」是可以被精确重建的</strong>——任何时候回看，第几条消息时在什么目录、用的什么 agent，都查得一清二楚。这正是第 19 课「事件是底账、永不改写」那条原则的红利在上下文层的兑现：把环境变化做成原位事件，等于给会话的「环境维度」也配上了一份可信、可重放的历史，而不是只留一个「当前是什么」的、丢失了过去的瞬时快照。<strong>能忠实回放过去任意一刻的环境，是「把上下文织进事件流」换来的、最不易察觉却最珍贵的能力。</strong></p>
+<div class="cols">
+  <div class="col"><h4>❌ 钉在 prompt 扉页</h4><p>每轮把「当前环境」拼到最前面。模型只知「现在是什么」，不知「何时变的」——时间线被压扁，早先消息的语境全丢。</p></div>
+  <div class="col"><h4>✅ 原位 System 消息</h4><p>变化按 seq 插在发生点。模型读历史时，环境变化的时机一目了然，每条消息的语境都对得上。</p></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这一课接住了第 24 课那条 <span class="mono">ContextUpdated</span> 事件，讲清了它怎么抵达模型：</p>
+  <ul>
+    <li><strong>System 消息 = 上下文更新的化身</strong>：其 <span class="mono">text</span> 类型直接复用 <span class="mono">ContextUpdated.text</span>——事件是底账一笔，System 消息是它在投影历史里的样子。</li>
+    <li><strong>走同一条投影流水线</strong>：<span class="mono">ContextUpdated</span> 只是投影器里和 Text/Tool/Reasoning 并列的普通一员，没有任何特殊通道——「把特殊做成不特殊」，自动继承持久/有序/可重放/原位。</li>
+    <li><strong>位置即意义</strong>：System 消息按 seq <strong>原位插入</strong>，保住了环境变化的时机；模型因此能正确理解早先消息的语境（对比「钉在 prompt 扉页」会压扁时间线）。</li>
+  </ul>
+  <p>到这里，上下文纪元的「常态运转 + 中途更新」都讲透了。整个第五部分只剩最后两块拼图：第 26 课看那些<strong>具体的内置源</strong>（环境、日期、指令）到底长什么样、各自怎么实现；第 27 课啃下唯一还没展开的硬骨头——<strong>换 agent 时的 <span class="mono">AgentReplacementBlocked</span></strong>，那个第 24 课反复点名、却一直没拆的「改朝换代」难题。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">System</span> 消息的 text 复用 <span class="mono">ContextUpdated</span> 的 text，以及投影器里它和众多事件并列的那一行：</p>
+  <pre class="code"><span class="cm">// session/message.ts —— text 类型直接借自事件</span>
+text: SessionEvent.ContextUpdated.data.fields.text
+
+<span class="cm">// session/projector.ts —— ContextUpdated 和 Text/Tool/… 并列登记</span>
+<span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.ContextUpdated, (event) =&gt; <span class="fn">run</span>(db, event))
+<span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.Synthetic, ...)
+<span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.Text.Started, ...)
+<span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.Tool.Called, ...)   <span class="cm">// ← 全是同一种 project 待遇</span></pre>
+  <p>第一行用 <span class="mono">SessionEvent.ContextUpdated.data.fields.text</span> 给 System 消息的 text<strong>借用</strong>事件的字段类型——这是一种很 opencode 的写法：与其重新声明一遍「text 是个字符串」，不如<strong>直接指向事件里那个字段</strong>，让类型系统替你保证「消息的 text 永远和事件的 text 同形」。下面那一串 <span class="mono">project</span> 登记则一目了然：<span class="mono">ContextUpdated</span> 和 <span class="mono">Text</span>、<span class="mono">Tool</span> 排排坐、吃果果，没有一丝特殊待遇。<strong>代码的「平淡无奇」，恰恰是设计「浑然一体」的证据。</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li>第 24 课的 <span class="mono">ContextUpdated</span> 事件，被投影成一条 <strong>System 消息</strong>（第 14 课 Message 联合的一员），<strong>原位插</strong>在它发生的 seq 位置。</li>
+    <li><strong>System.text 复用 ContextUpdated.text</strong>：一条 System 消息，就是一次上下文更新在投影历史里的「化身」（第 19 课事件→投影的具体一例）。</li>
+    <li><strong>走同一条投影流水线</strong>：<span class="mono">ContextUpdated</span> 在投影器里和 Text/Tool/Reasoning <strong>并列</strong>，没有特殊通道——「把特殊做成不特殊」，自动继承持久/有序/可重放/原位。</li>
+    <li><strong>位置即意义</strong>：原位插入保住了环境变化的<strong>时机</strong>，模型因此能正确理解早先消息的语境——对比「钉在 prompt 扉页」会压扁时间线、丢失因果。</li>
+    <li>设计哲学：<strong>万物归于同一条事件时间线</strong>——上下文更新不是旁路特判，而是对话流里的一等公民。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Last lesson, the epoch's <span class="mono">prepare</span>, on an environment change, <strong>published a <span class="mono">ContextUpdated</span> event</strong> — we said "the model naturally reads it when rereading history next round," but didn't say <strong>in what form, at what position in the history, it appears</strong>. This lesson supplies that crucial link. The answer is surprisingly elegant: a context update is <strong>projected into a <span class="mono">System</span> message</strong>, <strong>inserted in place</strong> in the session history — right at the moment it actually happened. So when the model reads history, it sees, at the right spot, a system aside like "the directory changed to /src." This lesson shows you how opencode weaves "a mid-conversation environment change" <strong>seamlessly into the conversation timeline</strong>, with no special mechanism.</p>
+<p>Why does "where the change appears" matter so much? Because <strong>timing is meaning</strong>. Suppose at message 6 you said "run the tests," then in <span class="mono">/proj</span>; at message 7 you <span class="mono">cd</span>'d to <span class="mono">/proj/src</span>; at message 8 you said "run them again." These two "run the tests," with a directory switch between, <strong>may mean entirely different things</strong>. If the model only sees "the current directory is /src" without knowing <strong>when</strong> it changed, it can't understand that message 6's "tests" meant somewhere else — it's lost the <strong>causal timeline</strong>. This lesson's core is how opencode uses "in-place System messages" to preserve the <strong>timing</strong> of environment changes intact.</p>
+
+<div class="card analogy">
+  <div class="tag">🎭 Analogy</div>
+  Think of a conversation as a <strong>screenplay</strong>. Between the actors' dialogue (user/assistant messages), the script interleaves <strong>stage directions</strong> (System messages): "<em>(lights dim)</em>," "<em>(they walk into the kitchen)</em>." The beauty of these directions is they're <strong>printed right beside the corresponding line</strong> — reading a given line, an actor sees at a glance whether they're now in the living room or kitchen, lights up or down. <strong>Position is timing</strong>: which line of the script a direction appears at represents which moment that change happened. Conversely: if you pinned all scene info to the <strong>title page</strong> ("Whole play's location: kitchen"), the actor could no longer tell which lines were spoken in the living room vs the kitchen — the timeline is flattened. opencode handles context updates exactly the "stage direction" way: a change, as a System aside, is <strong>inserted in place</strong> at the moment it happens, so the model, like an actor reading a script, always knows "the here and now."
+</div>
+
+<h2>The System message: the avatar of a context update</h2>
+<p>Recall Lesson 14's eight-member Message union, one of which is <span class="mono">System</span>. Its definition is quite plain — a <span class="mono">type: "system"</span> plus a <span class="mono">text</span> field. And that <span class="mono">text</span> field's type holds this lesson's key:</p>
+<pre class="code"><span class="cm">// session/message.ts</span>
+<span class="kw">class</span> System {
+  type: <span class="st">"system"</span>
+  text: SessionEvent.ContextUpdated.data.fields.text   <span class="cm">// ← it IS ContextUpdated's text!</span>
+}</pre>
+<p>See it? The <span class="mono">System</span> message's <span class="mono">text</span> <strong>type-wise directly reuses the <span class="mono">ContextUpdated</span> event's text</strong>. Not a coincidence but a declaration: <strong>a System message is a context update's "avatar" in the conversation history</strong>. Lesson 24's <span class="mono">reconcile</span>-computed diff text ("directory switched to /src") first becomes a <span class="mono">ContextUpdated</span> event, then is projected into a <span class="mono">System</span> message, finally read by the model as an aside in the conversation. <strong>The event is an entry in the ledger, the System message is its look in the statement (projected history)</strong> — exactly Lesson 19's "event → projection" mechanism applied to a context update.</p>
+<p>Clear up a common misconception here: many, hearing "System message," assume it's the well-worn "system prompt" (the big block pasted at the very front defining the AI's persona). But opencode's System message here <strong>is another thing</strong>: not the opening one-time role setup but <strong>asides inserted in real time, mid-conversation, as the environment changes</strong>. One is the <strong>pre-curtain script note</strong> (pasted at front, basically unchanging), the other the <strong>stage directions during the show</strong> (given in real time as the plot unfolds, each in its place). Distinguishing them matters: opencode's true "opening setup" actually lands in the baseline (Lesson 24), while this lesson's System messages refer specifically to <strong>"environment changes that happened mid-way, hence inserted mid-way."</strong> Grasp this distinction and you can appreciate why it must be "in place" — opening setup doesn't care about position, but a mid-way change is all about timing. Confusing the two is the easiest stumble for a newcomer reading this code.</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">type</div><div class="v">"system" — one of the Message union's eight members (Lesson 14)</div></div>
+  <div class="cell"><div class="k">text</div><div class="v">reuses ContextUpdated.text — exactly reconcile's diff text</div></div>
+  <div class="cell"><div class="k">position</div><div class="v">determined by the event's seq — inserted in place at the moment of change</div></div>
+</div>
+
+<h2>Projection: the same pipeline as other events</h2>
+<p>The most marvelous part of this design is it's <strong>nothing special</strong>. Open the projector (<span class="mono">projector.ts</span>) and you see a long string of <span class="mono">events.project(...)</span> registrations — <span class="mono">Text</span>, <span class="mono">Tool</span>, <span class="mono">Reasoning</span>, <span class="mono">Shell</span>, <span class="mono">Step</span>… and <span class="mono">ContextUpdated</span> <strong>sits quietly in this string</strong>, projected into a message exactly like them.</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">you cd'd → next prepare's reconcile finds the change</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">publish a ContextUpdated event (text="directory switched to /src", with seq)</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">the projector, like with Text/Tool events, projects it into a System message</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">the System message lands in history by seq — right at the change's position</span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">next round history.load reads this history, the model reads the aside in place</span></div>
+</div>
+<p>"<span class="mono">ContextUpdated</span> is just an ordinary member of the projector's list" — this carries far more weight than it sounds. It means opencode <strong>invented no special channel for "context updates"</strong>: no side "system-prompt injector," no special-case logic of "stitch the environment to the prompt's front each round." A context update is just <strong>one ordinary event in the session event stream</strong>, enjoying <strong>exactly the same treatment</strong> as text and tool calls: published the same, projected the same, positioned by seq the same, read by history.load the same. <strong>Making "the special thing" "unspecial" is this design's true cleverness</strong> — because it's "unspecial," it automatically inherits all the benefits of the whole event pipeline: durable, ordered, replayable, in-place.</p>
+<div class="flow">
+  <div class="node">ContextUpdated event<span class="sub">Lesson 24 reconcile produces</span></div>
+  <div class="arrow">project →</div>
+  <div class="node">projector<span class="sub">same pipeline as Text/Tool</span></div>
+  <div class="arrow">→</div>
+  <div class="node">System message<span class="sub">positioned in place by seq</span></div>
+  <div class="arrow">history.load →</div>
+  <div class="node">model reads it in place<span class="sub">Lesson 17 loop</span></div>
+</div>
+<div class="cellgroup">
+  <div class="cell"><div class="k">Text.Started/Ended</div><div class="v">the model's text → text part</div></div>
+  <div class="cell"><div class="k">Tool.Called/Success…</div><div class="v">tool calls and results → tool part</div></div>
+  <div class="cell"><div class="k">Reasoning.Started/Ended</div><div class="v">the model's thinking → reasoning part</div></div>
+  <div class="cell"><div class="k">ContextUpdated</div><div class="v">★ context update → System message (treated identically to the three above)</div></div>
+</div>
+<p>Look at this "projector registration table" and you feel the "equal treatment" more vividly: the model's text, tool calls, inner thinking, environment changes — to the projector, <strong>all are "a kind of session event, projected into an entry in history."</strong> It doesn't care whether the event came from the model, a tool, or the system observing the environment; it mechanically, uniformly projects each event type, by seq, into the corresponding message or part in history. This homogeneity of "varied origins, uniform treatment" is exactly the power of Lesson 19's "event → projection" abstraction: <strong>as long as you can express something as an event with a seq, it can automatically, in-place, replayably appear in the history the model reads.</strong> A context update is just another example proving how general this abstraction is.</p>
+
+<h2>Position is meaning: preserving the timeline</h2>
+<p>Now combine the past two sections and see how it solves the opening puzzle. Because the System message <strong>lands in place in history by seq</strong>, that stretch of conversation reads like this:</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">msg 6</span><span class="tl-desc">User: "run the tests" (now in /proj)</span></div>
+  <div class="tl-item"><span class="tl-time">msg 7</span><span class="tl-desc">System: "directory switched to /proj/src" ←★ context update inserted in place</span></div>
+  <div class="tl-item"><span class="tl-time">msg 8</span><span class="tl-desc">User: "run them again" (now in /proj/src)</span></div>
+</div>
+<p>Reading this, the model has <strong>a clear timeline</strong>: it can plainly see that the first "run the tests" was in <span class="mono">/proj</span>, a directory switch happened in between, and the second "run the tests" is already in <span class="mono">/proj/src</span>. The <strong>causal position</strong> of the environment change is <strong>fully preserved</strong> by this in-place System aside. Contrast the clumsy "pin the current directory to the prompt's title page": the model only sees "current directory /proj/src," with no idea this directory only changed at message 7 — so it can't understand that message 6's "tests" pointed elsewhere. <strong>Position carries timing; timing carries meaning.</strong> opencode, with "a context update is an in-place System message," hands the model this "meaning of timing" without losing a drop.</p>
+<p>There's a deeper benefit too, about <strong>replayability</strong>. Because an environment change is an <strong>in-place, immutable event</strong>, even if this session is closed and reopened days later, reprojecting the history, that "directory switched at message 7" System message <strong>still sits untouched at message 7's position</strong>. In other words, <strong>this conversation's "environment evolution history" can be precisely reconstructed</strong> — anytime you look back, which directory at which message, which agent, all queryable clearly. This is Lesson 19's "events are the ledger, never rewritten" dividend cashed at the context layer: making environment changes in-place events equips the session's "environment dimension" too with a trustworthy, replayable history, rather than only a "what's current" instantaneous snapshot that lost its past. <strong>Being able to faithfully replay the environment of any past moment is the least noticeable yet most precious ability bought by "weaving context into the event stream."</strong></p>
+<div class="cols">
+  <div class="col"><h4>❌ pinned to the prompt's title page</h4><p>Stitch "current environment" to the front each round. The model knows only "what's now," not "when it changed" — the timeline flattened, earlier messages' context lost.</p></div>
+  <div class="col"><h4>✅ in-place System message</h4><p>The change is inserted by seq at the point it happened. Reading history, the model sees the timing of environment changes clearly, every message's context lining up.</p></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture</div>
+  <p>This lesson catches Lesson 24's <span class="mono">ContextUpdated</span> event and explains how it reaches the model:</p>
+  <ul>
+    <li><strong>System message = a context update's avatar</strong>: its <span class="mono">text</span> type directly reuses <span class="mono">ContextUpdated.text</span> — the event is a ledger entry, the System message its look in projected history.</li>
+    <li><strong>The same projection pipeline</strong>: <span class="mono">ContextUpdated</span> is just an ordinary member alongside Text/Tool/Reasoning in the projector, no special channel — "make the special unspecial," automatically inheriting durable/ordered/replayable/in-place.</li>
+    <li><strong>Position is meaning</strong>: the System message <strong>inserted in place</strong> by seq preserves the timing of environment changes; the model can thus correctly understand earlier messages' context (vs "pinned to the title page," which flattens the timeline).</li>
+  </ul>
+  <p>By here, the context epoch's "normal operation + mid-conversation update" is covered. Part 5 has only two puzzle pieces left: Lesson 26 looks at what the concrete <strong>built-in sources</strong> (environment, date, instructions) actually look like and how each is implemented; Lesson 27 cracks the one hard bone left unopened — <strong>the <span class="mono">AgentReplacementBlocked</span> on agent switch</strong>, that "changing of the guard" puzzle Lesson 24 kept naming but never unpacked.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p>The <span class="mono">System</span> message's text reusing <span class="mono">ContextUpdated</span>'s text, and its line in the projector alongside many events:</p>
+  <pre class="code"><span class="cm">// session/message.ts — text type borrowed directly from the event</span>
+text: SessionEvent.ContextUpdated.data.fields.text
+
+<span class="cm">// session/projector.ts — ContextUpdated registered alongside Text/Tool/…</span>
+<span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.ContextUpdated, (event) =&gt; <span class="fn">run</span>(db, event))
+<span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.Synthetic, ...)
+<span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.Text.Started, ...)
+<span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.Tool.Called, ...)   <span class="cm">// ← all the same project treatment</span></pre>
+  <p>The first line uses <span class="mono">SessionEvent.ContextUpdated.data.fields.text</span> to <strong>borrow</strong> the event's field type for the System message's text — a very opencode move: rather than redeclaring "text is a string," <strong>point directly at that field in the event</strong>, letting the type system guarantee "the message's text is forever the same shape as the event's text." The string of <span class="mono">project</span> registrations below is plain to see: <span class="mono">ContextUpdated</span> sits side by side with <span class="mono">Text</span>, <span class="mono">Tool</span>, with not a shred of special treatment. <strong>The code's "unremarkableness" is precisely the evidence of the design's "wholeness."</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li>Lesson 24's <span class="mono">ContextUpdated</span> event is projected into a <strong>System message</strong> (a member of Lesson 14's Message union), <strong>inserted in place</strong> at its seq position.</li>
+    <li><strong>System.text reuses ContextUpdated.text</strong>: a System message is a context update's "avatar" in projected history (a concrete instance of Lesson 19's event→projection).</li>
+    <li><strong>The same projection pipeline</strong>: <span class="mono">ContextUpdated</span> sits <strong>alongside</strong> Text/Tool/Reasoning in the projector, no special channel — "make the special unspecial," automatically inheriting durable/ordered/replayable/in-place.</li>
+    <li><strong>Position is meaning</strong>: in-place insertion preserves the <strong>timing</strong> of environment changes, so the model correctly understands earlier messages' context — vs "pinned to the title page," which flattens the timeline and loses causality.</li>
+    <li>Design philosophy: <strong>everything belongs to one event timeline</strong> — context updates aren't a side special case but a first-class citizen of the conversation stream.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_26 = wip('内置 Context Sources', 'Built-in sources')
 LESSON_27 = wip('Agent 切换与 Epoch 替换', 'Agent switch & epoch')

@@ -1077,6 +1077,47 @@ QUIZZES = {
             {"zh": "revision 是个乐观并发版本号，prepare 外套 retryRevisionMismatch：两处并发更新同一会话纪元时比对版本、退让重试，绝不盲目覆盖。这道防线和第 16 课「同会话串行」有何不同、又如何互补？", "en": "revision is an optimistic-concurrency version number, with prepare wrapped in retryRevisionMismatch: two concurrent updates to the same session's epoch compare versions, back off and retry, never blindly overwriting. How does this defense differ from and complement Lesson 16's \"serial within a session\"?"},
         ],
     },
+    "25-mid-conversation.html": {
+        "mcq": [
+            {
+                "q": {"zh": "第 24 课的 ContextUpdated 事件，最终以什么形式抵达模型？", "en": "In what form does Lesson 24's ContextUpdated event ultimately reach the model?"},
+                "opts": [
+                    {"zh": "被投影成一条 System 消息，按 seq 原位插在它发生的那个时间点", "en": "Projected into a System message, inserted in place by seq at the moment it happened"},
+                    {"zh": "拼到 system prompt 最前面", "en": "Stitched to the front of the system prompt"},
+                    {"zh": "打印到服务器日志", "en": "Printed to the server log"},
+                    {"zh": "通过一个旁路的注入器", "en": "Through a side injector"},
+                ],
+                "answer": 0,
+                "why": {"zh": "System 消息(第 14 课 Message 联合之一)的 text 类型直接复用 ContextUpdated.text。reconcile 的差异文本→ContextUpdated 事件→投影成 System 消息→按 seq 原位落在历史里。一条 System 消息就是一次上下文更新在投影历史里的化身。", "en": "A System message (one of Lesson 14's Message union) reuses ContextUpdated.text as its text type. reconcile's diff → ContextUpdated event → projected into a System message → lands in place by seq. A System message is a context update's avatar in projected history."},
+            },
+            {
+                "q": {"zh": "为什么说「ContextUpdated 只是投影器列表里普通一员」是这套设计的高明之处？", "en": "Why is \"ContextUpdated is just an ordinary member of the projector's list\" this design's cleverness?"},
+                "opts": [
+                    {"zh": "没有任何特殊通道——和 Text/Tool/Reasoning 一视同仁，故自动继承持久/有序/可重放/原位", "en": "No special channel — treated identically to Text/Tool/Reasoning, so it automatically inherits durable/ordered/replayable/in-place"},
+                    {"zh": "因为它排在列表第一个", "en": "Because it's first in the list"},
+                    {"zh": "因为它跑得最快", "en": "Because it runs fastest"},
+                    {"zh": "因为它不需要 seq", "en": "Because it needs no seq"},
+                ],
+                "answer": 0,
+                "why": {"zh": "opencode 没为上下文更新发明特殊通道(没有旁路注入器、没有「每轮拼到 prompt 开头」的特判)。它就是事件流里普通一员，和文字/工具一样 publish/投影/按 seq 落位/被 history.load 读出。把特殊做成不特殊=自动继承整条流水线的全部好处。", "en": "opencode invented no special channel for context updates (no side injector, no \"stitch to prompt front each round\" special case). It's an ordinary stream event, published/projected/positioned-by-seq/read-by-history.load like text/tools. Making the special unspecial = automatically inheriting the whole pipeline's benefits."},
+            },
+            {
+                "q": {"zh": "为什么 System 消息「原位插入」（而非钉在 prompt 扉页）如此重要？", "en": "Why is the System message being \"inserted in place\" (vs pinned to the prompt's title page) so important?"},
+                "opts": [
+                    {"zh": "位置承载时机、时机承载意义：原位保住了环境变化何时发生，模型才能理解早先消息的语境", "en": "Position carries timing, timing carries meaning: in-place preserves when the change happened, so the model understands earlier messages' context"},
+                    {"zh": "原位插入能省 token", "en": "In-place insertion saves tokens"},
+                    {"zh": "为了让历史更短", "en": "To make history shorter"},
+                    {"zh": "纯粹是格式好看", "en": "Purely for nice formatting"},
+                ],
+                "answer": 0,
+                "why": {"zh": "msg6「跑测试」时在 /proj，msg7 切到 /src，msg8「再跑」。两次「跑测试」含义可能不同。原位 System 消息让模型看清切换时机；若只钉「当前 /src」在扉页，模型不知它 msg7 才变、就误解了 msg6 的「测试」。位置=时机=意义。还顺带让环境演变史可精确重放。", "en": "At msg6 \"run tests\" in /proj, msg7 cd to /src, msg8 \"again.\" The two may differ. In-place System messages show the model the switch timing; pinning only \"current /src\" at the front, the model doesn't know it changed at msg7 and misreads msg6's \"tests.\" Position=timing=meaning. It also makes the environment's evolution precisely replayable."},
+            },
+        ],
+        "open": [
+            {"zh": "课里特别澄清：这里的 System 消息不是开场那段定义 AI 人设的「system prompt」，而是对话进行中随环境变化即时插入的「舞台提示」（开场设定其实落在 baseline）。用「剧本扉页说明 vs 演出中舞台提示」这个比喻，说说为什么前者无所谓位置、后者字字看时机。", "en": "The lesson clarifies: the System message here isn't the opening \"system prompt\" defining the AI's persona, but \"stage directions\" inserted mid-conversation as the environment changes (the opening setup actually lands in the baseline). With the \"title-page note vs mid-show stage direction\" metaphor, explain why the former doesn't care about position while the latter is all about timing."},
+            {"zh": "课里说「只要你能把一件事表达成一个带 seq 的事件，它就能自动、原位、可重放地出现在模型读到的历史里」。基于这条，设想一种 opencode 目前没有、但可以用同样方式接入的新「中途信息」，说说它会怎么走这条流水线。", "en": "The lesson says \"as long as you can express something as an event with a seq, it can automatically, in-place, replayably appear in the history the model reads.\" Based on this, imagine a new kind of \"mid-conversation info\" opencode doesn't yet have but could plug in the same way, and describe how it would travel this pipeline."},
+        ],
+    },
 }
 
 def render(fname, lang):
