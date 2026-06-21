@@ -1091,15 +1091,15 @@ QUIZZES = {
                 "why": {"zh": "System 消息(第 14 课 Message 联合之一)的 text 类型直接复用 ContextUpdated.text。reconcile 的差异文本→ContextUpdated 事件→投影成 System 消息→按 seq 原位落在历史里。一条 System 消息就是一次上下文更新在投影历史里的化身。", "en": "A System message (one of Lesson 14's Message union) reuses ContextUpdated.text as its text type. reconcile's diff → ContextUpdated event → projected into a System message → lands in place by seq. A System message is a context update's avatar in projected history."},
             },
             {
-                "q": {"zh": "为什么说「ContextUpdated 只是投影器列表里普通一员」是这套设计的高明之处？", "en": "Why is \"ContextUpdated is just an ordinary member of the projector's list\" this design's cleverness?"},
+                "q": {"zh": "上下文变化是「什么时候」被注入历史的？", "en": "When exactly is a context change injected into history?"},
                 "opts": [
-                    {"zh": "没有任何特殊通道——和 Text/Tool/Reasoning 一视同仁，故自动继承持久/有序/可重放/原位", "en": "No special channel — treated identically to Text/Tool/Reasoning, so it automatically inherits durable/ordered/replayable/in-place"},
-                    {"zh": "因为它排在列表第一个", "en": "Because it's first in the list"},
-                    {"zh": "因为它跑得最快", "en": "Because it runs fastest"},
-                    {"zh": "因为它不需要 seq", "en": "Because it needs no seq"},
+                    {"zh": "懒惰采样、只在「安全 provider-turn 边界」（一次 provider 调用之前、输入提单+工具结清之后）采纳，绝不异步推送", "en": "Sampled lazily, admitted only at a \"safe provider-turn boundary\" (before a provider call, after input promotion + tool settlement), never pushed asynchronously"},
+                    {"zh": "源一变就立刻异步推一条进历史", "en": "Pushed into history asynchronously the instant a source changes"},
+                    {"zh": "会话结束时一次性补齐", "en": "Filled in all at once when the session ends"},
+                    {"zh": "由模型自己决定何时读", "en": "The model decides when to read it"},
                 ],
                 "answer": 0,
-                "why": {"zh": "opencode 没为上下文更新发明特殊通道(没有旁路注入器、没有「每轮拼到 prompt 开头」的特判)。它就是事件流里普通一员，和文字/工具一样 publish/投影/按 seq 落位/被 history.load 读出。把特殊做成不特殊=自动继承整条流水线的全部好处。", "en": "opencode invented no special channel for context updates (no side injector, no \"stitch to prompt front each round\" special case). It's an ordinary stream event, published/projected/positioned-by-seq/read-by-history.load like text/tools. Making the special unspecial = automatically inheriting the whole pipeline's benefits."},
+                "why": {"zh": "异步推送会乱套(模型可能正吐字到一半)。opencode 把采样推迟到「下一次 provider 调用之前」这个干净缝隙：先落定刚提单的用户输入/已结清的工具结果，再采样各源变没变→变了就 admit 一条；多源同时变合并成一条。这正是第 15 课 steer「安全边界生效」同一种纪律。", "en": "Async pushing breeds chaos (the model may be mid-stream). opencode defers sampling to the clean gap \"just before the next provider call\": settle just-promoted user input/settled tool results first, then sample whether sources changed → if so admit one; multiple changes at one boundary combine into one. Exactly Lesson 15's steer \"takes effect at a safe boundary\" discipline."},
             },
             {
                 "q": {"zh": "为什么 System 消息「原位插入」（而非钉在 prompt 扉页）如此重要？", "en": "Why is the System message being \"inserted in place\" (vs pinned to the prompt's title page) so important?"},

@@ -35,7 +35,8 @@
 ## L25 会话中系统消息
 
 - 第 24 课的 `ContextUpdated` 事件被**投影成一条 System 消息**（`message.ts`：`type:"system"`，`text` 直接复用 `SessionEvent.ContextUpdated.data.fields.text`），按 seq **原位插**在变化发生点。
-- **走同一条投影流水线**：`projector.ts` 里 `ContextUpdated` 和 `Text`/`Tool`/`Reasoning`/`Synthetic`/`Step` **并列** `events.project(...)`，无特殊通道——「把特殊做成不特殊」，自动继承持久/有序/可重放/原位。
+- **走同一条投影流水线**：`projector.ts` 里 `ContextUpdated` 和 `Text`/`Tool`/`Reasoning`/`Synthetic`/`Step` **并列** `events.project(...)`（注：ContextUpdated handler 比纯 `run` 多一个 replay→`requestReplacement` 分支，但投影成 System 消息这条主路与它们共享同一机制）——「把特殊做成不特殊」，自动继承持久/有序/可重放/原位。
+- **安全 provider-turn 边界**（`CONTEXT.md` 术语，`context-epoch.ts`）：上下文变化**懒惰采样、只在边界采纳，绝不异步推送**。边界=一次 provider 调用之前、且在持久输入提单+工具结清之后。次序：先用户输入/工具结果，后合并的 System 消息；多源同时变→合并成一条。
 - **位置即意义**：原位保住环境变化的**时机**，模型才能理解早先消息语境（对比「钉在 prompt 扉页」会压扁时间线、丢失因果）。还让环境演变史可精确重放。
 - 辨析：这里的 System 消息 ≠ 开场定义人设的 system prompt（那个落在 baseline）；它专指「中途才发生、所以插在中途」的环境变化。
 

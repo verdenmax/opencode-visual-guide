@@ -14,4 +14,6 @@ opencode 源文件（`/home/verden/course/opencode`，均在 `packages/core/src/
 | `session/event.ts` | `SessionEvent.ContextUpdated`（type `session.next.context.updated`，字段 messageID + **text**） | L24, L25 |
 | `session/message.ts` | `Session.Message.System`（`type:"system"`，`text: SessionEvent.ContextUpdated.data.fields.text`——借用事件字段类型） | L25 |
 | `session/projector.ts` | `events.project(SessionEvent.ContextUpdated, …)` 与 Text/Tool/Reasoning/Synthetic/Step **并列**；`requestReplacement`（replay 时） | L25 |
+| `CONTEXT.md`（repo 根） | 术语表：**Safe Provider-Turn Boundary**（边界注入时序）、Mid-Conversation System Message、Baseline System Context、Unavailable Context 等设计概念 | L21, L25, L27 |
+| `packages/core/src/agent.ts` | agent 切换的来源（换 agent 请求 Context Epoch 替换，第 27 课的触发点） | L27 |
 | `session/history.ts` | `history.load` 并发取 `baseline_seq`（来自 SessionContextEpochTable）给历史窗口裁边——L24 钉下、此处消费 | L24（呼应 L19） |

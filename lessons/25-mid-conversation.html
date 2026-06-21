@@ -379,6 +379,17 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 </div>
 <p>看这张「投影器登记表」，你会更直观地体会那种「一视同仁」：模型的文字、工具的调用、内心的思考、环境的变化——在投影器眼里，<strong>全是「一种会话事件，投影成历史里的一笔」</strong>。它不关心这笔事件的来路是模型、是工具、还是系统对环境的观察；它只机械地、统一地把每种事件，按 seq 投影成历史里对应的那条消息或 part。这种「来源各异、待遇划一」的均质感，正是第 19 课「事件 → 投影」那套抽象的威力所在：<strong>只要你能把一件事表达成一个带 seq 的事件，它就能自动、原位地、可重放地，出现在模型读到的历史里。</strong>上下文更新，不过是又一个证明这套抽象有多通用的例子。</p>
 
+<h2>安全边界：何时注入</h2>
+<p>还有一个同样关键、却容易被忽略的问题：上下文变了，这条更新是<strong>什么时候</strong>被塞进历史的？你可能直觉地以为「源一变就立刻推」——但 opencode 偏偏<strong>不这么做</strong>。它的规矩是：<strong>变化被「懒惰地」采样、只在「安全的 provider-turn 边界」上才被采纳，绝不在源变化的当下异步推送。</strong>所谓<strong>安全 provider-turn 边界</strong>，源码的定义很精确：<strong>就在一次 provider 调用之前、且在「持久输入已提单、必要的工具已结清」之后</strong>的那个点。</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">边界</span><span class="t-txt">一次 provider 调用即将开始（第 17 课循环的每一轮起点）</span></div>
+  <div class="t-row"><span class="t-num">先</span><span class="t-txt">先落定：刚提单的用户输入、已结清的工具结果（第 15、17 课）</span></div>
+  <div class="t-row"><span class="t-num">后</span><span class="t-txt">再采样：此刻去看各源变了没 → 若变了，admit 一条 ContextUpdated</span></div>
+  <div class="t-row"><span class="t-num">合一</span><span class="t-txt">多个源同时变 → 合并成一条 Mid-Conversation System 消息</span></div>
+</div>
+<p>为什么非要「懒惰、在边界上」？因为<strong>异步推送会制造混乱</strong>。设想源一变就立刻往历史里插一条——可此刻模型也许正吐字吐到一半（provider 调用进行中），你横插一条进去，顺序和因果立刻乱套。把采样<strong>推迟到「下一次 provider 调用之前」这个干净的缝隙</strong>，一切就有了确定的次序：这正是第 15 课 steer「在下一个安全回合边界生效」、第 17 课「每轮重读历史」那同一种「<strong>等一个干净的边界</strong>」的纪律，在上下文注入上的再次现身。</p>
+<p>边界上的<strong>次序</strong>也定得一丝不苟：先是<strong>刚提单的用户输入、已结清的工具结果</strong>，<strong>然后</strong>才是那条合并的系统消息。这个顺序有讲究——它保证模型读到「环境变了」这条旁白时，<strong>本轮该先处理的用户话和工具结果都已就位</strong>，旁白恰好落在它们之后、本轮 provider 调用之前。而「多个源同时变、合并成一条」也是体贴：与其零零散散塞三条「目录变了」「日期变了」「指令变了」，不如在这一个边界上<strong>攒成一条</strong>，既省 token、读着也清爽。<strong>懒惰采样、边界对齐、批量合并、次序固定</strong>——这四条，才是「中途注入」真正的纪律所在。</p>
+
 <h2>位置即意义：保住时间线</h2>
 <p>现在把前两节合起来，看它解决了开头那个难题。因为 System 消息<strong>按 seq 原位落在历史里</strong>，那段对话读起来就是这样的：</p>
 <div class="timeline">
@@ -415,7 +426,7 @@ text: SessionEvent.ContextUpdated.data.fields.text
 <span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.Synthetic, ...)
 <span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.Text.Started, ...)
 <span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.Tool.Called, ...)   <span class="cm">// ← 全是同一种 project 待遇</span></pre>
-  <p>第一行用 <span class="mono">SessionEvent.ContextUpdated.data.fields.text</span> 给 System 消息的 text<strong>借用</strong>事件的字段类型——这是一种很 opencode 的写法：与其重新声明一遍「text 是个字符串」，不如<strong>直接指向事件里那个字段</strong>，让类型系统替你保证「消息的 text 永远和事件的 text 同形」。下面那一串 <span class="mono">project</span> 登记则一目了然：<span class="mono">ContextUpdated</span> 和 <span class="mono">Text</span>、<span class="mono">Tool</span> 排排坐、吃果果，没有一丝特殊待遇。<strong>代码的「平淡无奇」，恰恰是设计「浑然一体」的证据。</strong></p>
+  <p>第一行用 <span class="mono">SessionEvent.ContextUpdated.data.fields.text</span> 给 System 消息的 text<strong>借用</strong>事件的字段类型——这是一种很 opencode 的写法：与其重新声明一遍「text 是个字符串」，不如<strong>直接指向事件里那个字段</strong>，让类型系统替你保证「消息的 text 永远和事件的 text 同形」。下面那一串 <span class="mono">project</span> 登记则一目了然：<span class="mono">ContextUpdated</span> 和 <span class="mono">Text</span>、<span class="mono">Tool</span> 排排坐、吃果果——投影成消息这件事，走的是和它们<strong>完全相同</strong>的那条 <span class="mono">run(db, event)</span>。（严格说，<span class="mono">ContextUpdated</span> 的 handler 比纯 <span class="mono">run</span> 多一个<strong>重放分支</strong>：replay 时还会顺手 <span class="mono">requestReplacement</span>；但「投影成 System 消息」这一主路，确实和 Text/Tool 共享同一套机制。）<strong>代码的「平淡无奇」，恰恰是设计「浑然一体」的证据。</strong></p>
 </div>
 
 <div class="card key">
@@ -444,16 +455,16 @@ text: SessionEvent.ContextUpdated.data.fields.text
   </details>
 </div>
 <div class="quiz">
-  <div class="qn">2. 为什么说「ContextUpdated 只是投影器列表里普通一员」是这套设计的高明之处？</div>
+  <div class="qn">2. 上下文变化是「什么时候」被注入历史的？</div>
   <ol class="opts">
-    <li>因为它排在列表第一个</li>
-    <li>没有任何特殊通道——和 Text/Tool/Reasoning 一视同仁，故自动继承持久/有序/可重放/原位</li>
-    <li>因为它不需要 seq</li>
-    <li>因为它跑得最快</li>
+    <li>源一变就立刻异步推一条进历史</li>
+    <li>懒惰采样、只在「安全 provider-turn 边界」（一次 provider 调用之前、输入提单+工具结清之后）采纳，绝不异步推送</li>
+    <li>由模型自己决定何时读</li>
+    <li>会话结束时一次性补齐</li>
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。opencode 没为上下文更新发明特殊通道(没有旁路注入器、没有「每轮拼到 prompt 开头」的特判)。它就是事件流里普通一员，和文字/工具一样 publish/投影/按 seq 落位/被 history.load 读出。把特殊做成不特殊=自动继承整条流水线的全部好处。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。异步推送会乱套(模型可能正吐字到一半)。opencode 把采样推迟到「下一次 provider 调用之前」这个干净缝隙：先落定刚提单的用户输入/已结清的工具结果，再采样各源变没变→变了就 admit 一条；多源同时变合并成一条。这正是第 15 课 steer「安全边界生效」同一种纪律。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -494,7 +505,7 @@ text: SessionEvent.ContextUpdated.data.fields.text
   text: SessionEvent.ContextUpdated.data.fields.text   <span class="cm">// ← it IS ContextUpdated's text!</span>
 }</pre>
 <p>See it? The <span class="mono">System</span> message's <span class="mono">text</span> <strong>type-wise directly reuses the <span class="mono">ContextUpdated</span> event's text</strong>. Not a coincidence but a declaration: <strong>a System message is a context update's "avatar" in the conversation history</strong>. Lesson 24's <span class="mono">reconcile</span>-computed diff text ("directory switched to /src") first becomes a <span class="mono">ContextUpdated</span> event, then is projected into a <span class="mono">System</span> message, finally read by the model as an aside in the conversation. <strong>The event is an entry in the ledger, the System message is its look in the statement (projected history)</strong> — exactly Lesson 19's "event → projection" mechanism applied to a context update.</p>
-<p>Clear up a common misconception here: many, hearing "System message," assume it's the well-worn "system prompt" (the big block pasted at the very front defining the AI's persona). But opencode's System message here <strong>is another thing</strong>: not the opening one-time role setup but <strong>asides inserted in real time, mid-conversation, as the environment changes</strong>. One is the <strong>pre-curtain script note</strong> (pasted at front, basically unchanging), the other the <strong>stage directions during the show</strong> (given in real time as the plot unfolds, each in its place). Distinguishing them matters: opencode's true "opening setup" actually lands in the baseline (Lesson 24), while this lesson's System messages refer specifically to <strong>"environment changes that happened mid-way, hence inserted mid-way."</strong> Grasp this distinction and you can appreciate why it must be "in place" — opening setup doesn't care about position, but a mid-way change is all about timing. Confusing the two is the easiest stumble for a newcomer reading this code.</p>
+<p>Clear up a common misconception here: many, hearing "System message," assume it's the well-worn "system prompt" (the big block pasted at the very front defining the AI's persona). But opencode's System message here <strong>is another thing</strong>: not the opening one-time role setup but <strong>asides inserted in real time, mid-conversation, as the environment changes</strong>. One is the <strong>pre-curtain script note</strong> (pasted at front, basically unchanging), the other the <strong>stage directions during the show</strong> (given in real time as the plot unfolds, each in its place). Distinguishing them matters: opencode's true "opening setup" actually lands in the baseline (Lesson 24), while this lesson's System messages refer specifically to <strong>"environment changes that happened mid-way, hence inserted mid-way."</strong> Grasp this distinction and you can appreciate why it must be "in place" — opening setup doesn't care about position, but a mid-way change is all about timing. Confusing the two is the easiest stumble for a newcomer reading this code. In short: the baseline answers "what world this conversation started in," the System message answers "at what moment, and how, that world later changed."</p>
 <div class="cellgroup">
   <div class="cell"><div class="k">type</div><div class="v">"system" — one of the Message union's eight members (Lesson 14)</div></div>
   <div class="cell"><div class="k">text</div><div class="v">reuses ContextUpdated.text — exactly reconcile's diff text</div></div>
@@ -527,6 +538,17 @@ text: SessionEvent.ContextUpdated.data.fields.text
   <div class="cell"><div class="k">ContextUpdated</div><div class="v">★ context update → System message (treated identically to the three above)</div></div>
 </div>
 <p>Look at this "projector registration table" and you feel the "equal treatment" more vividly: the model's text, tool calls, inner thinking, environment changes — to the projector, <strong>all are "a kind of session event, projected into an entry in history."</strong> It doesn't care whether the event came from the model, a tool, or the system observing the environment; it mechanically, uniformly projects each event type, by seq, into the corresponding message or part in history. This homogeneity of "varied origins, uniform treatment" is exactly the power of Lesson 19's "event → projection" abstraction: <strong>as long as you can express something as an event with a seq, it can automatically, in-place, replayably appear in the history the model reads.</strong> A context update is just another example proving how general this abstraction is.</p>
+
+<h2>The safe boundary: when to inject</h2>
+<p>There's an equally crucial yet easily-overlooked question: when the context changes, <strong>when</strong> exactly is that update slipped into history? You might intuitively assume "push it the instant the source changes" — but opencode pointedly <strong>doesn't</strong>. Its rule: <strong>changes are sampled "lazily," admitted only at a "safe provider-turn boundary," never pushed asynchronously the moment a source changes.</strong> The <strong>safe provider-turn boundary</strong> the source defines precisely: <strong>the point immediately before a provider call, after durable input promotion and any required tool settlement.</strong></p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">boundary</span><span class="t-txt">a provider call is about to begin (the start of each round in Lesson 17's loop)</span></div>
+  <div class="t-row"><span class="t-num">first</span><span class="t-txt">settle first: just-promoted user input, settled tool results (Lessons 15, 17)</span></div>
+  <div class="t-row"><span class="t-num">then</span><span class="t-txt">then sample: check now whether sources changed → if so, admit a ContextUpdated</span></div>
+  <div class="t-row"><span class="t-num">combine</span><span class="t-txt">multiple sources changed at once → combined into one Mid-Conversation System message</span></div>
+</div>
+<p>Why "lazy, at the boundary"? Because <strong>async pushing breeds chaos</strong>. Imagine inserting into history the instant a source changes — but the model may be mid-stream spitting characters (a provider call in flight), and jamming one in cross-cuts order and causality. Deferring the sampling to <strong>that clean gap "just before the next provider call"</strong> gives everything a definite order: exactly the same "<strong>wait for a clean boundary</strong>" discipline as Lesson 15's steer ("takes effect at the next safe turn boundary") and Lesson 17's "reread history each round," appearing again in context injection.</p>
+<p>The <strong>order</strong> at the boundary is also nailed down meticulously: first the <strong>just-promoted user input, settled tool results</strong>, <strong>then</strong> the combined system message. This order matters — it guarantees that when the model reads the "environment changed" aside, the user's words and tool results this round should handle <strong>are already in place</strong>, and the aside lands right after them, just before this round's provider call. And "multiple sources changed, combined into one" is thoughtful too: rather than scatter three "directory changed," "date changed," "instructions changed," it <strong>pools them into one</strong> at this one boundary — saving tokens, cleaner to read. <strong>Lazy sampling, boundary alignment, batched combining, fixed order</strong> — these four are the true discipline of "mid-conversation injection."</p>
 
 <h2>Position is meaning: preserving the timeline</h2>
 <p>Now combine the past two sections and see how it solves the opening puzzle. Because the System message <strong>lands in place in history by seq</strong>, that stretch of conversation reads like this:</p>
@@ -564,7 +586,7 @@ text: SessionEvent.ContextUpdated.data.fields.text
 <span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.Synthetic, ...)
 <span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.Text.Started, ...)
 <span class="kw">yield</span>* events.<span class="fn">project</span>(SessionEvent.Tool.Called, ...)   <span class="cm">// ← all the same project treatment</span></pre>
-  <p>The first line uses <span class="mono">SessionEvent.ContextUpdated.data.fields.text</span> to <strong>borrow</strong> the event's field type for the System message's text — a very opencode move: rather than redeclaring "text is a string," <strong>point directly at that field in the event</strong>, letting the type system guarantee "the message's text is forever the same shape as the event's text." The string of <span class="mono">project</span> registrations below is plain to see: <span class="mono">ContextUpdated</span> sits side by side with <span class="mono">Text</span>, <span class="mono">Tool</span>, with not a shred of special treatment. <strong>The code's "unremarkableness" is precisely the evidence of the design's "wholeness."</strong></p>
+  <p>The first line uses <span class="mono">SessionEvent.ContextUpdated.data.fields.text</span> to <strong>borrow</strong> the event's field type for the System message's text — a very opencode move: rather than redeclaring "text is a string," <strong>point directly at that field in the event</strong>, letting the type system guarantee "the message's text is forever the same shape as the event's text." The string of <span class="mono">project</span> registrations below is plain to see: <span class="mono">ContextUpdated</span> sits side by side with <span class="mono">Text</span>, <span class="mono">Tool</span> — projecting into a message goes through the <strong>same</strong> <span class="mono">run(db, event)</span> as they do. (Strictly, <span class="mono">ContextUpdated</span>'s handler has one extra <strong>replay branch</strong> beyond plain <span class="mono">run</span>: on replay it also calls <span class="mono">requestReplacement</span>; but the main road, "projecting into a System message," does share the same mechanism as Text/Tool.) <strong>The code's "unremarkableness" is precisely the evidence of the design's "wholeness."</strong></p>
 </div>
 
 <div class="card key">
@@ -593,16 +615,16 @@ text: SessionEvent.ContextUpdated.data.fields.text
   </details>
 </div>
 <div class="quiz">
-  <div class="qn">2. Why is "ContextUpdated is just an ordinary member of the projector's list" this design's cleverness?</div>
+  <div class="qn">2. When exactly is a context change injected into history?</div>
   <ol class="opts">
-    <li>Because it's first in the list</li>
-    <li>No special channel — treated identically to Text/Tool/Reasoning, so it automatically inherits durable/ordered/replayable/in-place</li>
-    <li>Because it needs no seq</li>
-    <li>Because it runs fastest</li>
+    <li>Pushed into history asynchronously the instant a source changes</li>
+    <li>Sampled lazily, admitted only at a "safe provider-turn boundary" (before a provider call, after input promotion + tool settlement), never pushed asynchronously</li>
+    <li>The model decides when to read it</li>
+    <li>Filled in all at once when the session ends</li>
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. opencode invented no special channel for context updates (no side injector, no "stitch to prompt front each round" special case). It's an ordinary stream event, published/projected/positioned-by-seq/read-by-history.load like text/tools. Making the special unspecial = automatically inheriting the whole pipeline's benefits.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Async pushing breeds chaos (the model may be mid-stream). opencode defers sampling to the clean gap "just before the next provider call": settle just-promoted user input/settled tool results first, then sample whether sources changed → if so admit one; multiple changes at one boundary combine into one. Exactly Lesson 15's steer "takes effect at a safe boundary" discipline.</div></div></div>
   </details>
 </div>
 <div class="quiz">
