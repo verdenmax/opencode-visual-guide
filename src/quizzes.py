@@ -45,6 +45,48 @@ def _shuffle(opts, answer, seed):
 
 
 QUIZZES = {
+    "46-mcp.html": {
+        "mcq": [
+            {
+                "q": {"zh": "MCP 工具和 opencode 内置工具（read/bash 等）最本质的关系是什么？", "en": "What is the most essential relationship between MCP tools and opencode's built-in tools (read/bash etc.)?"},
+                "opts": [
+                    {"zh": "「出身二等、待遇一等」——MCP 工具运行时才从外部服务器发现，但一旦进门就并入同一注册表、走同一道权限闸门（L41）、被同一批插件钩子观察，对模型/会话/权限系统而言和内置工具长得完全一样", "en": "\"Second-class origin, first-class treatment\" — MCP tools are discovered from an external server at runtime, but once in the door they merge into the same registry, go through the same permission gate (L41), are observed by the same plugin hooks; to the model/session/permission system they look identical to built-ins"},
+                    {"zh": "MCP 工具绕过权限系统、可以直接执行", "en": "MCP tools bypass the permission system and execute directly"},
+                    {"zh": "MCP 工具和内置工具用两套完全独立的注册表与权限", "en": "MCP tools and built-ins use two wholly separate registries and permissions"},
+                    {"zh": "MCP 工具其实就是内置工具的别名", "en": "MCP tools are really just aliases of built-in tools"},
+                ],
+                "answer": 0,
+                "why": {"zh": "内置工具编译期写死、数量固定；MCP 工具运行时从外部服务器经 listTools「问」来，由 catalog.ts 的 convertTool 裹进 AI SDK 的 dynamicTool（execute 只是转发给 client.callTool）。但裹好后，它们并入同一个工具注册表（L37）、在 session/tools.ts 走同一道权限闸门 ctx.ask（L41 Ruleset 的 allow/ask/deny 三态）、被同一批插件钩子（tool.execute.before/after）观察。对模型、会话循环、权限系统而言，一个 MCP 工具和一个内置 read 完全一样——唯一差别藏在 execute 最深处：内置跑本地代码，MCP 把调用转发给远端/本地服务器。这就是「出身二等、待遇一等」：系统不为外来工具开任何后门，它必须和原生工具走完全相同的安全检查——这种「不为扩展点破例」的纪律，正是权限系统可信的根基。", "en": "Built-ins are hardcoded at compile time, fixed in number; MCP tools are \"asked\" from an external server at runtime via listTools, wrapped by catalog.ts's convertTool into the AI SDK's dynamicTool (execute just forwards to client.callTool). But once wrapped, they merge into the same tool registry (L37), go through the same permission gate ctx.ask in session/tools.ts (L41 Ruleset's allow/ask/deny tri-state), are observed by the same plugin hooks (tool.execute.before/after). To the model, session loop, permission system, an MCP tool and a built-in read are identical — the only difference hides deep in execute: built-ins run local code, MCP forwards the call to a remote/local server. That's \"second-class origin, first-class treatment\": the system opens no backdoor for foreign tools; they must pass the exact same security check as native tools — this \"no exception for extension points\" discipline is the foundation of a trustworthy permission system."},
+            },
+            {
+                "q": {"zh": "多台 MCP 服务器可能各有一个叫 search 的工具，opencode 如何避免冲突、又让工具名能被权限规则精确管控？", "en": "Multiple MCP servers might each have a tool named search; how does opencode avoid collision while letting the tool name be precisely governed by permission rules?"},
+                "opts": [
+                    {"zh": "工具名 = sanitize(服务器名)+\"_\"+sanitize(工具名)（如 github_search、jira_search），这个带前缀的作用域名同时就是 session/tools.ts 里的权限 key", "en": "tool name = sanitize(serverName)+\"_\"+sanitize(toolName) (e.g. github_search, jira_search); this prefixed scoped name is also the permission key in session/tools.ts"},
+                    {"zh": "谁先连上谁用 search，后连的报错", "en": "Whoever connects first gets search, later ones error"},
+                    {"zh": "随机给工具编号", "en": "Randomly number the tools"},
+                    {"zh": "把所有 search 合并成一个", "en": "Merge all searches into one"},
+                ],
+                "answer": 0,
+                "why": {"zh": "opencode 给每个工具名冠上服务器名前缀：先 sanitize（把非 [a-zA-Z0-9_-] 的字符替换成 _）洗一遍名字，再用 _ 拼成 sanitize(服务器名)+\"_\"+sanitize(工具名)。于是 github 的 search → github_search、jira 的 search → jira_search，互不冲突。这串带前缀的「作用域名」最妙的去处在 session/tools.ts：MCP 工具并入会话工具集时，权限闸门写 ctx.ask({ permission: key })——这个 key 正是作用域名。所以你能在配置里写「github_* 一律放行、jira_delete_* 必须问」，精确管控每台外部服务器、每个外部工具。命名既解决重名，又直接成为权限系统的抓手。", "en": "opencode prefixes each tool name with the server name: first sanitize (replace non-[a-zA-Z0-9_-] chars with _) washes the name, then joins with _ into sanitize(serverName)+\"_\"+sanitize(toolName). So github's search → github_search, jira's search → jira_search, no collision. This prefixed \"scoped name\"'s finest destination is session/tools.ts: when MCP tools merge into the session tool set, the permission gate writes ctx.ask({ permission: key }) — this key is exactly the scoped name. So you can write in config \"github_* all allowed, jira_delete_* must ask,\" precisely governing each external server and tool. Naming both solves collisions and directly becomes the permission system's handle."},
+            },
+            {
+                "q": {"zh": "MCP 配置里 local 和 remote 两种服务器，连接方式有何不同？连上之后呢？", "en": "In MCP config, how do local and remote servers differ in connection? And after connecting?"},
+                "opts": [
+                    {"zh": "local 用 StdioClientTransport 拉子进程（command）、remote 用 HTTP（先 StreamableHTTP 失败回退 SSE）；但连上后都得到同一个 MCP Client，listTools/callTool 代码完全一致", "en": "local uses StdioClientTransport to spawn a child process (command), remote uses HTTP (StreamableHTTP first, falling back to SSE); but once connected both yield the same MCP Client, listTools/callTool code is identical"},
+                    {"zh": "local 和 remote 连上后用两套完全不同的 API", "en": "local and remote use two wholly different APIs after connecting"},
+                    {"zh": "remote 只能用 SSE、local 只能用 WebSocket", "en": "remote can only use SSE, local only WebSocket"},
+                    {"zh": "两者都必须先 OAuth 才能连", "en": "Both must OAuth before connecting"},
+                ],
+                "answer": 0,
+                "why": {"zh": "config/mcp.ts 按 type 分两种：local（type:\"local\"，给 command；opencode 用 StdioClientTransport 把它当子进程拉起来，经 stdio 通信；可配 cwd/environment）、remote（type:\"remote\"，给 url；经 HTTP 连，先试 StreamableHTTP、失败回退 SSE；可配 headers/oauth）。但两种 transport 殊途同归：连上后都得到同一个 MCP Client，后续 listTools、callTool 完全一样——传输层差异被 MCP SDK 的 transport 抽象吃掉了。这是「把『怎么连』和『连上后怎么用』干净切开」。那个 StreamableHTTP→SSE 回退也有讲究：优先用更新更高效的，连不上才退到更老更通用的，既吃新协议好处、又不拒绝只支持老协议的服务器——「优先用更好的，但永远留一条兼容退路」。", "en": "config/mcp.ts splits two by type: local (type:\"local\", given command; opencode spawns it as a child process via StdioClientTransport, communicating over stdio; can set cwd/environment), remote (type:\"remote\", given url; connects over HTTP, trying StreamableHTTP first, falling back to SSE; can set headers/oauth). But the two transports converge: once connected both yield the same MCP Client, subsequent listTools, callTool identical — the transport-layer difference is absorbed by the MCP SDK's transport abstraction. This \"cleanly separates 'how to connect' from 'how to use once connected.'\" That StreamableHTTP→SSE fallback is deliberate too: prefer the newer, more efficient one, retreat to the older, more universal only if it can't connect — getting the new protocol's benefits without rejecting servers that only speak the old. \"Prefer the better, but always keep a compatible fallback.\""},
+            },
+        ],
+        "open": [
+            {"zh": "课里把 OAuth 认证形容成一段「浏览器回调舞蹈」：起 localhost 回调服务器→开浏览器授权（带 PKCE 的 code_challenge + state 防 CSRF）→截获 code→换令牌→存 mcp-auth.json（0o600 + 文件锁）。请你逐步解释：为什么需要 PKCE 的 codeVerifier 和随机 state 这两样东西？它们各防住了什么攻击？再谈谈把令牌存成 0o600 权限、用文件锁串行读写，分别在防范什么——一个处理敏感凭证的本地系统，还应该考虑哪些你想到的安全隐患？", "en": "The lesson describes OAuth as a \"browser callback dance\": start localhost callback server → open browser authorize (with PKCE code_challenge + state for CSRF) → capture code → exchange tokens → save mcp-auth.json (0o600 + file lock). Explain step by step: why are PKCE's codeVerifier and the random state both needed? What attack does each prevent? Then discuss what storing tokens at 0o600 and serializing read/write with a file lock each guard against — for a local system handling sensitive credentials, what other security risks can you think of that it should consider?"},
+            {"zh": "课里反复强调一个全书主题——「便宜地广而告之，按需地昂贵兑现」：MCP 连上只廉价地拉一份工具清单（名字+schema+描述），真正昂贵的执行要等模型实际点名才经 callTool 转发。请你把这个原则和 L37 注册表（只存定义、用时 settle）、L42 预览/溢出、L43 skills（只报名字、body 按需加载）串起来，提炼这种「先报名、后兑现」的惰性设计的共同价值（省 token、省启动、省资源），并谈谈它的代价——当「广告」和「真实能力」脱节（服务器报了工具却调用失败）时，会带来什么麻烦？该如何缓解？", "en": "The lesson repeatedly stresses a book-wide theme — \"advertise cheap, fulfill expensively on demand\": MCP connect only cheaply pulls a tool list (name+schema+description); the truly expensive execution waits until the model actually calls by name, forwarded via callTool. Connect this principle with L37's registry (stores only definitions, settles on use), L42's preview/spill, L43's skills (report only names, body loaded on demand), distill the shared value of this \"advertise first, fulfill later\" lazy design (save tokens, save startup, save resources), and discuss its cost — when \"advertisement\" and \"real capability\" decouple (server reports a tool but the call fails), what trouble arises? How to mitigate?"},
+        ],
+    },
+
     "45-agents.html": {
         "mcq": [
             {

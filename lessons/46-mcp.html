@@ -328,8 +328,308 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第八部分 · 配置·Agents·Provider</span><span class="lang-en">Part 8 · Config, Agents, Providers</span></div>
     <h1><span class="lang-zh">MCP 集成</span><span class="lang-en">MCP integration</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《MCP 集成》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“MCP 集成”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "MCP integration" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "MCP integration" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">前面三课（L37–43）讲的工具，都是 opencode <strong>自己写死在源码里</strong>的：read、bash、grep……它们在编译期就定义好了，数量固定。但 AI agent 真正的威力，在于能<strong>临时接上你自己的工具</strong>——查公司内部数据库、调某个 SaaS 的 API、操作你私有的服务。这正是 <strong>MCP（Model Context Protocol，模型上下文协议）</strong>要解决的：它是一套标准协议，让你把<strong>外部的「工具服务器」</strong>接进 opencode，服务器上有什么工具，agent 运行时就<strong>动态地</strong>多出什么工具。这一课的两条主线，正是 MCP 集成最精彩的两面：<strong>动态作用域工具</strong>（外部工具如何被发现、命名、并入和内置工具同一套体系）和 <strong>OAuth</strong>（远程服务器需要登录授权时，那套浏览器回调的认证舞蹈）。</p>
+<p>这一课最值得你带走的洞见是：<strong>MCP 工具「出身是二等公民，待遇是一等公民」</strong>。它们不是 opencode 亲手写的，而是运行时从一个外部服务器「问」来的；但一旦被发现，它们就被<strong>裹进和内置工具一模一样的外壳</strong>，并入<strong>同一个工具注册表</strong>（L37）、走<strong>同一道权限闸门</strong>（L41）、被<strong>同一批插件钩子</strong>观察。对模型、对会话循环、对权限系统来说，一个 MCP 工具和一个内置 read 工具<strong>长得完全一样</strong>——唯一的差别，藏在它 <span class="mono">execute()</span> 的最深处：内置工具在本地跑代码，MCP 工具则把调用<strong>转发给那台远程/本地的服务器</strong>。读懂这件事，你就懂了「一个好的扩展机制，是如何让『外来的』和『原生的』在系统里平起平坐的」。</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 生活类比</div>
+  把 opencode 的内置工具想象成一台电脑<strong>出厂自带的端口</strong>（USB、HDMI）——数量固定、焊死在主板上。而 MCP，就像给这台电脑接上一个 <strong>USB 拓展坞</strong>：你插上拓展坞（配一台 MCP 服务器），它上面有几个口（服务器提供几个工具），电脑<strong>当场就多认出几个设备</strong>，无需重装系统、不必拆机焊新口。更妙的是，操作系统对待拓展坞上的设备，和对待主板自带口上的设备<strong>一视同仁</strong>——同样要走驱动、同样受权限管控。而 OAuth，就像有些<strong>付费拓展坞要先刷一下你的会员卡</strong>：你得先在官网登录、授权，拿到一张「通行令牌」，之后这台拓展坞才肯为你工作——而这张令牌会被妥善锁进抽屉，下次免刷。
+</div>
+
+<h2>动态工具：运行时发现，裹成同一副外壳</h2>
+<p>内置工具（L36）是 <span class="mono">Tool.make(...)</span> 在编译期写死的；MCP 工具恰恰相反——它们在<strong>运行时</strong>才被「发现」。opencode 连上一台 MCP 服务器后，向它发一个 <span class="mono">tools/list</span> 请求，把服务器<strong>当场报上来</strong>的工具定义，逐个裹进 AI SDK 的 <span class="mono">dynamicTool(...)</span>：</p>
+<div class="flow">
+  <div class="f-node">连上 MCP 服务器<br><small>本地进程 / 远程 HTTP</small></div>
+  <div class="f-arrow">listTools →</div>
+  <div class="f-node">服务器报出工具定义<br><small>name + inputSchema + description</small></div>
+  <div class="f-arrow">convertTool →</div>
+  <div class="f-node">裹进 dynamicTool<br><small>execute=client.callTool</small></div>
+  <div class="f-arrow">并入 →</div>
+  <div class="f-node">同一个工具注册表<br><small>和内置工具肩并肩</small></div>
+</div>
+<p>关键在 <span class="mono">catalog.ts</span> 的 <span class="mono">convertTool</span>：它把 MCP 服务器报的工具定义，转成一个 <span class="mono">dynamicTool</span>——保留服务器给的 <span class="mono">inputSchema</span> 作参数约束，而 <span class="mono">execute</span> 的实现，只是<strong>把参数原样转发</strong>给 <span class="mono">client.callTool(name, args)</span>，再把服务器返回的结果转回来。所谓「dynamic（动态）」，正是相对于内置工具的「static（静态）」而言：内置工具的 schema 和实现都写在源码里，而 MCP 工具的 schema 是运行时问来的、实现只是一根<strong>通往远端的转发线</strong>。这里还藏着一个呼应全书的主题——「<strong>便宜地广而告之，按需地昂贵兑现</strong>」（L37 注册表只存定义、L42 预览/溢出、L43 skills 只报名字）：opencode 连上服务器时，只<strong>廉价地拉一份工具清单</strong>（名字 + schema + 描述），真正昂贵的工具执行，要等模型<strong>实际点名调用</strong>那一刻，才通过 <span class="mono">callTool</span> 转发过去。一台 MCP 服务器哪怕提供上百个工具，发现阶段也只是过一遍清单，绝不会预先把它们全跑一遍。</p>
+<p>那「作用域（scoped）」又是什么意思？多台 MCP 服务器可能各有一个叫 <span class="mono">search</span> 的工具，怎么不打架？opencode 的办法是给每个工具名<strong>冠上服务器名做前缀</strong>。名字先经 <span class="mono">sanitize</span> 洗一遍（把非 <span class="mono">[a-zA-Z0-9_-]</span> 的字符替换成 <span class="mono">_</span>），再用 <span class="mono">_</span> 拼起来：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">sanitize</div><div class="c-txt"><span class="mono">/[^a-zA-Z0-9_-]/g → "_"</span>：洗掉工具名里不合法的字符</div></div>
+  <div class="cell"><div class="c-tag">命名规则</div><div class="c-txt"><span class="mono">sanitize(服务器名) + "_" + sanitize(工具名)</span></div></div>
+  <div class="cell"><div class="c-tag">例子</div><div class="c-txt">github 服务器的 search → <span class="mono">github_search</span>；jira 的 search → <span class="mono">jira_search</span>，互不冲突</div></div>
+</div>
+<p>这个带前缀的名字，就是 MCP 工具的「作用域」——它既避免了重名冲突，又让模型一眼看出某工具来自哪台服务器。而这串名字最妙的去处在 <span class="mono">session/tools.ts</span>：MCP 工具被并入会话工具集时，那道权限闸门写的是 <span class="mono">ctx.ask({ permission: key, ... })</span>——<strong>这个 key，正是上面那个带服务器前缀的作用域名</strong>。也就是说，MCP 工具<strong>和内置工具走的是同一套权限系统</strong>（第 41 课的 Ruleset），你完全可以在配置里写「<span class="mono">github_*</span> 一律放行、<span class="mono">jira_delete_*</span> 必须问」这样的规则，精确管控每台外部服务器、每个外部工具的权限。这就是开头那句「待遇是一等公民」的落地：<strong>外来工具一旦进门，就和原生工具共享注册表、权限、插件钩子，没有半点二等待遇。</strong></p>
+
+<h2>两种服务器：本地进程 vs 远程 HTTP</h2>
+<p>MCP 服务器从哪来？配置里 <span class="mono">mcp</span> 那一格（<span class="mono">config/mcp.ts</span>）定义了两种，是一个按 <span class="mono">type</span> 区分的标签联合：</p>
+<div class="cols">
+  <div class="col"><h4>local · 本地进程</h4><p><span class="mono">type:"local"</span>，给一条 <span class="mono">command</span>（命令 + 参数）。opencode 用 <strong>StdioClientTransport</strong> 把它<strong>当子进程拉起来</strong>，通过标准输入/输出（stdio）和它通信。适合跑在你机器上的工具服务器。还可配 <span class="mono">cwd</span>（工作目录）、<span class="mono">environment</span>（环境变量）。</p></div>
+  <div class="col"><h4>remote · 远程 HTTP</h4><p><span class="mono">type:"remote"</span>，给一个 <span class="mono">url</span>。opencode 通过 HTTP 连它，<strong>先试 StreamableHTTP，失败再回退到 SSE</strong>。适合接公网上的托管服务。可配 <span class="mono">headers</span>（自定义请求头）和 <span class="mono">oauth</span>（认证，见下一节）。</p></div>
+</div>
+<p>这套配置 schema 同样朴素得像填表：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">Local</div><div class="c-txt"><span class="mono">command[]</span>（必填）、<span class="mono">cwd?</span>、<span class="mono">environment?</span>、<span class="mono">disabled?</span>、<span class="mono">timeout?</span></div></div>
+  <div class="cell"><div class="c-tag">Remote</div><div class="c-txt"><span class="mono">url</span>（必填）、<span class="mono">headers?</span>、<span class="mono">oauth?</span>、<span class="mono">disabled?</span>、<span class="mono">timeout?</span></div></div>
+  <div class="cell"><div class="c-tag">连接安全</div><div class="c-txt"><span class="mono">connectTransport</span> 用 acquireUseRelease：连接失败就<strong>自动关掉 transport</strong>，绝不泄漏进程/连接</div></div>
+</div>
+<p>两种 transport 殊途同归：无论是本地拉起的子进程，还是远程 HTTP 连接，连上后<strong>都得到同一个 MCP <span class="mono">Client</span></strong>，后续 <span class="mono">listTools</span>、<span class="mono">callTool</span> 的代码<strong>完全一样</strong>——传输层的差异，被 MCP SDK 的 transport 抽象彻底吃掉了。这又是一处好设计：<strong>把「怎么连」和「连上之后怎么用」干净地切开</strong>，上层逻辑根本不必关心工具究竟来自本地进程还是远端服务。而那个「先试 StreamableHTTP、失败再回退 SSE」的小细节也颇有讲究：StreamableHTTP 是较新的、更高效的双向流式传输，SSE（Server-Sent Events）则是更老、更通用的回退方案——opencode 优先用新的、连不上才退而求其次，既吃到新协议的好处，又不至于把只支持老协议的服务器拒之门外。<strong>「优先用更好的，但永远留一条兼容的退路」</strong>，是接入异构外部世界时最务实的姿态。</p>
+
+<h2>OAuth：远程服务器的登录授权舞蹈</h2>
+<p>远程服务器常常需要<strong>认证</strong>——它凭什么让你调它的工具？MCP 用的是标准的 <strong>OAuth</strong>。opencode 第一次连一台需要认证的远程服务器时，会撞上 <span class="mono">UnauthorizedError</span>，于是把该服务器标成 <span class="mono">needs_auth</span> 状态，并提示你：<span class="mono">运行 opencode mcp auth &lt;名字&gt;</span>。这之后，就是一段经典的「浏览器回调」认证舞蹈：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">你运行 <span class="mono">opencode mcp auth &lt;名字&gt;</span></span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">opencode 在本机起一个 <strong>localhost 回调 HTTP 服务器</strong>（监听 callback 端口）</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">打开<strong>浏览器</strong>跳到服务器的授权页（带 PKCE 的 code_challenge + state 防 CSRF）</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">你在那个页面<strong>登录、授权</strong></span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">服务器把浏览器<strong>重定向回</strong> <span class="mono">localhost:端口/callback?code=…&amp;state=…</span></span></div>
+  <div class="t-row"><span class="t-num">6</span><span class="t-txt">回调服务器<strong>截获 code</strong>、核对 state，拿 code + PKCE 的 code_verifier <strong>换取令牌</strong></span></div>
+  <div class="t-row"><span class="t-num">7</span><span class="t-txt">令牌<strong>存进</strong> <span class="mono">mcp-auth.json</span>；之后每次连接，transport 自动带上令牌，免再登录</span></div>
+</div>
+<p>这套流程里有几样必须<strong>持久保存</strong>的「凭证碎片」，由 <span class="mono">auth.ts</span> 统一锁进 <span class="mono">mcp-auth.json</span> 管理：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">tokens</div><div class="c-txt">accessToken / refreshToken / expiresAt——真正的通行令牌（含过期时间）</div></div>
+  <div class="cell"><div class="c-tag">codeVerifier</div><div class="c-txt">PKCE 校验码：授权时生成，换令牌时回证，防授权码被劫持</div></div>
+  <div class="cell"><div class="c-tag">oauthState</div><div class="c-txt">随机 state：防 CSRF，回调时核对是否同一次发起</div></div>
+  <div class="cell"><div class="c-tag">clientInfo</div><div class="c-txt">动态客户端注册拿到的 clientId/secret（服务器不支持时需手填 clientId）</div></div>
+</div>
+<p>一处值得品的安全细节：<span class="mono">mcp-auth.json</span> 写入时用的是 <span class="mono">0o600</span> 权限（仅文件主可读写）——令牌是<strong>敏感凭证</strong>，理应锁死，绝不能让同机其他用户读到。而且整个文件读写都用<strong>文件锁</strong>（flock）串行化，避免多个 opencode 进程同时改这份认证文件、把彼此的令牌冲掉。还有个体贴的设计：当服务器<strong>不支持「动态客户端注册」</strong>时，opencode 不会傻等，而是把状态标成 <span class="mono">needs_client_registration</span> 并弹出明确提示——「请在配置里手动提供 clientId」。<strong>把每一种认证失败都翻译成一句人能照做的话</strong>，而非甩一个晦涩的 OAuth 报错，这是把「协议的复杂」挡在用户体验之外的功夫。还有一层值得一提：令牌不是一劳永逸的，<span class="mono">tokens</span> 里带 <span class="mono">expiresAt</span>（过期时间），<span class="mono">auth.ts</span> 专门有个 <span class="mono">isTokenExpired</span> 来判断令牌是否过期——配合 <span class="mono">refreshToken</span>，opencode 能在令牌快到期时<strong>悄悄续期</strong>，而不必每次都把你拽回浏览器重登一遍。<strong>「一次授权，长期免登」</strong>背后，正是这套 tokens + 过期判断 + 刷新令牌的小机制在默默兜底——好的认证体验，是让用户只在第一次有感、之后近乎无感。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观视角</div>
+  <p>这一课讲清了 opencode 如何把<strong>外部工具</strong>动态接进 agent：</p>
+  <ul>
+    <li><strong>动态工具</strong>：MCP 工具在<strong>运行时</strong>经 <span class="mono">listTools</span> 发现，由 <span class="mono">catalog.ts</span> 的 <span class="mono">convertTool</span> 裹进 AI SDK 的 <span class="mono">dynamicTool</span>（execute 转发给 <span class="mono">client.callTool</span>），与内置工具（L36 静态 <span class="mono">Tool.make</span>）相对。</li>
+    <li><strong>作用域</strong>：工具名 = <span class="mono">sanitize(服务器名) + "_" + sanitize(工具名)</span>，避免多服务器重名冲突。这个作用域名同时是<strong>权限 key</strong>——MCP 工具在 <span class="mono">session/tools.ts</span> 走<strong>和内置工具同一道权限闸门</strong>（L41 Ruleset）、同一批插件钩子。出身二等、待遇一等。</li>
+    <li><strong>两种服务器</strong>（<span class="mono">config/mcp.ts</span>）：local（<span class="mono">command</span>，StdioClientTransport 拉子进程）vs remote（<span class="mono">url</span>，StreamableHTTP→SSE 回退）。连上后同得一个 MCP <span class="mono">Client</span>，上层用法一致。</li>
+    <li><strong>OAuth</strong>：远程服务器需认证时标 <span class="mono">needs_auth</span>，<span class="mono">opencode mcp auth</span> 走「起本地回调服务器→开浏览器授权→截获 code→PKCE 换令牌→存 <span class="mono">mcp-auth.json</span>(0o600)」舞蹈。凭证碎片（tokens/codeVerifier/oauthState/clientInfo）由 <span class="mono">auth.ts</span> 加文件锁持久化。</li>
+  </ul>
+  <p>有了 MCP，agent 的「手」（工具）就能伸到 opencode 源码之外的任何服务。下一课（L47）讲 <strong>Provider 插件</strong>：与 MCP 扩展「手」相对，Provider 扩展的是 agent 的「脑」——几十家模型供应商如何注册，供 agent 的 <span class="mono">model</span> 字段挑选。L44 配置定义意图，L45 agent 是凝成的角色，L46 MCP 接上外部的手、L47 Provider 接上外部的脑——一个真正可用、可定制、可无限扩展的 agent，至此「攒」齐。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">session/tools.ts</span> 把 MCP 工具并入会话工具集时，那道权限闸门用的正是工具的作用域名（简化自源码）：</p>
+  <pre class="code"><span class="cm">// 遍历 MCP 动态工具，逐个并入会话工具集</span>
+<span class="kw">for</span> (<span class="kw">const</span> [key, item] <span class="kw">of</span> Object.<span class="fn">entries</span>(<span class="kw">yield*</span> mcp.<span class="fn">tools</span>())) {
+  <span class="kw">const</span> execute = item.execute
+  <span class="kw">if</span> (!execute) <span class="kw">continue</span>
+  item.execute = (args, opts) =&gt;
+    run.<span class="fn">promise</span>(Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
+      <span class="cm">// ← 和内置工具同一道权限闸门，key=「服务器名_工具名」作用域名</span>
+      <span class="kw">yield*</span> ctx.<span class="fn">ask</span>({ permission: key, patterns: [<span class="st">"*"</span>], always: [<span class="st">"*"</span>] })
+      <span class="kw">return</span> <span class="kw">yield*</span> Effect.<span class="fn">promise</span>(() =&gt; <span class="fn">execute</span>(args, opts))
+    }))
+}</pre>
+  <p>注意那行 <span class="mono">ctx.ask({ permission: key, ... })</span>——<span class="mono">key</span> 就是 <span class="mono">github_search</span> 这样的作用域名。这意味着 MCP 工具<strong>没有自己的一套权限逻辑</strong>，而是<strong>复用</strong>了第 41 课那套统一的权限系统：同样的 ask（allow/ask/deny 三态）、同样的 Ruleset 匹配。这正是「待遇一等公民」最硬的证据——<strong>系统没有为「外来工具」开任何后门，它必须和原生工具走完全相同的安全检查</strong>。这种「不为扩展点破例」的纪律极其重要：一旦你为某类工具开了「免检」绿色通道，整个权限系统的可信度就崩了。opencode 的做法是反过来的——<strong>越是外来的、越不可控的工具（谁知道某个第三方 MCP 服务器会让你的 agent 干什么），就越要让它老老实实排进同一道闸门。</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>MCP 让外部工具动态接入</strong>：opencode 内置工具（L36–43）编译期写死、数量固定；MCP 让你接一台<strong>外部工具服务器</strong>，运行时<strong>动态</strong>多出工具。两条主线=动态作用域工具 + OAuth。</li>
+    <li><strong>动态工具</strong>：运行时 <span class="mono">listTools</span> 发现，<span class="mono">convertTool</span>（catalog.ts）裹进 AI SDK <span class="mono">dynamicTool</span>，<span class="mono">execute</span> 只是转发给 <span class="mono">client.callTool</span>——相对内置工具的静态 <span class="mono">Tool.make</span>。</li>
+    <li><strong>作用域 = 权限 key</strong>：工具名 = <span class="mono">sanitize(服务器名)+"_"+sanitize(工具名)</span>（如 <span class="mono">github_search</span>），既防重名，又作为 <span class="mono">session/tools.ts</span> 里的权限 key——MCP 工具走<strong>和内置工具同一道权限闸门</strong>（L41）。出身二等，待遇一等。</li>
+    <li><strong>两种服务器</strong>（config/mcp.ts）：local（<span class="mono">command</span> + StdioClientTransport 拉子进程）vs remote（<span class="mono">url</span> + StreamableHTTP→SSE 回退）。连上后同得一个 MCP <span class="mono">Client</span>，上层用法一致。</li>
+    <li><strong>OAuth 舞蹈</strong>：needs_auth → <span class="mono">opencode mcp auth</span> → 起 localhost 回调服务器 → 开浏览器授权（PKCE + state）→ 截获 code → 换令牌 → 存 <span class="mono">mcp-auth.json</span>（<span class="mono">0o600</span> + 文件锁）。凭证碎片：tokens/codeVerifier/oauthState/clientInfo。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. MCP 工具和 opencode 内置工具（read/bash 等）最本质的关系是什么？</div>
+  <ol class="opts">
+    <li>「出身二等、待遇一等」——MCP 工具运行时才从外部服务器发现，但一旦进门就并入同一注册表、走同一道权限闸门（L41）、被同一批插件钩子观察，对模型/会话/权限系统而言和内置工具长得完全一样</li>
+    <li>MCP 工具绕过权限系统、可以直接执行</li>
+    <li>MCP 工具和内置工具用两套完全独立的注册表与权限</li>
+    <li>MCP 工具其实就是内置工具的别名</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。内置工具编译期写死、数量固定；MCP 工具运行时从外部服务器经 listTools「问」来，由 catalog.ts 的 convertTool 裹进 AI SDK 的 dynamicTool（execute 只是转发给 client.callTool）。但裹好后，它们并入同一个工具注册表（L37）、在 session/tools.ts 走同一道权限闸门 ctx.ask（L41 Ruleset 的 allow/ask/deny 三态）、被同一批插件钩子（tool.execute.before/after）观察。对模型、会话循环、权限系统而言，一个 MCP 工具和一个内置 read 完全一样——唯一差别藏在 execute 最深处：内置跑本地代码，MCP 把调用转发给远端/本地服务器。这就是「出身二等、待遇一等」：系统不为外来工具开任何后门，它必须和原生工具走完全相同的安全检查——这种「不为扩展点破例」的纪律，正是权限系统可信的根基。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. 多台 MCP 服务器可能各有一个叫 search 的工具，opencode 如何避免冲突、又让工具名能被权限规则精确管控？</div>
+  <ol class="opts">
+    <li>工具名 = sanitize(服务器名)+"_"+sanitize(工具名)（如 github_search、jira_search），这个带前缀的作用域名同时就是 session/tools.ts 里的权限 key</li>
+    <li>把所有 search 合并成一个</li>
+    <li>随机给工具编号</li>
+    <li>谁先连上谁用 search，后连的报错</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。opencode 给每个工具名冠上服务器名前缀：先 sanitize（把非 [a-zA-Z0-9_-] 的字符替换成 _）洗一遍名字，再用 _ 拼成 sanitize(服务器名)+"_"+sanitize(工具名)。于是 github 的 search → github_search、jira 的 search → jira_search，互不冲突。这串带前缀的「作用域名」最妙的去处在 session/tools.ts：MCP 工具并入会话工具集时，权限闸门写 ctx.ask({ permission: key })——这个 key 正是作用域名。所以你能在配置里写「github_* 一律放行、jira_delete_* 必须问」，精确管控每台外部服务器、每个外部工具。命名既解决重名，又直接成为权限系统的抓手。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. MCP 配置里 local 和 remote 两种服务器，连接方式有何不同？连上之后呢？</div>
+  <ol class="opts">
+    <li>local 用 StdioClientTransport 拉子进程（command）、remote 用 HTTP（先 StreamableHTTP 失败回退 SSE）；但连上后都得到同一个 MCP Client，listTools/callTool 代码完全一致</li>
+    <li>local 和 remote 连上后用两套完全不同的 API</li>
+    <li>remote 只能用 SSE、local 只能用 WebSocket</li>
+    <li>两者都必须先 OAuth 才能连</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。config/mcp.ts 按 type 分两种：local（type:"local"，给 command；opencode 用 StdioClientTransport 把它当子进程拉起来，经 stdio 通信；可配 cwd/environment）、remote（type:"remote"，给 url；经 HTTP 连，先试 StreamableHTTP、失败回退 SSE；可配 headers/oauth）。但两种 transport 殊途同归：连上后都得到同一个 MCP Client，后续 listTools、callTool 完全一样——传输层差异被 MCP SDK 的 transport 抽象吃掉了。这是「把『怎么连』和『连上后怎么用』干净切开」。那个 StreamableHTTP→SSE 回退也有讲究：优先用更新更高效的，连不上才退到更老更通用的，既吃新协议好处、又不拒绝只支持老协议的服务器——「优先用更好的，但永远留一条兼容退路」。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里把 OAuth 认证形容成一段「浏览器回调舞蹈」：起 localhost 回调服务器→开浏览器授权（带 PKCE 的 code_challenge + state 防 CSRF）→截获 code→换令牌→存 mcp-auth.json（0o600 + 文件锁）。请你逐步解释：为什么需要 PKCE 的 codeVerifier 和随机 state 这两样东西？它们各防住了什么攻击？再谈谈把令牌存成 0o600 权限、用文件锁串行读写，分别在防范什么——一个处理敏感凭证的本地系统，还应该考虑哪些你想到的安全隐患？</li>
+    <li>课里反复强调一个全书主题——「便宜地广而告之，按需地昂贵兑现」：MCP 连上只廉价地拉一份工具清单（名字+schema+描述），真正昂贵的执行要等模型实际点名才经 callTool 转发。请你把这个原则和 L37 注册表（只存定义、用时 settle）、L42 预览/溢出、L43 skills（只报名字、body 按需加载）串起来，提炼这种「先报名、后兑现」的惰性设计的共同价值（省 token、省启动、省资源），并谈谈它的代价——当「广告」和「真实能力」脱节（服务器报了工具却调用失败）时，会带来什么麻烦？该如何缓解？</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">The tools in the last few lessons (L37–43) are all <strong>hardcoded in opencode's source</strong>: read, bash, grep… defined at compile time, fixed in number. But an AI agent's real power is being able to <strong>plug in your own tools on the fly</strong>—query your company's internal database, call some SaaS's API, operate your private service. This is what <strong>MCP (Model Context Protocol)</strong> solves: a standard protocol that lets you connect an <strong>external "tool server"</strong> into opencode—whatever tools the server has, the agent <strong>dynamically</strong> gains at runtime. This lesson's two threads are MCP integration's two finest faces: <strong>dynamic scoped tools</strong> (how external tools get discovered, named, merged into the same system as built-ins) and <strong>OAuth</strong> (the browser-callback authentication dance when a remote server needs login).</p>
+<p>The insight to take from this lesson: <strong>MCP tools are "second-class in origin, first-class in treatment."</strong> They're not written by opencode but "asked" at runtime from an external server; yet once discovered, they're <strong>wrapped in the exact same shell as built-in tools</strong>, merged into the <strong>same tool registry</strong> (L37), routed through the <strong>same permission gate</strong> (L41), observed by the <strong>same plugin hooks</strong>. To the model, the session loop, the permission system, an MCP tool and a built-in read tool <strong>look identical</strong>—the only difference hides deep inside its <span class="mono">execute()</span>: a built-in runs local code, an MCP tool <strong>forwards the call to that remote/local server</strong>. Grasp this and you'll understand "how a good extension mechanism makes the 'foreign' and the 'native' equal citizens in the system."</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 Analogy</div>
+  Picture opencode's built-in tools as a computer's <strong>factory-fitted ports</strong> (USB, HDMI)—fixed in number, soldered to the board. MCP is like plugging in a <strong>USB dock</strong>: attach the dock (configure an MCP server), and however many ports it has (however many tools the server provides), the computer <strong>recognizes that many new devices on the spot</strong>—no OS reinstall, no opening the case to solder new ports. Better still, the OS treats devices on the dock <strong>exactly like</strong> devices on board-native ports—same driver path, same permission control. And OAuth is like some <strong>paid docks needing you to swipe your membership card first</strong>: you log in on the official site, authorize, get a "pass token," and only then will the dock work for you—and that token is safely locked in a drawer, no re-swipe next time.
+</div>
+
+<h2>Dynamic tools: runtime-discovered, wrapped in the same shell</h2>
+<p>Built-in tools (L36) are hardcoded at compile time by <span class="mono">Tool.make(...)</span>; MCP tools are the opposite—they get "discovered" at <strong>runtime</strong>. After opencode connects to an MCP server, it sends a <span class="mono">tools/list</span> request and wraps the tool definitions the server <strong>reports on the spot</strong>, one by one, into the AI SDK's <span class="mono">dynamicTool(...)</span>:</p>
+<div class="flow">
+  <div class="f-node">connect MCP server<br><small>local process / remote HTTP</small></div>
+  <div class="f-arrow">listTools →</div>
+  <div class="f-node">server reports tool defs<br><small>name + inputSchema + description</small></div>
+  <div class="f-arrow">convertTool →</div>
+  <div class="f-node">wrap in dynamicTool<br><small>execute=client.callTool</small></div>
+  <div class="f-arrow">merge →</div>
+  <div class="f-node">the same tool registry<br><small>shoulder to shoulder with built-ins</small></div>
+</div>
+<p>The key is <span class="mono">convertTool</span> in <span class="mono">catalog.ts</span>: it turns an MCP server's reported tool def into a <span class="mono">dynamicTool</span>—keeping the server-given <span class="mono">inputSchema</span> as the parameter constraint, while <span class="mono">execute</span>'s implementation merely <strong>forwards the args verbatim</strong> to <span class="mono">client.callTool(name, args)</span> and converts the server's result back. "dynamic" is precisely relative to built-ins' "static": a built-in's schema and implementation both live in source, while an MCP tool's schema is asked at runtime and its implementation is just a <strong>forwarding wire to the far end</strong>. There's also a book-wide theme echoed here—"<strong>advertise cheap, fulfill expensively on demand</strong>" (L37's registry stores only definitions, L42's preview/spill, L43's skills report only names): when opencode connects, it only <strong>cheaply pulls a tool list</strong> (name + schema + description); the truly expensive tool execution waits until the model <strong>actually calls a tool by name</strong>, then forwards it via <span class="mono">callTool</span>. Even if an MCP server offers a hundred tools, discovery just runs through the list, never pre-running them all.</p>
+<p>So what does "scoped" mean? Multiple MCP servers might each have a tool named <span class="mono">search</span>—how to avoid collision? opencode's way is to <strong>prefix each tool name with the server name</strong>. The name first runs through <span class="mono">sanitize</span> (replacing non-<span class="mono">[a-zA-Z0-9_-]</span> chars with <span class="mono">_</span>), then joins with <span class="mono">_</span>:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">sanitize</div><div class="c-txt"><span class="mono">/[^a-zA-Z0-9_-]/g → "_"</span>: wash out illegal chars in a tool name</div></div>
+  <div class="cell"><div class="c-tag">naming rule</div><div class="c-txt"><span class="mono">sanitize(serverName) + "_" + sanitize(toolName)</span></div></div>
+  <div class="cell"><div class="c-tag">example</div><div class="c-txt">github server's search → <span class="mono">github_search</span>; jira's search → <span class="mono">jira_search</span>, no collision</div></div>
+</div>
+<p>This prefixed name is the MCP tool's "scope"—it avoids name collisions and lets the model see at a glance which server a tool comes from. And this name's finest destination is in <span class="mono">session/tools.ts</span>: when MCP tools merge into the session's tool set, the permission gate writes <span class="mono">ctx.ask({ permission: key, ... })</span>—<strong>this key is exactly that server-prefixed scoped name</strong>. That is, MCP tools <strong>go through the same permission system as built-in tools</strong> (L41's Ruleset); you can perfectly well write rules in config like "<span class="mono">github_*</span> all allowed, <span class="mono">jira_delete_*</span> must ask," precisely governing each external server's, each external tool's permission. That's the landing of the opening's "first-class treatment": <strong>once a foreign tool is in the door, it shares registry, permissions, plugin hooks with native tools—no second-class treatment whatsoever.</strong></p>
+
+<h2>Two server kinds: local process vs remote HTTP</h2>
+<p>Where do MCP servers come from? The config's <span class="mono">mcp</span> cell (<span class="mono">config/mcp.ts</span>) defines two, a tagged union discriminated by <span class="mono">type</span>:</p>
+<div class="cols">
+  <div class="col"><h4>local · local process</h4><p><span class="mono">type:"local"</span>, given a <span class="mono">command</span> (command + args). opencode uses <strong>StdioClientTransport</strong> to <strong>spawn it as a child process</strong>, communicating via stdin/stdout (stdio). Suited to tool servers running on your machine. Can also set <span class="mono">cwd</span> (working dir), <span class="mono">environment</span> (env vars).</p></div>
+  <div class="col"><h4>remote · remote HTTP</h4><p><span class="mono">type:"remote"</span>, given a <span class="mono">url</span>. opencode connects over HTTP, <strong>trying StreamableHTTP first, falling back to SSE on failure</strong>. Suited to hosted services on the public net. Can set <span class="mono">headers</span> (custom request headers) and <span class="mono">oauth</span> (auth, see next section).</p></div>
+</div>
+<p>This config schema is likewise plain as filling a form:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">Local</div><div class="c-txt"><span class="mono">command[]</span> (required), <span class="mono">cwd?</span>, <span class="mono">environment?</span>, <span class="mono">disabled?</span>, <span class="mono">timeout?</span></div></div>
+  <div class="cell"><div class="c-tag">Remote</div><div class="c-txt"><span class="mono">url</span> (required), <span class="mono">headers?</span>, <span class="mono">oauth?</span>, <span class="mono">disabled?</span>, <span class="mono">timeout?</span></div></div>
+  <div class="cell"><div class="c-tag">connect safety</div><div class="c-txt"><span class="mono">connectTransport</span> uses acquireUseRelease: on connect failure it <strong>auto-closes the transport</strong>, never leaking a process/connection</div></div>
+</div>
+<p>The two transports converge: whether a locally-spawned child process or a remote HTTP connection, once connected <strong>both yield the same MCP <span class="mono">Client</span></strong>, and the subsequent <span class="mono">listTools</span>, <span class="mono">callTool</span> code is <strong>completely identical</strong>—the transport-layer difference is fully absorbed by the MCP SDK's transport abstraction. Another good design: <strong>cleanly separating "how to connect" from "how to use once connected,"</strong> so the upper logic needn't care whether a tool comes from a local process or a remote service. And that "try StreamableHTTP first, fall back to SSE" detail is deliberate too: StreamableHTTP is the newer, more efficient bidirectional streaming transport, SSE (Server-Sent Events) the older, more universal fallback—opencode prefers the new, retreats only if it can't connect, getting the new protocol's benefits without shutting out servers that only speak the old one. <strong>"Prefer the better, but always keep a compatible fallback"</strong> is the most pragmatic posture for connecting to a heterogeneous external world.</p>
+
+<h2>OAuth: the remote server's login-authorization dance</h2>
+<p>Remote servers often need <strong>authentication</strong>—why should it let you call its tools? MCP uses standard <strong>OAuth</strong>. When opencode first connects to a remote server needing auth, it hits an <span class="mono">UnauthorizedError</span>, marks the server <span class="mono">needs_auth</span>, and prompts you: <span class="mono">run opencode mcp auth &lt;name&gt;</span>. After that comes a classic "browser callback" auth dance:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">you run <span class="mono">opencode mcp auth &lt;name&gt;</span></span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">opencode starts a <strong>localhost callback HTTP server</strong> on your machine (listening on the callback port)</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">opens the <strong>browser</strong> to the server's authorization page (with PKCE code_challenge + state for CSRF)</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">you <strong>log in, authorize</strong> on that page</span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">the server <strong>redirects the browser back</strong> to <span class="mono">localhost:port/callback?code=…&amp;state=…</span></span></div>
+  <div class="t-row"><span class="t-num">6</span><span class="t-txt">the callback server <strong>captures the code</strong>, verifies state, exchanges code + PKCE code_verifier <strong>for tokens</strong></span></div>
+  <div class="t-row"><span class="t-num">7</span><span class="t-txt">tokens <strong>saved to</strong> <span class="mono">mcp-auth.json</span>; on every later connect the transport auto-attaches the token, no re-login</span></div>
+</div>
+<p>This flow has several "credential fragments" that must be <strong>persisted</strong>, managed by <span class="mono">auth.ts</span> locked into <span class="mono">mcp-auth.json</span>:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">tokens</div><div class="c-txt">accessToken / refreshToken / expiresAt—the real pass token (with expiry)</div></div>
+  <div class="cell"><div class="c-tag">codeVerifier</div><div class="c-txt">PKCE verifier: generated at authorize, proved back at token exchange, prevents code interception</div></div>
+  <div class="cell"><div class="c-tag">oauthState</div><div class="c-txt">random state: prevents CSRF, checked at callback that it's the same initiation</div></div>
+  <div class="cell"><div class="c-tag">clientInfo</div><div class="c-txt">clientId/secret from dynamic client registration (must hand-fill clientId if the server doesn't support it)</div></div>
+</div>
+<p>A security detail worth savoring: <span class="mono">mcp-auth.json</span> is written with <span class="mono">0o600</span> permissions (owner read/write only)—tokens are <strong>sensitive credentials</strong>, rightly locked down, never readable by other users on the same machine. And the whole file read/write is serialized with a <strong>file lock</strong> (flock), avoiding multiple opencode processes editing this auth file at once and clobbering each other's tokens. Another thoughtful design: when a server <strong>doesn't support "dynamic client registration,"</strong> opencode won't wait dumbly but marks the status <span class="mono">needs_client_registration</span> and pops a clear prompt—"please manually provide clientId in config." <strong>Translating every auth failure into a sentence a human can act on</strong>, rather than throwing an obscure OAuth error, is the craft of keeping "protocol complexity" outside the user experience. One more layer worth mentioning: tokens aren't one-and-done—<span class="mono">tokens</span> carries <span class="mono">expiresAt</span>, and <span class="mono">auth.ts</span> has a dedicated <span class="mono">isTokenExpired</span> to judge expiry—paired with <span class="mono">refreshToken</span>, opencode can <strong>silently renew</strong> as a token nears expiry, without dragging you back to the browser each time. Behind <strong>"authorize once, stay logged in long"</strong> is exactly this little tokens + expiry-check + refresh-token mechanism quietly backstopping—good auth experience makes the user feel it only the first time, near-imperceptible after.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson clarifies how opencode dynamically connects <strong>external tools</strong> into the agent:</p>
+  <ul>
+    <li><strong>Dynamic tools</strong>: MCP tools are discovered at <strong>runtime</strong> via <span class="mono">listTools</span>, wrapped by <span class="mono">catalog.ts</span>'s <span class="mono">convertTool</span> into the AI SDK's <span class="mono">dynamicTool</span> (execute forwards to <span class="mono">client.callTool</span>), as against built-in tools (L36's static <span class="mono">Tool.make</span>).</li>
+    <li><strong>Scope</strong>: tool name = <span class="mono">sanitize(serverName) + "_" + sanitize(toolName)</span>, avoiding multi-server name collisions. This scoped name is also the <strong>permission key</strong>—in <span class="mono">session/tools.ts</span> MCP tools go through the <strong>same permission gate as built-ins</strong> (L41 Ruleset), the same plugin hooks. Second-class origin, first-class treatment.</li>
+    <li><strong>Two server kinds</strong> (<span class="mono">config/mcp.ts</span>): local (<span class="mono">command</span>, StdioClientTransport spawns a child process) vs remote (<span class="mono">url</span>, StreamableHTTP→SSE fallback). Once connected both yield the same MCP <span class="mono">Client</span>, upper usage identical.</li>
+    <li><strong>OAuth</strong>: remote servers needing auth are marked <span class="mono">needs_auth</span>, <span class="mono">opencode mcp auth</span> runs the "start local callback server→open browser authorize→capture code→PKCE exchange tokens→save <span class="mono">mcp-auth.json</span>(0o600)" dance. Credential fragments (tokens/codeVerifier/oauthState/clientInfo) persisted by <span class="mono">auth.ts</span> with a file lock.</li>
+  </ul>
+  <p>With MCP, the agent's "hands" (tools) can reach any service outside opencode's source. The next lesson (47) covers <strong>Provider plugins</strong>: against MCP extending the "hands," Provider extends the agent's "brain"—how dozens of model providers register for the agent's <span class="mono">model</span> field to pick. L44 config defines intent, L45 the agent is intent crystallized into a role, L46 MCP connects external hands, L47 Provider connects external brains—a truly usable, customizable, infinitely-extensible agent is hereby "assembled."</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>When <span class="mono">session/tools.ts</span> merges MCP tools into the session's tool set, the permission gate uses exactly the tool's scoped name (simplified from source):</p>
+  <pre class="code"><span class="cm">// iterate MCP dynamic tools, merge each into the session tool set</span>
+<span class="kw">for</span> (<span class="kw">const</span> [key, item] <span class="kw">of</span> Object.<span class="fn">entries</span>(<span class="kw">yield*</span> mcp.<span class="fn">tools</span>())) {
+  <span class="kw">const</span> execute = item.execute
+  <span class="kw">if</span> (!execute) <span class="kw">continue</span>
+  item.execute = (args, opts) =&gt;
+    run.<span class="fn">promise</span>(Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
+      <span class="cm">// ← same permission gate as built-ins, key="serverName_toolName" scoped name</span>
+      <span class="kw">yield*</span> ctx.<span class="fn">ask</span>({ permission: key, patterns: [<span class="st">"*"</span>], always: [<span class="st">"*"</span>] })
+      <span class="kw">return</span> <span class="kw">yield*</span> Effect.<span class="fn">promise</span>(() =&gt; <span class="fn">execute</span>(args, opts))
+    }))
+}</pre>
+  <p>Note that <span class="mono">ctx.ask({ permission: key, ... })</span> line—<span class="mono">key</span> is a scoped name like <span class="mono">github_search</span>. This means MCP tools have <strong>no permission logic of their own</strong> but <strong>reuse</strong> lesson 41's unified permission system: the same ask (allow/ask/deny tri-state), the same Ruleset matching. This is the hardest evidence of "first-class treatment"—<strong>the system opens no backdoor for "foreign tools"; they must pass the exact same security check as native tools</strong>. This "no exception for extension points" discipline is crucial: the moment you open a "no-inspection" green channel for some class of tool, the whole permission system's credibility collapses. opencode does the reverse—<strong>the more foreign, the less controllable a tool (who knows what some third-party MCP server will have your agent do), the more it must queue obediently into the same gate.</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>MCP connects external tools dynamically</strong>: opencode's built-in tools (L36–43) are hardcoded at compile time, fixed in number; MCP lets you connect an <strong>external tool server</strong> that <strong>dynamically</strong> adds tools at runtime. Two threads = dynamic scoped tools + OAuth.</li>
+    <li><strong>Dynamic tools</strong>: discovered at runtime via <span class="mono">listTools</span>, wrapped by <span class="mono">convertTool</span> (catalog.ts) into the AI SDK's <span class="mono">dynamicTool</span>, <span class="mono">execute</span> just forwards to <span class="mono">client.callTool</span>—against built-ins' static <span class="mono">Tool.make</span>.</li>
+    <li><strong>Scope = permission key</strong>: tool name = <span class="mono">sanitize(serverName)+"_"+sanitize(toolName)</span> (e.g. <span class="mono">github_search</span>), avoiding collisions and serving as the permission key in <span class="mono">session/tools.ts</span>—MCP tools go through the <strong>same permission gate as built-ins</strong> (L41). Second-class origin, first-class treatment.</li>
+    <li><strong>Two server kinds</strong> (config/mcp.ts): local (<span class="mono">command</span> + StdioClientTransport spawns a child process) vs remote (<span class="mono">url</span> + StreamableHTTP→SSE fallback). Once connected both yield the same MCP <span class="mono">Client</span>, upper usage identical.</li>
+    <li><strong>OAuth dance</strong>: needs_auth → <span class="mono">opencode mcp auth</span> → start localhost callback server → open browser authorize (PKCE + state) → capture code → exchange tokens → save <span class="mono">mcp-auth.json</span> (<span class="mono">0o600</span> + file lock). Credential fragments: tokens/codeVerifier/oauthState/clientInfo.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. What is the most essential relationship between MCP tools and opencode's built-in tools (read/bash etc.)?</div>
+  <ol class="opts">
+    <li>"Second-class origin, first-class treatment" — MCP tools are discovered from an external server at runtime, but once in the door they merge into the same registry, go through the same permission gate (L41), are observed by the same plugin hooks; to the model/session/permission system they look identical to built-ins</li>
+    <li>MCP tools bypass the permission system and execute directly</li>
+    <li>MCP tools and built-ins use two wholly separate registries and permissions</li>
+    <li>MCP tools are really just aliases of built-in tools</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. Built-ins are hardcoded at compile time, fixed in number; MCP tools are "asked" from an external server at runtime via listTools, wrapped by catalog.ts's convertTool into the AI SDK's dynamicTool (execute just forwards to client.callTool). But once wrapped, they merge into the same tool registry (L37), go through the same permission gate ctx.ask in session/tools.ts (L41 Ruleset's allow/ask/deny tri-state), are observed by the same plugin hooks (tool.execute.before/after). To the model, session loop, permission system, an MCP tool and a built-in read are identical — the only difference hides deep in execute: built-ins run local code, MCP forwards the call to a remote/local server. That's "second-class origin, first-class treatment": the system opens no backdoor for foreign tools; they must pass the exact same security check as native tools — this "no exception for extension points" discipline is the foundation of a trustworthy permission system.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. Multiple MCP servers might each have a tool named search; how does opencode avoid collision while letting the tool name be precisely governed by permission rules?</div>
+  <ol class="opts">
+    <li>tool name = sanitize(serverName)+"_"+sanitize(toolName) (e.g. github_search, jira_search); this prefixed scoped name is also the permission key in session/tools.ts</li>
+    <li>Merge all searches into one</li>
+    <li>Randomly number the tools</li>
+    <li>Whoever connects first gets search, later ones error</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. opencode prefixes each tool name with the server name: first sanitize (replace non-[a-zA-Z0-9_-] chars with _) washes the name, then joins with _ into sanitize(serverName)+"_"+sanitize(toolName). So github's search → github_search, jira's search → jira_search, no collision. This prefixed "scoped name"'s finest destination is session/tools.ts: when MCP tools merge into the session tool set, the permission gate writes ctx.ask({ permission: key }) — this key is exactly the scoped name. So you can write in config "github_* all allowed, jira_delete_* must ask," precisely governing each external server and tool. Naming both solves collisions and directly becomes the permission system's handle.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. In MCP config, how do local and remote servers differ in connection? And after connecting?</div>
+  <ol class="opts">
+    <li>local uses StdioClientTransport to spawn a child process (command), remote uses HTTP (StreamableHTTP first, falling back to SSE); but once connected both yield the same MCP Client, listTools/callTool code is identical</li>
+    <li>local and remote use two wholly different APIs after connecting</li>
+    <li>remote can only use SSE, local only WebSocket</li>
+    <li>Both must OAuth before connecting</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. config/mcp.ts splits two by type: local (type:"local", given command; opencode spawns it as a child process via StdioClientTransport, communicating over stdio; can set cwd/environment), remote (type:"remote", given url; connects over HTTP, trying StreamableHTTP first, falling back to SSE; can set headers/oauth). But the two transports converge: once connected both yield the same MCP Client, subsequent listTools, callTool identical — the transport-layer difference is absorbed by the MCP SDK's transport abstraction. This "cleanly separates 'how to connect' from 'how to use once connected.'" That StreamableHTTP→SSE fallback is deliberate too: prefer the newer, more efficient one, retreat to the older, more universal only if it can't connect — getting the new protocol's benefits without rejecting servers that only speak the old. "Prefer the better, but always keep a compatible fallback."</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson describes OAuth as a "browser callback dance": start localhost callback server → open browser authorize (with PKCE code_challenge + state for CSRF) → capture code → exchange tokens → save mcp-auth.json (0o600 + file lock). Explain step by step: why are PKCE's codeVerifier and the random state both needed? What attack does each prevent? Then discuss what storing tokens at 0o600 and serializing read/write with a file lock each guard against — for a local system handling sensitive credentials, what other security risks can you think of that it should consider?</li>
+    <li>The lesson repeatedly stresses a book-wide theme — "advertise cheap, fulfill expensively on demand": MCP connect only cheaply pulls a tool list (name+schema+description); the truly expensive execution waits until the model actually calls by name, forwarded via callTool. Connect this principle with L37's registry (stores only definitions, settles on use), L42's preview/spill, L43's skills (report only names, body loaded on demand), distill the shared value of this "advertise first, fulfill later" lazy design (save tokens, save startup, save resources), and discuss its cost — when "advertisement" and "real capability" decouple (server reports a tool but the call fails), what trouble arises? How to mitigate?</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="45-agents.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">Agents：build 与 plan</span><span class="lang-en">Agents: build &amp; plan</span></div></a><a class="next" href="47-provider-plugins.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">Provider 插件定义</span><span class="lang-en">Provider plugins</span></div></a></div>
 </div>
 <script>
