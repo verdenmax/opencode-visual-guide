@@ -45,6 +45,48 @@ def _shuffle(opts, answer, seed):
 
 
 QUIZZES = {
+    "50-v1-storage-migration.html": {
+        "mcq": [
+            {
+                "q": {"zh": "V1 文件存储（storage.ts）的核心设计「键即路径」是什么意思？", "en": "What does V1 file storage's (storage.ts) core design \"key as path\" mean?"},
+                "opts": [
+                    {"zh": "用 string[] 数组当键，file(dir,key)=join(dir,...key)+\".json\" 直接拼成文件路径——一个对象一个 JSON 文件，整个「数据库」就是 storage 下一棵目录树，不需要任何数据库引擎", "en": "Uses a string[] array as the key, file(dir,key)=join(dir,...key)+\".json\" joins directly into a file path — one object one JSON file, the whole \"database\" a directory tree under storage, needing no database engine"},
+                    {"zh": "把所有数据存进一个巨大的 JSON 文件", "en": "Stores all data in one giant JSON file"},
+                    {"zh": "用一个内存哈希表当数据库", "en": "Uses an in-memory hash table as the database"},
+                    {"zh": "键是随机生成的、和路径无关", "en": "Keys are randomly generated, unrelated to paths"},
+                ],
+                "answer": 0,
+                "why": {"zh": "storage.ts 的 Storage 服务用 string[] 数组当键，核心魔法一行：file(dir,key)=path.join(dir,...key)+\".json\"——把键直接拼成文件路径。于是 [\"session\",\"proj_abc\",\"ses_123\"] 对应磁盘上 storage/session/proj_abc/ses_123.json。一个对象一个 JSON 文件，整个「数据库」就是 Global.Path.data/storage 下一棵目录树，每个叶子是个 JSON。简单到不需要数据库引擎、文件还人眼可读——对早期项目是合理起点。五个方法 read/write/update/remove/list，每文件配 TxReentrantLock 读写锁（update=握写锁读改写）。但简单有代价：list 无索引只能 glob 整棵树、无跨对象事务、无外键 cascade、无关系查询——正是这些逼出了向 SQLite 的迁移。", "en": "storage.ts's Storage service uses a string[] array as the key, the core magic one line: file(dir,key)=path.join(dir,...key)+\".json\"—joining the key directly into a file path. So [\"session\",\"proj_abc\",\"ses_123\"] maps to storage/session/proj_abc/ses_123.json on disk. One object one JSON file, the whole \"database\" a directory tree under Global.Path.data/storage, each leaf a JSON. Simple enough to need no database engine, files human-readable too—a reasonable start for an early project. Five methods read/write/update/remove/list, each file a TxReentrantLock read/write lock (update = hold write lock read-modify-write). But simplicity has a cost: list has no index so must glob the whole tree, no cross-object transaction, no FK cascade, no relational query—exactly what forced the migration to SQLite."},
+            },
+            {
+                "q": {"zh": "L48 的 schema 迁移用 migration 表记账，本课 V1→V2 数据迁移用 data_migration 表记账。这两张表的关系是？", "en": "L48's schema migration bookkeeps with a migration table, this lesson's V1→V2 data migration with a data_migration table. The relationship between these two tables is?"},
+                "opts": [
+                    {"zh": "同款「记账即幂等」范式用在两个不同问题上——migration 记『哪些 schema 结构变更跑过了』，data_migration 记『哪些数据搬运跑过了』；都是两列(name/id + time_completed)、都靠记录已完成项实现幂等", "en": "The same \"bookkeeping = idempotency\" paradigm on two different problems — migration records \"which schema structure changes ran,\" data_migration records \"which data moves ran\"; both two columns (name/id + time_completed), both achieve idempotency by recording completed items"},
+                    {"zh": "data_migration 是 migration 表的备份", "en": "data_migration is a backup of the migration table"},
+                    {"zh": "两张表完全无关，纯属重名", "en": "The two tables are wholly unrelated, just a name coincidence"},
+                    {"zh": "data_migration 取代了 migration 表", "en": "data_migration replaced the migration table"},
+                ],
+                "answer": 0,
+                "why": {"zh": "同一个「日志表记账即幂等」的朴素思想被复用了两次，解决两个不同问题：L48 的 migration 表记 schema 变更（结构演化：加列、改表），本课 data_migration 表（data-migration.sql.ts，就两列 name+time_completed）记数据搬运（V1 文件→V2 SQLite）。两者都靠「记录哪些已完成、跳过已记录的」实现幂等——跑过的不重跑。这种「一个好范式解决多类问题」正是优秀工程的标志。值得注意：V1 数据搬进 SQLite 的 message/part 表时仍存 V1-shaped JSON（即 L49 见到的「V1 同堂」之源），并未立刻翻译成 V2；真正的 V1→V2 语义转换推迟到读取时由 message-v2 投影——「搬运」与「翻译」解耦，让最危险的批量迁移退化成最无脑的字节复制。", "en": "The same \"journal-table bookkeeping = idempotency\" plain idea reused twice, solving two different problems: L48's migration table records schema changes (structure evolution: add column, change table), this lesson's data_migration table (data-migration.sql.ts, just two columns name+time_completed) records data moves (V1 files→V2 SQLite). Both achieve idempotency by \"recording what's completed, skipping recorded ones\"—run ones don't rerun. This \"one good paradigm solving multiple problem types\" is the mark of excellent engineering. Note: when V1 data moves into SQLite's message/part tables it still holds V1-shaped JSON (the source of L49's \"V1 under one roof\"), not immediately translated to V2; the real V1→V2 semantic conversion is deferred to read time, projected by message-v2—\"moving\" decoupled from \"translating,\" letting the most dangerous bulk migration degrade into the most brainless byte copy."},
+            },
+            {
+                "q": {"zh": "storage.ts 的迁移驱动循环里，一旦某个迁移失败就 break（停下、不推进标记）。为什么这么保守？", "en": "In storage.ts's migration driver loop, the moment a migration fails it breaks (stops, doesn't advance the marker). Why so conservative?"},
+                "opts": [
+                    {"zh": "迁移间常有先后依赖——后一个假设前一个已把数据整理成某形态；前一个失败还硬跑后面的，会在半残状态上越搞越乱酿成损坏。「失败就停在原地、下次重试这一个」远比「带病前进」安全", "en": "Migrations often have order dependencies — a later one assumes the prior shaped the data a certain way; if the prior failed and you barrel ahead, you make a bigger mess on a half-broken state, causing corruption. \"Stop in place on failure, retry this one next time\" is far safer than \"advance while sick\""},
+                    {"zh": "为了让迁移跑得更快", "en": "To make migration run faster"},
+                    {"zh": "因为 SQLite 不支持连续迁移", "en": "Because SQLite doesn't support consecutive migrations"},
+                    {"zh": "为了节省磁盘空间", "en": "To save disk space"},
+                ],
+                "answer": 0,
+                "why": {"zh": "迁移之间往往有先后依赖：后一个迁移很可能假设前一个已经把数据整理成某种形态。如果前一个失败了还硬着头皮跑后面的，极可能在一个半残的数据状态上越搞越乱，最终酿成无法收拾的损坏。所以 storage.ts 一旦某迁移失败就立刻 break、不推进标记——「失败就停在原地、下次重试这一个」远比「带病前进」安全。配合标记文件的断点续跑（读标记→从该处跑 pending→成功才+1），整个迁移既能从中断处接着走、又绝不在出错时把事情搞得更糟。这和 L48 schema 迁移那句 die(\"库非空却无 session 表\") 的防呆是同一种工程品格：在「错了就可能丢数据」的高危操作上，宁可保守地停下报错，绝不乐观地猜测推进。", "en": "Migrations often have order dependencies: a later migration likely assumes the prior already shaped the data a certain way. If the prior failed and you barrel ahead, you very likely make a bigger mess on a half-broken data state, ending in unsalvageable corruption. So the moment a migration fails storage.ts breaks immediately, not advancing the marker—\"stop in place on failure, retry this one next time\" is far safer than \"advance while sick.\" Paired with the marker file's resumability (read marker→run pending from there→+1 only on success), the whole migration both continues from where it stopped and never makes things worse on error. This is the same engineering character as L48 schema migration's die(\"DB non-empty yet no session table\") guard: on a high-risk operation where \"a slip can lose data,\" rather conservatively stop and error than optimistically guess and advance."},
+            },
+        ],
+        "open": [
+            {"zh": "课里讲 V1→V2 迁移有个务实设计：V1 数据搬进 SQLite 时不立刻翻译成 V2，而是以 V1-shaped JSON 原样躺着，真正的语义转换推迟到读取时由 message-v2 投影——「搬运」与「翻译」解耦，且原始字节始终保真（写错映射只需改投影、不必重跑迁移）。课里还把这条「保真原始、按需解释」和 L42 有界输出「全文 spill、按需回取」、L43 skills「名字常驻、正文按需」归为同一种深谋远虑。请你提炼这种「不破坏性改写原始数据、把转换推迟到使用时」的设计模式，谈谈它的威力（可纠错、可重新解释、迁移更安全）与代价（读取时开销、两种形态共存的复杂度），并举一个你见过的类似例子。", "en": "The lesson covers a pragmatic design in V1→V2 migration: V1 data moved into SQLite isn't immediately translated to V2 but lies as V1-shaped JSON verbatim, the real semantic conversion deferred to read time, projected by message-v2—\"moving\" decoupled from \"translating,\" and original bytes stay faithful (a wrong mapping needs only fixing the projection, no rerun of the migration). The lesson also groups this \"preserve the original, interpret on demand\" with L42 bounded output's \"spill full text, fetch on demand\" and L43 skills' \"names resident, body on demand\" as the same foresight. Distill this \"don't destructively rewrite original data, defer conversion to use time\" design pattern, discuss its power (error-correctable, re-interpretable, safer migration) and cost (read-time overhead, complexity of two coexisting forms), and give a similar example you've seen."},
+            {"zh": "课里说 V1 文件存储「简单到极致」（一个对象一个 JSON、键即路径、人眼可读），但最终被它的代价（无索引/无事务/无外键/无关系查询）逼着迁移到 SQLite。这是几乎每个长期项目都会经历的「从简单方案长成复杂方案」的剧情。请你结合自己的经验谈谈：你会怎样判断「一个简单存储方案什么时候该升级」？过早上数据库（YAGNI 的反面）和拖太久才迁移（技术债爆炸）各有什么风险？如果重来一次，你认为 opencode「先用文件、后迁 SQLite」这个演进路径是明智的，还是「一开始就该用 SQLite」？为什么？", "en": "The lesson says V1 file storage is \"simple to the extreme\" (one object one JSON, key as path, human-readable) but was eventually forced to migrate to SQLite by its costs (no index/no transaction/no FK/no relational query). This is the \"grow from a simple scheme into a complex one\" plot nearly every long-term project lives through. From your own experience, discuss: how would you judge \"when a simple storage scheme should be upgraded\"? What are the risks of adopting a database too early (the opposite of YAGNI) versus migrating too late (tech-debt explosion)? If you did it over, do you think opencode's \"use files first, migrate to SQLite later\" evolution path was wise, or \"should have used SQLite from the start\"? Why?"},
+        ],
+    },
+
     "49-core-tables.html": {
         "mcq": [
             {

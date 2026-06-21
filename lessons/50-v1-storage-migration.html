@@ -328,8 +328,308 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第九部分 · 持久化</span><span class="lang-en">Part 9 · Persistence</span></div>
     <h1><span class="lang-zh">V1 存储与迁移</span><span class="lang-en">V1 storage &amp; migration</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《V1 存储与迁移》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“V1 存储与迁移”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "V1 storage & migration" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "V1 storage & migration" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">上一课我们看到一件耐人寻味的事：SQLite 里的 <span class="mono">message</span>/<span class="mono">part</span> 表，存的是 <strong>V1</strong> 结构的数据。但这些 V1 数据当初<strong>根本不在 SQLite 里</strong>——它们躺在文件系统中，一个对象一个 JSON 文件。这一课就讲清这段「迁徙史」：opencode 的 <strong>V1 文件存储</strong>长什么样（<span class="mono">storage/storage.ts</span>），以及它如何把散落在成千上万个 JSON 文件里的数据，<strong>迁移进 V2 的 SQLite</strong>。这不是一个边角细节，而是几乎每个长期演进的软件都会经历的真实剧情：<strong>你最初用了一个最简单的存储方案，跑了很久，直到它的简单开始变成负担，于是你必须在「不丢一条老数据」的前提下，把整个家当搬进一个更强的新方案。</strong></p>
+<p>这一课最值得带走的洞见有两层。第一，<strong>「键即路径」的极简文件存储</strong>：V1 把每个对象存成一个 JSON 文件，用一个 <span class="mono">string[]</span> 数组当键，直接映射成嵌套的文件路径——<span class="mono">read(["session", 项目ID, 会话ID])</span> 就去读 <span class="mono">storage/session/&lt;项目ID&gt;/&lt;会话ID&gt;.json</span>。整个「数据库」就是一棵目录树，朴素到不需要任何数据库引擎。第二，<strong>「日志表记账」的迁移范式被复用了两次</strong>：上一课 L48 讲的 schema 迁移用一张 <span class="mono">migration</span> 表记「哪些结构变更跑过了」；这一课的 V1→V2 数据迁移，用<strong>另一张 <span class="mono">data_migration</span> 表</strong>记「哪些数据搬运跑过了」。同一个「记账即幂等」的朴素思想，被用在了两个不同的问题上。读懂这两点，你就理解了「一个软件如何从『一堆文件』优雅地长成『一个数据库』，又不在搬家途中摔碎任何一件旧家具」。</p>
+
+<div class="card analogy">
+  <div class="tag">📦 生活类比</div>
+  把 V1 文件存储想象成一间<strong>用鞋盒装资料的小仓库</strong>：每份资料单独装一个鞋盒（一个 JSON 文件），鞋盒按「架子→格子→位置」的标签摆放（<span class="mono">string[]</span> 键即路径）。这套办法<strong>简单到极致</strong>——不需要管理员、不需要数据库，找资料就是顺着标签去对应位置取那个盒子。但当资料涨到成千上万盒，麻烦来了：想「找出所有标了某关键词的盒子」得<strong>把每个盒子都打开看一遍</strong>（没有索引）；想「同时改三个盒子、要么全改要么全不改」做不到（没有事务）；想「删掉一个项目、连带它所有资料」得自己一个个找出来删（没有级联）。于是你决定<strong>搬进一座配了检索系统的现代档案馆</strong>（SQLite）。搬家时最关键的纪律是：<strong>搬一批、在花名册上勾一批</strong>（<span class="mono">data_migration</span> 日志），万一搬到一半停电，来电后照着花名册<strong>只搬还没勾的</strong>，绝不会把同一盒资料搬两遍、也不会漏下任何一盒。
+</div>
+
+<h2>V1 文件存储：键即路径的极简方案</h2>
+<p><span class="mono">storage.ts</span> 里的 <span class="mono">Storage</span> 服务，是 opencode 最早的持久化方案，朴素得只有五个方法：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">read(key)</div><div class="c-txt">读一个键对应的 JSON 文件，没有则报 NotFoundError</div></div>
+  <div class="cell"><div class="c-tag">write(key, content)</div><div class="c-txt">把内容序列化成 JSON 写进对应文件（自动建目录）</div></div>
+  <div class="cell"><div class="c-tag">update(key, fn)</div><div class="c-txt">读出→改→写回（读改写一条龙，写锁保护）</div></div>
+  <div class="cell"><div class="c-tag">remove(key)</div><div class="c-txt">删掉对应文件</div></div>
+  <div class="cell"><div class="c-tag">list(prefix)</div><div class="c-txt">列出某前缀下所有键（glob 目录树）</div></div>
+</div>
+<p>核心魔法就一行：<span class="mono">file(dir, key) = path.join(dir, ...key) + ".json"</span>——把 <span class="mono">string[]</span> 键<strong>直接拼成文件路径</strong>。于是 <span class="mono">["session", "proj_abc", "ses_123"]</span> 这个键，对应的就是磁盘上 <span class="mono">storage/session/proj_abc/ses_123.json</span> 这个文件。整个「数据库」<strong>就是 <span class="mono">Global.Path.data/storage</span> 下的一棵目录树</strong>，每个叶子是一个 JSON 文件。几个键到文件的映射例子，一看就懂：</p>
+<table class="t">
+  <tr><th>string[] 键</th><th>磁盘上的文件</th></tr>
+  <tr><td><span class="mono">["session", "proj_abc", "ses_123"]</span></td><td><span class="mono">storage/session/proj_abc/ses_123.json</span></td></tr>
+  <tr><td><span class="mono">["message", "ses_123", "msg_1"]</span></td><td><span class="mono">storage/message/ses_123/msg_1.json</span></td></tr>
+  <tr><td><span class="mono">["part", "msg_1", "prt_9"]</span></td><td><span class="mono">storage/part/msg_1/prt_9.json</span></td></tr>
+</table>
+<p>这种「键即路径、对象即文件」的设计<strong>简单得令人发指</strong>——不需要数据库引擎、文件还人眼可读可调试，对一个早期项目而言是再合理不过的起点。为了在多个读写者并发时不出乱子，每个文件路径还配了一把 <span class="mono">TxReentrantLock</span>（读写锁）：<span class="mono">read</span> 取读锁、<span class="mono">write</span>/<span class="mono">update</span> 取写锁，<span class="mono">update</span> 的「读出→改→写回」全程握着写锁，避免两个写者互相覆盖。值得一提的是 <span class="mono">list(prefix)</span>：它没有索引可用，只能 glob 整棵子目录树、把每个文件路径反推回键再排序——这正是「无索引」在文件存储里最直白的体现：想枚举一类对象，只能去翻目录。</p>
+<p>但「简单」是有代价的，而正是这些代价，在数据量与功能复杂度上来后逐一显形，最终逼出了向 SQLite 的迁移：</p>
+<div class="cols">
+  <div class="col"><h4>文件存储 · 简单但受限</h4><p>一个对象一个 JSON 文件、键即路径、人眼可读。但：<strong>无索引</strong>（查询=遍历所有文件）、<strong>无跨对象事务</strong>（改多个文件无法原子）、<strong>无外键级联</strong>（删项目得手动清子数据）、<strong>无关系查询</strong>（「按 seq 取这段对话」做不到）。</p></div>
+  <div class="col"><h4>SQLite · 复杂但强大</h4><p>所有对象进表。换来：<strong>索引</strong>（高效查询/排序）、<strong>事务</strong>（多表原子升降）、<strong>外键 cascade</strong>（删根连根带走，L49）、<strong>关系查询</strong>（unique(session,seq) 定序，L49）。代价是引入一个数据库引擎。</p></div>
+</div>
+
+<h2>连文件存储也要迁移：内部布局演化</h2>
+<p>有意思的是，<strong>即便只是一堆文件，schema/布局也躲不过演化</strong>。<span class="mono">storage.ts</span> 自己就内置了一套文件布局迁移（<span class="mono">MIGRATIONS</span> 数组），并用一个 <span class="mono">storage/migration</span> 标记文件记「跑到第几个了」。它的运行逻辑和 L48 如出一辙：读标记 → 从该处往后跑没跑过的迁移 → 每跑成一个就把标记 +1（失败则停下不前进）：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">读 <span class="mono">storage/migration</span> 标记文件 → 一个整数 N（没有则 0）</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">从第 N 个迁移开始，逐个往后跑 <span class="mono">MIGRATIONS[N..]</span></span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">每成功一个 → 把标记写成 N+1（幂等：重启从标记处续）</span></div>
+  <div class="t-row"><span class="t-num">!</span><span class="t-txt">某个失败 → logError 并 break，不推进标记（下次重试）</span></div>
+</div>
+<p>这套布局迁移干了什么真事？看 <span class="mono">migration 1</span> 就懂了：早期 opencode 用<strong>目录名</strong>当项目 ID，但目录名不稳定。于是这个迁移做了件聪明事——它打开每个项目下的会话消息文件，找出它的 git 工作树，再用 <span class="mono">git rev-list --max-parents=0 --all</span> 取出<strong>仓库的根提交哈希</strong>，拿这个永不改变的哈希当稳定的项目 ID，把数据重新组织到 <span class="mono">session/&lt;项目ID&gt;/</span>、<span class="mono">message/&lt;会话ID&gt;/</span>、<span class="mono">part/&lt;消息ID&gt;/</span> 的新布局下。<span class="mono">migration 2</span> 则把会话摘要里的 diff 明细抽到单独的 <span class="mono">session_diff/</span> 文件、把摘要精简成增删行数的汇总。<strong>这印证了 L48 的那条真理在文件世界同样成立：数据结构从不是定稿的，连「一堆 JSON 文件」也需要一套有版本、幂等、可断点续跑的迁移机制来管理它的演化。</strong></p>
+
+<h2>V1→V2：把文件搬进 SQLite</h2>
+<p>当 opencode 决定从「一堆文件」升级到「一个 SQLite 库」（L48/L49），就需要一次<strong>数据大迁移</strong>：把 V1 文件里的会话、消息、片段，统统读出来、写进 SQLite 的表。这次迁移的「账本」，就是 <span class="mono">data-migration.sql.ts</span> 里那张朴素得只有两列的表：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">data_migration 表</div><div class="c-txt"><span class="mono">name</span>(主键) + <span class="mono">time_completed</span>——记「哪个数据迁移已跑完」</div></div>
+  <div class="cell"><div class="c-tag">对比 L48 的 migration 表</div><div class="c-txt">同样两列、同样「记账即幂等」；区别：migration 记 <strong>schema</strong> 变更，data_migration 记 <strong>数据</strong> 搬运</div></div>
+  <div class="cell"><div class="c-tag">落点：V1 形态的 SQLite 表</div><div class="c-txt">V1 数据搬进 <span class="mono">message</span>/<span class="mono">part</span> 表，<span class="mono">data</span> 列仍是 V1-shaped JSON（即 L49 见到的「V1 同堂」）</div></div>
+</div>
+<p>把整条迁徙路径连起来看，就是这样一条流水线：</p>
+<div class="flow">
+  <div class="f-node">V1 JSON 文件<br><small>storage/session/…、message/…</small></div>
+  <div class="f-arrow">读出 →</div>
+  <div class="f-node">逐个搬运<br><small>查 data_migration 账本跳过已搬</small></div>
+  <div class="f-arrow">写入 →</div>
+  <div class="f-node">SQLite message/part 表<br><small>data 列存 V1-shaped JSON</small></div>
+  <div class="f-arrow">读取时 →</div>
+  <div class="f-node">V2 投影<br><small>message-v2 把 V1 行投影成 V2 结构</small></div>
+</div>
+<p>这里有个非常务实的设计：V1 数据搬进 SQLite 时，<strong>并没有立刻被「翻译」成 V2 结构</strong>——它仍以 V1-shaped 的 JSON 原样躺在 <span class="mono">message</span>/<span class="mono">part</span> 表的 <span class="mono">data</span> 列里（这正是 L49 看到的「V1 同堂」之源）。真正的「V1→V2 语义转换」是<strong>读取时按需发生</strong>的：<span class="mono">message-v2.ts</span> 从 <span class="mono">PartTable</span>/<span class="mono">MessageTable</span> 读出 V1 行，<strong>当场投影（project）成 V2 的消息结构</strong>交给上层。这种「<strong>先把字节原样搬过来、语义转换推迟到读取时</strong>」的策略极其聪明：它让<strong>数据迁移这一步变得简单又安全</strong>——只是把文件内容照搬进表，不动一个字节的语义，出错风险最小；而复杂易变的「V1 语义怎么映射成 V2」逻辑则集中在读取路径上一处维护、随时可改。<strong>把「搬运」和「翻译」解耦，让最危险的批量数据迁移退化成最无脑的字节复制</strong>——这是大型数据迁移里一条值得反复回味的智慧。它还顺带带来一个好处：万一某天发现「V1→V2 的语义映射」写错了，你<strong>不必重跑那场代价高昂的数据大迁移</strong>，只要改读取时的投影逻辑、重新读一遍即可，因为原始 V1 字节<strong>始终原封不动地保存在库里</strong>。原始数据不被破坏性改写，就永远留着一条「重新解释」的退路——这种「保真原始、按需解释」的克制，和 L42 有界输出「全文 spill、按需回取」、L43 skills「名字常驻、正文按需」是同一种深谋远虑。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观视角</div>
+  <p>这一课讲清了 opencode 从 V1 文件存储到 V2 SQLite 的迁徙史：</p>
+  <ul>
+    <li><strong>V1 文件存储</strong>（<span class="mono">storage/storage.ts</span>）：<span class="mono">Storage</span> 服务 read/write/update/remove/list；核心 <span class="mono">file(dir,key)=join(dir,...key)+".json"</span>——<span class="mono">string[]</span> 键即文件路径，整个库就是 <span class="mono">Global.Path.data/storage</span> 下一棵目录树；每文件配 <span class="mono">TxReentrantLock</span> 读写锁，<span class="mono">update</span>=握写锁读改写。</li>
+    <li><strong>简单的代价</strong>：文件存储无索引/无跨对象事务/无外键 cascade/无关系查询——正是这些逼出了向 SQLite（L48/L49 给了索引/事务/cascade/关系查询）的迁移。</li>
+    <li><strong>连文件也要迁移</strong>：<span class="mono">storage.ts</span> 内置 <span class="mono">MIGRATIONS</span> + <span class="mono">storage/migration</span> 标记，逻辑同 L48（读标记→跑 pending→标记+1，失败 break）。migration 1 用 git 根提交哈希(<span class="mono">rev-list --max-parents=0</span>)当稳定项目 ID 重组布局；migration 2 抽 summary diff。</li>
+    <li><strong>V1→V2 数据迁移</strong>：<span class="mono">data_migration</span> 表(name+time_completed)记账，与 L48 的 <span class="mono">migration</span> 表同款「记账即幂等」（一个记 schema、一个记数据）。V1 文件搬进 SQLite <span class="mono">message</span>/<span class="mono">part</span> 表仍存 V1-shaped JSON；语义转换推迟到读取时由 <span class="mono">message-v2</span> 投影——「搬运」与「翻译」解耦。</li>
+  </ul>
+  <p>至此「数据从哪来、怎么存、怎么搬」讲透了。M9 还剩最后一课 L51：当一个会话<strong>太长</strong>（消息多到撑爆上下文），怎么<strong>压缩（compaction）</strong>和<strong>摘要</strong>它；以及 opencode 怎么用 git 集成做<strong>快照（snapshot）与 revert</strong>，让你能把工作目录回滚到对话历史中的某一刻。压缩与快照，正是「持久化」之上更高阶的「记忆管理」。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">storage.ts</span> 的迁移驱动循环，把「断点续跑 + 失败即停」写得很克制（简化自源码）：</p>
+  <pre class="code"><span class="cm">// 读标记文件：已跑到第几个迁移（没有则 0）</span>
+<span class="kw">const</span> migration = <span class="kw">yield*</span> fs.<span class="fn">readFileString</span>(marker).<span class="fn">pipe</span>(
+  Effect.<span class="fn">map</span>(parseMigration),
+  Effect.<span class="fn">catchIf</span>(missing, () =&gt; Effect.<span class="fn">succeed</span>(<span class="nu">0</span>)),   <span class="cm">// 文件不存在=从 0 开始</span>
+)
+<span class="kw">for</span> (<span class="kw">let</span> i = migration; i &lt; MIGRATIONS.length; i++) {
+  <span class="kw">const</span> exit = <span class="kw">yield*</span> Effect.<span class="fn">exit</span>(<span class="fn">step</span>(dir, fs, git))
+  <span class="kw">if</span> (Exit.<span class="fn">isFailure</span>(exit)) {
+    <span class="kw">yield*</span> Effect.<span class="fn">logError</span>(<span class="st">"failed to run migration"</span>, { index: i, cause: exit.cause })
+    <span class="kw">break</span>                                <span class="cm">// ← 失败即停，不推进标记 → 下次重试这一个</span>
+  }
+  <span class="kw">yield*</span> fs.<span class="fn">writeWithDirs</span>(marker, <span class="fn">String</span>(i + <span class="nu">1</span>))   <span class="cm">// 成功才推进</span>
+}</pre>
+  <p>最值得品的是那句 <span class="mono">break</span> 的<strong>克制</strong>：一旦某个迁移失败，它<strong>立刻停下、绝不跳过去跑后面的</strong>，也<strong>不推进标记</strong>。为什么这么保守？因为迁移之间往往<strong>有先后依赖</strong>——后一个迁移很可能假设前一个已经把数据整理成某种形态。如果前一个失败了还硬着头皮跑后面的，极可能在一个<strong>半残的数据状态</strong>上越搞越乱，最终酿成无法收拾的损坏。「失败就停在原地、下次重试这一个」远比「带病前进」安全得多。这和 L48 schema 迁移那句 <span class="mono">die("库非空却无 session 表")</span> 的防呆是同一种工程品格——<strong>在数据迁移这种「错了就可能丢数据」的高危操作上，宁可保守地停下报错，绝不乐观地猜测推进。</strong>配合标记文件的「断点续跑」，整个迁移既能从中断处接着走，又绝不会在出错时把事情搞得更糟。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>V1 文件存储=键即路径的极简方案</strong>（<span class="mono">storage/storage.ts</span>）：<span class="mono">Storage</span> 服务 read/write/update/remove/list；<span class="mono">file(dir,key)=join(dir,...key)+".json"</span>，<span class="mono">string[]</span> 键直接拼成文件路径，整库=目录树；每文件 <span class="mono">TxReentrantLock</span> 读写锁，<span class="mono">update</span>=握写锁读改写。</li>
+    <li><strong>简单的代价逼出迁移</strong>：文件存储无索引/无事务/无外键 cascade/无关系查询；SQLite（L48/L49）用一个数据库引擎换来这一切。文件 vs SQLite=简单受限 vs 复杂强大。</li>
+    <li><strong>连文件存储也要迁移</strong>：<span class="mono">storage.ts</span> 内置 <span class="mono">MIGRATIONS</span> + <span class="mono">storage/migration</span> 标记（读标记→跑 pending→+1，失败 break，同 L48）。migration 1 用 git 根提交哈希当稳定项目 ID 重组布局；migration 2 抽 summary diff。</li>
+    <li><strong>V1→V2 数据迁移用 data_migration 表记账</strong>（<span class="mono">data-migration.sql.ts</span>，name+time_completed）：与 L48 的 <span class="mono">migration</span> 表同款「记账即幂等」，一个管 schema、一个管数据搬运。</li>
+    <li><strong>搬运与翻译解耦</strong>：V1 数据先原样搬进 SQLite <span class="mono">message</span>/<span class="mono">part</span> 表（data 列存 V1-shaped JSON=L49「V1 同堂」之源）；V1→V2 语义转换推迟到读取时由 <span class="mono">message-v2</span> 投影。让最危险的批量迁移退化成最无脑的字节复制。失败即 break 不前进（保守优于带病前进）。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. V1 文件存储（storage.ts）的核心设计「键即路径」是什么意思？</div>
+  <ol class="opts">
+    <li>把所有数据存进一个巨大的 JSON 文件</li>
+    <li>用 string[] 数组当键，file(dir,key)=join(dir,...key)+".json" 直接拼成文件路径——一个对象一个 JSON 文件，整个「数据库」就是 storage 下一棵目录树，不需要任何数据库引擎</li>
+    <li>键是随机生成的、和路径无关</li>
+    <li>用一个内存哈希表当数据库</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。storage.ts 的 Storage 服务用 string[] 数组当键，核心魔法一行：file(dir,key)=path.join(dir,...key)+".json"——把键直接拼成文件路径。于是 ["session","proj_abc","ses_123"] 对应磁盘上 storage/session/proj_abc/ses_123.json。一个对象一个 JSON 文件，整个「数据库」就是 Global.Path.data/storage 下一棵目录树，每个叶子是个 JSON。简单到不需要数据库引擎、文件还人眼可读——对早期项目是合理起点。五个方法 read/write/update/remove/list，每文件配 TxReentrantLock 读写锁（update=握写锁读改写）。但简单有代价：list 无索引只能 glob 整棵树、无跨对象事务、无外键 cascade、无关系查询——正是这些逼出了向 SQLite 的迁移。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. L48 的 schema 迁移用 migration 表记账，本课 V1→V2 数据迁移用 data_migration 表记账。这两张表的关系是？</div>
+  <ol class="opts">
+    <li>data_migration 取代了 migration 表</li>
+    <li>同款「记账即幂等」范式用在两个不同问题上——migration 记『哪些 schema 结构变更跑过了』，data_migration 记『哪些数据搬运跑过了』；都是两列(name/id + time_completed)、都靠记录已完成项实现幂等</li>
+    <li>两张表完全无关，纯属重名</li>
+    <li>data_migration 是 migration 表的备份</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。同一个「日志表记账即幂等」的朴素思想被复用了两次，解决两个不同问题：L48 的 migration 表记 schema 变更（结构演化：加列、改表），本课 data_migration 表（data-migration.sql.ts，就两列 name+time_completed）记数据搬运（V1 文件→V2 SQLite）。两者都靠「记录哪些已完成、跳过已记录的」实现幂等——跑过的不重跑。这种「一个好范式解决多类问题」正是优秀工程的标志。值得注意：V1 数据搬进 SQLite 的 message/part 表时仍存 V1-shaped JSON（即 L49 见到的「V1 同堂」之源），并未立刻翻译成 V2；真正的 V1→V2 语义转换推迟到读取时由 message-v2 投影——「搬运」与「翻译」解耦，让最危险的批量迁移退化成最无脑的字节复制。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. storage.ts 的迁移驱动循环里，一旦某个迁移失败就 break（停下、不推进标记）。为什么这么保守？</div>
+  <ol class="opts">
+    <li>因为 SQLite 不支持连续迁移</li>
+    <li>迁移间常有先后依赖——后一个假设前一个已把数据整理成某形态；前一个失败还硬跑后面的，会在半残状态上越搞越乱酿成损坏。「失败就停在原地、下次重试这一个」远比「带病前进」安全</li>
+    <li>为了让迁移跑得更快</li>
+    <li>为了节省磁盘空间</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。迁移之间往往有先后依赖：后一个迁移很可能假设前一个已经把数据整理成某种形态。如果前一个失败了还硬着头皮跑后面的，极可能在一个半残的数据状态上越搞越乱，最终酿成无法收拾的损坏。所以 storage.ts 一旦某迁移失败就立刻 break、不推进标记——「失败就停在原地、下次重试这一个」远比「带病前进」安全。配合标记文件的断点续跑（读标记→从该处跑 pending→成功才+1），整个迁移既能从中断处接着走、又绝不在出错时把事情搞得更糟。这和 L48 schema 迁移那句 die("库非空却无 session 表") 的防呆是同一种工程品格：在「错了就可能丢数据」的高危操作上，宁可保守地停下报错，绝不乐观地猜测推进。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里讲 V1→V2 迁移有个务实设计：V1 数据搬进 SQLite 时不立刻翻译成 V2，而是以 V1-shaped JSON 原样躺着，真正的语义转换推迟到读取时由 message-v2 投影——「搬运」与「翻译」解耦，且原始字节始终保真（写错映射只需改投影、不必重跑迁移）。课里还把这条「保真原始、按需解释」和 L42 有界输出「全文 spill、按需回取」、L43 skills「名字常驻、正文按需」归为同一种深谋远虑。请你提炼这种「不破坏性改写原始数据、把转换推迟到使用时」的设计模式，谈谈它的威力（可纠错、可重新解释、迁移更安全）与代价（读取时开销、两种形态共存的复杂度），并举一个你见过的类似例子。</li>
+    <li>课里说 V1 文件存储「简单到极致」（一个对象一个 JSON、键即路径、人眼可读），但最终被它的代价（无索引/无事务/无外键/无关系查询）逼着迁移到 SQLite。这是几乎每个长期项目都会经历的「从简单方案长成复杂方案」的剧情。请你结合自己的经验谈谈：你会怎样判断「一个简单存储方案什么时候该升级」？过早上数据库（YAGNI 的反面）和拖太久才迁移（技术债爆炸）各有什么风险？如果重来一次，你认为 opencode「先用文件、后迁 SQLite」这个演进路径是明智的，还是「一开始就该用 SQLite」？为什么？</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">Last lesson we saw something intriguing: the <span class="mono">message</span>/<span class="mono">part</span> tables in SQLite store <strong>V1</strong>-structured data. But that V1 data originally <strong>wasn't in SQLite at all</strong>—it lay in the file system, one JSON file per object. This lesson clarifies that "migration history": what opencode's <strong>V1 file storage</strong> looks like (<span class="mono">storage/storage.ts</span>), and how it migrates data scattered across thousands of JSON files <strong>into V2's SQLite</strong>. This isn't a corner detail but a real plot nearly every long-evolving software lives through: <strong>you start with the simplest storage scheme, run it a long time, until its simplicity starts to become a burden, and then you must, without losing a single piece of old data, move your whole household into a stronger new scheme.</strong></p>
+<p>This lesson's insight has two layers. First, the <strong>"key-as-path" minimalist file storage</strong>: V1 stores each object as a JSON file, using a <span class="mono">string[]</span> array as the key, directly mapped to a nested file path—<span class="mono">read(["session", projectID, sessionID])</span> reads <span class="mono">storage/session/&lt;projectID&gt;/&lt;sessionID&gt;.json</span>. The whole "database" is a directory tree, plain enough to need no database engine. Second, <strong>the "journal-table bookkeeping" migration paradigm is reused twice</strong>: last lesson L48's schema migration uses a <span class="mono">migration</span> table recording "which structure changes ran"; this lesson's V1→V2 data migration uses <strong>another <span class="mono">data_migration</span> table</strong> recording "which data moves ran." The same "bookkeeping = idempotency" plain idea applied to two different problems. Grasp these two and you understand "how software gracefully grows from 'a pile of files' into 'a database' without shattering any old furniture mid-move."</p>
+
+<div class="card analogy">
+  <div class="tag">📦 Analogy</div>
+  Picture V1 file storage as a <strong>small warehouse storing documents in shoeboxes</strong>: each document packed in its own shoebox (a JSON file), boxes placed by a "shelf→slot→position" label (<span class="mono">string[]</span> key as path). This approach is <strong>simple to the extreme</strong>—no manager, no database; finding a document is just following the label to fetch that box. But when documents grow to thousands, trouble comes: to "find all boxes labeled with some keyword" you must <strong>open every box and look</strong> (no index); to "change three boxes at once, all or nothing" you can't (no transaction); to "delete a project and all its documents" you must find and delete them one by one (no cascade). So you decide to <strong>move into a modern archive hall with a retrieval system</strong> (SQLite). The key discipline while moving: <strong>move a batch, tick a batch on the roster</strong> (the <span class="mono">data_migration</span> journal); should the power cut mid-move, after it returns, <strong>move only the unticked ones</strong> per the roster, never moving the same box twice nor missing any.
+</div>
+
+<h2>V1 file storage: a key-as-path minimalist scheme</h2>
+<p>The <span class="mono">Storage</span> service in <span class="mono">storage.ts</span> is opencode's earliest persistence scheme, plain with only five methods:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">read(key)</div><div class="c-txt">read the JSON file for a key, NotFoundError if absent</div></div>
+  <div class="cell"><div class="c-tag">write(key, content)</div><div class="c-txt">serialize content to JSON into the corresponding file (auto-mkdir)</div></div>
+  <div class="cell"><div class="c-tag">update(key, fn)</div><div class="c-txt">read→modify→write back (read-modify-write in one, write-lock protected)</div></div>
+  <div class="cell"><div class="c-tag">remove(key)</div><div class="c-txt">delete the corresponding file</div></div>
+  <div class="cell"><div class="c-tag">list(prefix)</div><div class="c-txt">list all keys under a prefix (glob the directory tree)</div></div>
+</div>
+<p>The core magic is one line: <span class="mono">file(dir, key) = path.join(dir, ...key) + ".json"</span>—joining the <span class="mono">string[]</span> key <strong>directly into a file path</strong>. So the key <span class="mono">["session", "proj_abc", "ses_123"]</span> corresponds to the file <span class="mono">storage/session/proj_abc/ses_123.json</span> on disk. The whole "database" <strong>is a directory tree under <span class="mono">Global.Path.data/storage</span></strong>, each leaf a JSON file. A few key-to-file mapping examples make it instantly clear:</p>
+<table class="t">
+  <tr><th>string[] key</th><th>file on disk</th></tr>
+  <tr><td><span class="mono">["session", "proj_abc", "ses_123"]</span></td><td><span class="mono">storage/session/proj_abc/ses_123.json</span></td></tr>
+  <tr><td><span class="mono">["message", "ses_123", "msg_1"]</span></td><td><span class="mono">storage/message/ses_123/msg_1.json</span></td></tr>
+  <tr><td><span class="mono">["part", "msg_1", "prt_9"]</span></td><td><span class="mono">storage/part/msg_1/prt_9.json</span></td></tr>
+</table>
+<p>This "key-as-path, object-as-file" design is <strong>shockingly simple</strong>—no database engine needed, and the files are human-readable and debuggable, a most reasonable starting point for an early project. To avoid trouble when multiple readers/writers run concurrently, each file path also has a <span class="mono">TxReentrantLock</span> (read/write lock): <span class="mono">read</span> takes a read lock, <span class="mono">write</span>/<span class="mono">update</span> a write lock, and <span class="mono">update</span>'s "read→modify→write back" holds the write lock throughout, avoiding two writers overwriting each other. Worth noting is <span class="mono">list(prefix)</span>: with no index available, it can only glob the whole subtree, reverse each file path back to a key, and sort—exactly the most direct manifestation of "no index" in file storage: to enumerate a class of objects, you can only walk the directory.</p>
+<p>But "simple" has a cost, and these very costs, surfacing one by one as data volume and feature complexity grew, eventually forced the migration to SQLite:</p>
+<div class="cols">
+  <div class="col"><h4>file storage · simple but limited</h4><p>one object one JSON file, key as path, human-readable. But: <strong>no index</strong> (query = scan all files), <strong>no cross-object transaction</strong> (changing multiple files can't be atomic), <strong>no foreign-key cascade</strong> (deleting a project means manually clearing children), <strong>no relational query</strong> ("fetch this conversation by seq" can't be done).</p></div>
+  <div class="col"><h4>SQLite · complex but powerful</h4><p>all objects into tables. In return: <strong>indices</strong> (efficient query/sort), <strong>transactions</strong> (multi-table atomic up/down), <strong>foreign-key cascade</strong> (delete root uproots all, L49), <strong>relational query</strong> (unique(session,seq) orders, L49). The cost: introducing a database engine.</p></div>
+</div>
+
+<h2>Even file storage needs migrations: internal layout evolution</h2>
+<p>Interestingly, <strong>even a pile of files can't escape schema/layout evolution</strong>. <span class="mono">storage.ts</span> itself has a built-in set of file-layout migrations (the <span class="mono">MIGRATIONS</span> array), using a <span class="mono">storage/migration</span> marker file to record "how many ran." Its run logic is just like L48: read the marker → run migrations not yet run from there on → bump the marker by 1 for each success (stop without advancing on failure):</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">read the <span class="mono">storage/migration</span> marker file → an integer N (0 if absent)</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">from the Nth migration, run <span class="mono">MIGRATIONS[N..]</span> one by one</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">each success → write the marker to N+1 (idempotent: restart resumes from the marker)</span></div>
+  <div class="t-row"><span class="t-num">!</span><span class="t-txt">some failure → logError and break, don't advance the marker (retry next time)</span></div>
+</div>
+<p>What real work does this layout migration do? <span class="mono">migration 1</span> makes it clear: early opencode used the <strong>directory name</strong> as the project ID, but directory names are unstable. So this migration did something clever—it opens each project's session message files, finds its git worktree, then uses <span class="mono">git rev-list --max-parents=0 --all</span> to get the <strong>repo's root commit hash</strong>, using this never-changing hash as a stable project ID, reorganizing the data into the new <span class="mono">session/&lt;projectID&gt;/</span>, <span class="mono">message/&lt;sessionID&gt;/</span>, <span class="mono">part/&lt;messageID&gt;/</span> layout. <span class="mono">migration 2</span> extracts the diff details from session summaries into separate <span class="mono">session_diff/</span> files and trims the summary to additions/deletions totals. <strong>This confirms L48's truth holds in the file world too: data structures are never finalized—even "a pile of JSON files" needs a versioned, idempotent, resumable migration mechanism to manage its evolution.</strong></p>
+
+<h2>V1→V2: moving files into SQLite</h2>
+<p>When opencode decided to upgrade from "a pile of files" to "a SQLite database" (L48/L49), it needed a <strong>big data migration</strong>: read out the sessions, messages, parts in V1 files and write them into SQLite tables. This migration's "ledger" is that plainly-two-column table in <span class="mono">data-migration.sql.ts</span>:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">data_migration table</div><div class="c-txt"><span class="mono">name</span>(PK) + <span class="mono">time_completed</span>—records "which data migration completed"</div></div>
+  <div class="cell"><div class="c-tag">vs L48's migration table</div><div class="c-txt">same two columns, same "bookkeeping = idempotency"; difference: migration records <strong>schema</strong> changes, data_migration records <strong>data</strong> moves</div></div>
+  <div class="cell"><div class="c-tag">landing: V1-shaped SQLite tables</div><div class="c-txt">V1 data moves into <span class="mono">message</span>/<span class="mono">part</span> tables, the <span class="mono">data</span> column still V1-shaped JSON (the "V1 under one roof" seen in L49)</div></div>
+</div>
+<p>Connecting the whole migration path gives this pipeline:</p>
+<div class="flow">
+  <div class="f-node">V1 JSON files<br><small>storage/session/…, message/…</small></div>
+  <div class="f-arrow">read out →</div>
+  <div class="f-node">move one by one<br><small>check data_migration ledger, skip moved</small></div>
+  <div class="f-arrow">write in →</div>
+  <div class="f-node">SQLite message/part tables<br><small>data column holds V1-shaped JSON</small></div>
+  <div class="f-arrow">on read →</div>
+  <div class="f-node">V2 projection<br><small>message-v2 projects V1 rows into V2 structure</small></div>
+</div>
+<p>There's a very pragmatic design here: when V1 data moves into SQLite, it's <strong>not immediately "translated" into V2 structure</strong>—it still lies as V1-shaped JSON verbatim in the <span class="mono">message</span>/<span class="mono">part</span> tables' <span class="mono">data</span> column (exactly the source of L49's "V1 under one roof"). The real "V1→V2 semantic conversion" <strong>happens on demand at read time</strong>: <span class="mono">message-v2.ts</span> reads V1 rows from <span class="mono">PartTable</span>/<span class="mono">MessageTable</span> and <strong>projects them on the spot into V2 message structures</strong> for upper layers. This "<strong>move the bytes verbatim first, defer semantic conversion to read time</strong>" strategy is exceptionally clever: it makes <strong>the data-migration step simple and safe</strong>—just copy file content into tables, not touching a byte of semantics, minimizing error risk; while the complex, mutable "how V1 semantics map to V2" logic stays maintained in one place on the read path, changeable anytime. <strong>Decoupling "moving" from "translating," letting the most dangerous bulk data migration degrade into the most brainless byte copy</strong>—a wisdom in large data migrations worth savoring repeatedly. It also brings a side benefit: should you one day find the "V1→V2 semantic mapping" was written wrong, you <strong>needn't rerun that costly big data migration</strong>—just fix the read-time projection and re-read, because the original V1 bytes <strong>stay untouched in the DB the whole time</strong>. Original data not destructively rewritten always leaves a "re-interpret" escape route—this "preserve the original, interpret on demand" restraint is the same foresight as L42's bounded output "spill the full text, fetch on demand" and L43's skills "names resident, body on demand."</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson clarifies opencode's migration history from V1 file storage to V2 SQLite:</p>
+  <ul>
+    <li><strong>V1 file storage</strong> (<span class="mono">storage/storage.ts</span>): the <span class="mono">Storage</span> service read/write/update/remove/list; core <span class="mono">file(dir,key)=join(dir,...key)+".json"</span>—<span class="mono">string[]</span> key as file path, the whole DB a directory tree under <span class="mono">Global.Path.data/storage</span>; each file has a <span class="mono">TxReentrantLock</span> read/write lock, <span class="mono">update</span> = hold write lock read-modify-write.</li>
+    <li><strong>simplicity's cost</strong>: file storage has no index / no cross-object transaction / no FK cascade / no relational query—exactly what forced the migration to SQLite (L48/L49 gave index/transaction/cascade/relational query).</li>
+    <li><strong>even files need migrations</strong>: <span class="mono">storage.ts</span> has built-in <span class="mono">MIGRATIONS</span> + a <span class="mono">storage/migration</span> marker, logic like L48 (read marker→run pending→marker+1, break on failure). migration 1 uses the git root commit hash (<span class="mono">rev-list --max-parents=0</span>) as a stable project ID to reorganize layout; migration 2 extracts summary diffs.</li>
+    <li><strong>V1→V2 data migration</strong>: the <span class="mono">data_migration</span> table (name+time_completed) bookkeeps, same "bookkeeping = idempotency" as L48's <span class="mono">migration</span> table (one records schema, one records data). V1 files move into SQLite <span class="mono">message</span>/<span class="mono">part</span> tables still holding V1-shaped JSON; semantic conversion deferred to read time, projected by <span class="mono">message-v2</span>—"moving" decoupled from "translating."</li>
+  </ul>
+  <p>By here "where data comes from, how it's stored, how it's moved" is fully explained. M9 has one lesson left, L51: when a session is <strong>too long</strong> (messages overflowing the context), how to <strong>compact</strong> and <strong>summarize</strong> it; and how opencode does <strong>snapshots and revert</strong> with git integration, letting you roll the working directory back to a moment in conversation history. Compaction and snapshots are higher-order "memory management" atop "persistence."</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p><span class="mono">storage.ts</span>'s migration driver loop writes "resumable + stop-on-failure" with restraint (simplified from source):</p>
+  <pre class="code"><span class="cm">// read the marker file: which migration we reached (0 if absent)</span>
+<span class="kw">const</span> migration = <span class="kw">yield*</span> fs.<span class="fn">readFileString</span>(marker).<span class="fn">pipe</span>(
+  Effect.<span class="fn">map</span>(parseMigration),
+  Effect.<span class="fn">catchIf</span>(missing, () =&gt; Effect.<span class="fn">succeed</span>(<span class="nu">0</span>)),   <span class="cm">// file absent = start from 0</span>
+)
+<span class="kw">for</span> (<span class="kw">let</span> i = migration; i &lt; MIGRATIONS.length; i++) {
+  <span class="kw">const</span> exit = <span class="kw">yield*</span> Effect.<span class="fn">exit</span>(<span class="fn">step</span>(dir, fs, git))
+  <span class="kw">if</span> (Exit.<span class="fn">isFailure</span>(exit)) {
+    <span class="kw">yield*</span> Effect.<span class="fn">logError</span>(<span class="st">"failed to run migration"</span>, { index: i, cause: exit.cause })
+    <span class="kw">break</span>                                <span class="cm">// ← stop on failure, don't advance marker → retry this one next time</span>
+  }
+  <span class="kw">yield*</span> fs.<span class="fn">writeWithDirs</span>(marker, <span class="fn">String</span>(i + <span class="nu">1</span>))   <span class="cm">// advance only on success</span>
+}</pre>
+  <p>What's most worth savoring is that <span class="mono">break</span>'s <strong>restraint</strong>: the moment a migration fails, it <strong>stops immediately, never jumps ahead to run later ones</strong>, and <strong>doesn't advance the marker</strong>. Why so conservative? Because migrations often have <strong>order dependencies</strong>—a later migration likely assumes the prior one already shaped the data a certain way. If the prior failed and you barrel ahead, you very likely make a bigger mess on a <strong>half-broken data state</strong>, ending in unsalvageable corruption. "Stop in place on failure, retry this one next time" is far safer than "advance while sick." This is the same engineering character as L48 schema migration's <span class="mono">die("DB non-empty yet has no session table")</span> guard—<strong>on a high-risk operation like data migration where "a slip can lose data," rather conservatively stop and error than optimistically guess and advance.</strong> Paired with the marker file's "resumable from interruption," the whole migration both continues from where it stopped and never makes things worse on error.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>V1 file storage = key-as-path minimalist scheme</strong> (<span class="mono">storage/storage.ts</span>): the <span class="mono">Storage</span> service read/write/update/remove/list; <span class="mono">file(dir,key)=join(dir,...key)+".json"</span>, <span class="mono">string[]</span> key joined directly into a file path, the whole DB a directory tree; each file a <span class="mono">TxReentrantLock</span> read/write lock, <span class="mono">update</span> = hold write lock read-modify-write.</li>
+    <li><strong>simplicity's cost forces migration</strong>: file storage has no index / no transaction / no FK cascade / no relational query; SQLite (L48/L49) buys all this with a database engine. files vs SQLite = simple-limited vs complex-powerful.</li>
+    <li><strong>even file storage needs migrations</strong>: <span class="mono">storage.ts</span> has built-in <span class="mono">MIGRATIONS</span> + a <span class="mono">storage/migration</span> marker (read marker→run pending→+1, break on failure, like L48). migration 1 uses the git root commit hash as a stable project ID to reorganize layout; migration 2 extracts summary diffs.</li>
+    <li><strong>V1→V2 data migration bookkept by data_migration table</strong> (<span class="mono">data-migration.sql.ts</span>, name+time_completed): same "bookkeeping = idempotency" as L48's <span class="mono">migration</span> table, one managing schema, one managing data moves.</li>
+    <li><strong>moving decoupled from translating</strong>: V1 data moves into SQLite <span class="mono">message</span>/<span class="mono">part</span> tables verbatim first (data column holds V1-shaped JSON = source of L49's "V1 under one roof"); V1→V2 semantic conversion deferred to read time, projected by <span class="mono">message-v2</span>. Lets the most dangerous bulk migration degrade into the most brainless byte copy. Break on failure without advancing (conservative beats advancing-while-sick).</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. What does V1 file storage's (storage.ts) core design "key as path" mean?</div>
+  <ol class="opts">
+    <li>Stores all data in one giant JSON file</li>
+    <li>Uses a string[] array as the key, file(dir,key)=join(dir,...key)+".json" joins directly into a file path — one object one JSON file, the whole "database" a directory tree under storage, needing no database engine</li>
+    <li>Keys are randomly generated, unrelated to paths</li>
+    <li>Uses an in-memory hash table as the database</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. storage.ts's Storage service uses a string[] array as the key, the core magic one line: file(dir,key)=path.join(dir,...key)+".json"—joining the key directly into a file path. So ["session","proj_abc","ses_123"] maps to storage/session/proj_abc/ses_123.json on disk. One object one JSON file, the whole "database" a directory tree under Global.Path.data/storage, each leaf a JSON. Simple enough to need no database engine, files human-readable too—a reasonable start for an early project. Five methods read/write/update/remove/list, each file a TxReentrantLock read/write lock (update = hold write lock read-modify-write). But simplicity has a cost: list has no index so must glob the whole tree, no cross-object transaction, no FK cascade, no relational query—exactly what forced the migration to SQLite.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. L48's schema migration bookkeeps with a migration table, this lesson's V1→V2 data migration with a data_migration table. The relationship between these two tables is?</div>
+  <ol class="opts">
+    <li>data_migration replaced the migration table</li>
+    <li>The same "bookkeeping = idempotency" paradigm on two different problems — migration records "which schema structure changes ran," data_migration records "which data moves ran"; both two columns (name/id + time_completed), both achieve idempotency by recording completed items</li>
+    <li>The two tables are wholly unrelated, just a name coincidence</li>
+    <li>data_migration is a backup of the migration table</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. The same "journal-table bookkeeping = idempotency" plain idea reused twice, solving two different problems: L48's migration table records schema changes (structure evolution: add column, change table), this lesson's data_migration table (data-migration.sql.ts, just two columns name+time_completed) records data moves (V1 files→V2 SQLite). Both achieve idempotency by "recording what's completed, skipping recorded ones"—run ones don't rerun. This "one good paradigm solving multiple problem types" is the mark of excellent engineering. Note: when V1 data moves into SQLite's message/part tables it still holds V1-shaped JSON (the source of L49's "V1 under one roof"), not immediately translated to V2; the real V1→V2 semantic conversion is deferred to read time, projected by message-v2—"moving" decoupled from "translating," letting the most dangerous bulk migration degrade into the most brainless byte copy.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. In storage.ts's migration driver loop, the moment a migration fails it breaks (stops, doesn't advance the marker). Why so conservative?</div>
+  <ol class="opts">
+    <li>Because SQLite doesn't support consecutive migrations</li>
+    <li>Migrations often have order dependencies — a later one assumes the prior shaped the data a certain way; if the prior failed and you barrel ahead, you make a bigger mess on a half-broken state, causing corruption. "Stop in place on failure, retry this one next time" is far safer than "advance while sick"</li>
+    <li>To make migration run faster</li>
+    <li>To save disk space</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Migrations often have order dependencies: a later migration likely assumes the prior already shaped the data a certain way. If the prior failed and you barrel ahead, you very likely make a bigger mess on a half-broken data state, ending in unsalvageable corruption. So the moment a migration fails storage.ts breaks immediately, not advancing the marker—"stop in place on failure, retry this one next time" is far safer than "advance while sick." Paired with the marker file's resumability (read marker→run pending from there→+1 only on success), the whole migration both continues from where it stopped and never makes things worse on error. This is the same engineering character as L48 schema migration's die("DB non-empty yet no session table") guard: on a high-risk operation where "a slip can lose data," rather conservatively stop and error than optimistically guess and advance.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson covers a pragmatic design in V1→V2 migration: V1 data moved into SQLite isn't immediately translated to V2 but lies as V1-shaped JSON verbatim, the real semantic conversion deferred to read time, projected by message-v2—"moving" decoupled from "translating," and original bytes stay faithful (a wrong mapping needs only fixing the projection, no rerun of the migration). The lesson also groups this "preserve the original, interpret on demand" with L42 bounded output's "spill full text, fetch on demand" and L43 skills' "names resident, body on demand" as the same foresight. Distill this "don't destructively rewrite original data, defer conversion to use time" design pattern, discuss its power (error-correctable, re-interpretable, safer migration) and cost (read-time overhead, complexity of two coexisting forms), and give a similar example you've seen.</li>
+    <li>The lesson says V1 file storage is "simple to the extreme" (one object one JSON, key as path, human-readable) but was eventually forced to migrate to SQLite by its costs (no index/no transaction/no FK/no relational query). This is the "grow from a simple scheme into a complex one" plot nearly every long-term project lives through. From your own experience, discuss: how would you judge "when a simple storage scheme should be upgraded"? What are the risks of adopting a database too early (the opposite of YAGNI) versus migrating too late (tech-debt explosion)? If you did it over, do you think opencode's "use files first, migrate to SQLite later" evolution path was wise, or "should have used SQLite from the start"? Why?</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="49-core-tables.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">核心数据表</span><span class="lang-en">The core tables</span></div></a><a class="next" href="51-compaction-snapshots.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">压缩、摘要与快照</span><span class="lang-en">Compaction &amp; snapshots</span></div></a></div>
 </div>
 <script>
