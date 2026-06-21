@@ -913,6 +913,47 @@ QUIZZES = {
             {"zh": "源码错误处理段对「失败」分得极细（被中断/工具炸了/模型报错各有收尾），但都殊途同归到 failUnsettledTools，最后才如实 failCause 上抛。「先收干净自己的烂摊子，再诚实交出错误」——为什么这个顺序很重要？", "en": "The source's error handling dissects \"failure\" finely (interrupted/tool-blew-up/model-error each with its wind-down) but all converge on failUnsettledTools, only then faithfully failCause-rethrowing. \"Clean up your own mess first, then hand the error over honestly\" — why does this order matter?"},
         ],
     },
+    "21-system-context.html": {
+        "mcq": [
+            {
+                "q": {"zh": "什么是 opencode 的「系统上下文（system context）」？", "en": "What is opencode's \"system context\"?"},
+                "opts": [
+                    {"zh": "对话之外、系统替模型主动注入的「环境底色」：工作目录、日期、git 状态、常驻指令", "en": "The \"ambient backdrop\" the system actively injects on the model's behalf, outside the conversation: directory, date, git status, standing instructions"},
+                    {"zh": "用户发的每一条消息", "en": "Every message the user sends"},
+                    {"zh": "模型的权重参数", "en": "The model's weight parameters"},
+                    {"zh": "服务器的环境变量", "en": "The server's environment variables"},
+                ],
+                "answer": 0,
+                "why": {"zh": "源码称之为 privileged system context（特权系统上下文）：不是用户随口说的，而是系统亲自观察、背书的可信事实，把模型锚定到它所处的真实世界。它和用户的话不在一个层级——一个要动你文件的 agent 必须分得清哪块地是实的。", "en": "The source calls it privileged system context: not what the user casually says but trusted facts the system observed and vouched for, anchoring the model to its real world. It's not on the same level as user words — an agent touching your files must know which ground is solid."},
+            },
+            {
+                "q": {"zh": "Source 的 baseline 和 update 这对孪生方法解决了什么难关？", "en": "What hurdle do a Source's twin methods baseline and update solve?"},
+                "opts": [
+                    {"zh": "token 寸土寸金：第一次发全文(baseline)，之后只发变化(update)，不重发不变的信息", "en": "Tokens are precious: send the full text first (baseline), then only the change (update), never resending unchanged info"},
+                    {"zh": "让模型跑得更快", "en": "Make the model run faster"},
+                    {"zh": "加密上下文", "en": "Encrypt the context"},
+                    {"zh": "压缩对话历史", "en": "Compress conversation history"},
+                ],
+                "answer": 0,
+                "why": {"zh": "长会话每轮重复「当前目录/日期/git」全文是巨大浪费，而绝大多数轮这些没变。baseline 负责首次全文、update 负责变化差异——变化才值得被言说，不变就该沉默。这是把「增量」思想贯彻到上下文层的精打细算。", "en": "Repeating the full \"directory/date/git\" each round in a long session is huge waste, when most rounds these don't change. baseline does the first-time full text, update does the change diff — change deserves speaking, sameness stays silent. The \"incremental\" idea carried into the context layer."},
+            },
+            {
+                "q": {"zh": "make<A>(source) 在这套「源代数」里起什么作用？", "en": "What role does make<A>(source) play in this \"source algebra\"?"},
+                "opts": [
+                    {"zh": "把具体值类型 A 藏起来，产出不透明的 SystemContext，让不同类型的源能被 combine 统一组合", "en": "Hide the concrete value type A, producing an opaque SystemContext so differently-typed sources can be uniformly combined"},
+                    {"zh": "执行源、产生副作用", "en": "Execute the source, causing side effects"},
+                    {"zh": "把源存进数据库", "en": "Store the source in a database"},
+                    {"zh": "校验源的权限", "en": "Check the source's permission"},
+                ],
+                "answer": 0,
+                "why": {"zh": "core/date 的值是日期、core/environment 是目录结构，类型各异。make 把 A closes over（藏起），产出长得一样的不透明 SystemContext，于是 combine 能均匀拼一堆异类源。加新源只需写 Source+make+combine，无需改任何现有代码——第 6 课「面向接口」的延伸。", "en": "core/date's value is a date, core/environment's a directory — different types. make closes over A, producing identical-looking opaque SystemContexts, so combine can uniformly stitch heterogeneous sources. A new source needs only Source+make+combine, no change to existing code — an extension of Lesson 6's \"program to an interface.\""},
+            },
+        ],
+        "open": [
+            {"zh": "课里强调 unavailable ≠ removed：「暂时观察不到」不等于「删除」，刷新时保住上一份快照。如果把二者混为一谈（没读到就当没有），会给模型造成什么具体的误导？举个例子。", "en": "The lesson stresses unavailable ≠ removed: \"temporarily unobservable\" isn't \"deleted\"; refresh preserves the last snapshot. If you conflate them (treat \"couldn't read\" as \"absent\"), what concrete misleading does it cause the model? Give an example."},
+            {"zh": "课里说系统上下文是「特权」的，和用户的话不在一个层级。为什么对一个会动你文件、跑你命令的 agent 来说，分清「系统观察的事实」与「对话里的一面之词」如此重要？", "en": "The lesson says system context is \"privileged,\" not on the same level as user words. Why is distinguishing \"facts the system observed\" from \"one side of a conversation\" so important for an agent that touches your files and runs your commands?"},
+        ],
+    },
 }
 
 def render(fname, lang):
