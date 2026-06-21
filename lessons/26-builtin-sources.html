@@ -328,8 +328,324 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第五部分 · Context Epoch 系统</span><span class="lang-en">Part 5 · Context System</span></div>
     <h1><span class="lang-zh">内置 Context Sources</span><span class="lang-en">Built-in sources</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《内置 Context Sources》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“内置 Context Sources”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Built-in sources" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Built-in sources" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">第 21 到 25 课，我们造了一台相当精密的机器：源的代数、codec 派生的判等、注册表、上下文纪元、原位 System 消息……一路都在讲<strong>「机制」</strong>。这一课，终于到了<strong>掀开盖子、看看里面实际装了什么零件</strong>的时候——opencode 真正内置的那几个上下文源，到底长什么样。而最让人会心一笑的发现是：<strong>它们简单得不可思议</strong>。一个源的完整定义，往往就十来行。前五课那套看似复杂的机制，到了具体的源这里，<strong>全化成了寥寥几行清爽的声明</strong>。这一课要让你体会的，正是「好抽象」最甜的回报：<strong>把复杂吸进框架，让使用处简单到近乎透明。</strong></p>
+<p>为什么「源居然这么简单」值得专门点出来？因为这是检验一套抽象成不成功的<strong>试金石</strong>。一套糟糕的抽象，会让「加一个新东西」变得繁琐——要懂一堆内部细节、要小心翼翼地接好各种线。而一套好的抽象，会让「加一个新东西」变得<strong>近乎填空</strong>：你只需声明这个东西<strong>独有</strong>的那一点点信息，其余的——序列化、判等、注册、刷新、投影——框架全替你包圆了。这一课通过 <span class="mono">core/environment</span> 和 <span class="mono">core/date</span> 这两个真实的内置源，让你亲眼看看：前面五课的机制，把「写一个上下文源」这件事，简化到了什么程度。</p>
+
+<div class="card analogy">
+  <div class="tag">🧩 生活类比</div>
+  想象你花大力气搭好了一套<strong>「智能表单系统」</strong>：它能自动校验、自动存历史版本、自动高亮「这次比上次改了哪里」。系统本身很复杂——但正因为它复杂，<strong>真正去填一张表，就简单到了极点</strong>。比如填「当前地点表」，你只需写一行「地点：北京」；填「日期表」，只需写一行「今天：周一」。校验、存档、比对、提醒变化——这些活，全是表单系统在背后默默干，<strong>填表的人一概不用操心</strong>。opencode 的内置源就是这样几张「填好的表」：<span class="mono">core/environment</span> 这张表填的是「目录、项目根、是不是 git 仓库」，<span class="mono">core/date</span> 那张填的是「今天几号」。表本身短得可怜，因为前五课那套「表单系统」（源框架），早已把所有重活扛走了。<strong>表越简单，越证明系统越强大。</strong>
+</div>
+
+<h2>core/environment：你身处的环境</h2>
+<p>第一个内置源，是 <span class="mono">core/environment</span>——它告诉模型「你此刻在一个什么样的运行环境里」。它观察的值，是一段用 <span class="mono">&lt;env&gt;</span> 标签裹起来的环境描述：</p>
+<pre class="code"><span class="cm">// 简化自 system-context/builtins.ts</span>
+<span class="kw">const</span> environment = [
+  <span class="st">"&lt;env&gt;"</span>,
+  <span class="st">`  Working directory: ${'$'}{location.directory}`</span>,        <span class="cm">// 工作目录</span>
+  <span class="st">`  Workspace root folder: ${'$'}{location.project.directory}`</span>, <span class="cm">// 项目根</span>
+  <span class="st">`  Is directory a git repo: ${'$'}{...}`</span>,                  <span class="cm">// 是不是 git 仓库</span>
+  <span class="st">`  Platform: ${'$'}{process.platform}`</span>,                    <span class="cm">// 操作系统平台</span>
+  <span class="st">"&lt;/env&gt;"</span>,
+].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
+<p>留意那对 <span class="mono">&lt;env&gt;...&lt;/env&gt;</span> 标签——这是给大模型喂结构化信息的一个常用小技巧：用类 XML 的标签把一块信息<strong>圈出清晰的边界</strong>，模型一眼就能认出「这是环境块」，不会和正文混淆。里面四项也都挑得很实在：<strong>工作目录</strong>（我在哪干活）、<strong>项目根</strong>（这个项目的边界在哪）、<strong>是否 git 仓库</strong>（能不能用 git 命令）、<strong>平台</strong>（是 Linux 还是 Mac，影响命令写法）。这四样，正是一个要帮你写代码、跑命令的 agent <strong>最起码得知道的「我在哪」</strong>。</p>
+<p>这四项的取舍，本身就透着设计者对「agent 真正需要什么」的拿捏。它<strong>没有</strong>一股脑把整个系统的环境变量、磁盘容量、CPU 型号全倒给模型——那些大多是噪声，只会挤占宝贵的上下文、还分散模型注意力。它精选的，是<strong>会实打实影响 agent 决策</strong>的那几样：知道<strong>工作目录</strong>，相对路径才算得对；知道<strong>项目根</strong>，才不会改到项目外的文件；知道<strong>是不是 git 仓库</strong>，才决定要不要用 git 来看改动；知道<strong>平台</strong>，写命令时才知道是 <span class="mono">ls</span> 还是 <span class="mono">dir</span>。<strong>给模型的上下文，贵精不贵多</strong>——每一项都该是「不给它就会做错事」的，而非「给了也无妨」的。这种克制，和第 18 课工具输出落盘、整套系统对「token 寸土寸金」的敬畏，是一以贯之的。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">Working directory</div><div class="v">当前工作目录——命令在哪执行、相对路径从哪算</div></div>
+  <div class="cell"><div class="k">Workspace root</div><div class="v">项目根目录——项目的边界</div></div>
+  <div class="cell"><div class="k">Is git repo</div><div class="v">能不能用 git（影响 agent 的操作选择）</div></div>
+  <div class="cell"><div class="k">Platform</div><div class="v">linux/darwin/win32——命令语法因平台而异</div></div>
+</div>
+
+<h2>core/date：连「日期」都是一个源</h2>
+<p>第二个内置源 <span class="mono">core/date</span>，简单到只有一行 <span class="mono">load</span>：取今天的日期。但它最值得玩味的地方，恰恰是一个问题：<strong>「日期」这么个东西，为什么要做成一个带 <span class="mono">baseline</span>/<span class="mono">update</span> 的源，而不是开场写死一句「今天是 X」就完事？</strong></p>
+<pre class="code"><span class="cm">// 简化自 system-context/builtins.ts —— 一个源，十行不到</span>
+SystemContext.<span class="fn">make</span>({
+  key: SystemContext.Key.<span class="fn">make</span>(<span class="st">"core/date"</span>),
+  codec: Schema.<span class="fn">toCodecJson</span>(Schema.String),
+  load: DateTime.nowAsDate.<span class="fn">pipe</span>(Effect.<span class="fn">map</span>((d) =&gt; d.<span class="fn">toDateString</span>())),
+  baseline: (date) =&gt; <span class="st">`Today's date: ${'$'}{date}`</span>,            <span class="cm">// 首次</span>
+  update: (_prev, date) =&gt; <span class="st">`Today's date is now: ${'$'}{date}`</span>,  <span class="cm">// 跨天后</span>
+})</pre>
+<p>答案是：<strong>因为日期会变</strong>。一个会话可能从晚上聊到第二天凌晨——<strong>跨过了午夜</strong>。如果日期是开场写死的，那么过了午夜，模型脑子里的「今天」就<strong>错了</strong>，它可能把昨天当今天、把 deadline 算错一天。把日期做成源，下一轮 <span class="mono">prepare</span> 一对表，<span class="mono">reconcile</span> 就会发现「日期变了」，自动 publish 一条更新——模型于是读到「Today's date is now: ...」，时钟无缝拨正。<strong>连「日期」这种看似一成不变的东西，在一个可能长跑的会话里，都是「活」的</strong>——这正是前五课那套增量机制存在的意义：它不挑大小，任何「可能会变」的环境信息，都能用同一套源框架，优雅地保持新鲜。</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">周一 21:00</span><span class="tl-desc">会话开始 → baseline：「Today's date: Mon Jun 23」</span></div>
+  <div class="tl-item"><span class="tl-time">周一 23:30</span><span class="tl-desc">还在聊 → reconcile：日期没变 → Unchanged，沉默</span></div>
+  <div class="tl-item"><span class="tl-time">★ 跨午夜 00:00</span><span class="tl-desc">日期变了！</span></div>
+  <div class="tl-item"><span class="tl-time">周二 00:15</span><span class="tl-desc">下一轮 → reconcile：变了 → update：「Today's date is now: Tue Jun 24」</span></div>
+</div>
+<div class="cols">
+  <div class="col"><h4>baseline：「Today's date: X」</h4><p>首次告知。措辞像在<strong>陈述一个事实</strong>。</p></div>
+  <div class="col"><h4>update：「Today's date is now: X」</h4><p>跨天后告知。那个 <strong>now</strong>，在向模型明示「这是一个<strong>变化</strong>」。</p></div>
+</div>
+<p>顺带品一下 <span class="mono">baseline</span> 和 <span class="mono">update</span> 的<strong>措辞差异</strong>：首次是「Today's date: X」（平铺直叙），变化后是「Today's date is now: X」——多出来的那个 <span class="mono">now</span>，是在轻轻提醒模型「<strong>注意，这是新变的</strong>」。环境源那边也一样：baseline 说「Here is some useful information…」，update 说「The environment …is now：」。这种<strong>用措辞本身去区分「初始」与「变化」</strong>的小心思，看似微不足道，却让模型读起来语感更自然——它能从字里行间感到「哦，这是后来才变的」，而非又一次重复。<strong>好的上下文，不只内容对，连「这是不是新消息」的语气都对。</strong></p>
+<p>这个细节小到几乎没人会注意，却恰恰是「为读者着想」这件事最纯粹的体现——只不过这里的「读者」是个大模型。一个不走心的实现，baseline 和 update 大可以用一模一样的措辞，反正信息都传到了。但 opencode 多花了这一点心思：让「首次陈述」读起来像陈述，让「后续变化」读起来像变化。对模型而言，「now」这个词就是一个微弱却清晰的信号，帮它把「这是当前状态的重申」和「这是刚刚发生的改变」区分开。<strong>把使用者（哪怕是个 AI）的阅读体验放在心上，连一个单词的取舍都不肯随便——这种近乎偏执的体贴，往往是区分「能用」和「好用」的那道细微而决定性的分水岭。</strong></p>
+
+<h2>还有指令：InstructionContext</h2>
+<p>除了环境和日期，还有一个更「重」的内置源——<span class="mono">InstructionContext</span>（<span class="mono">instruction-context.ts</span>）。它管的是项目里那些<strong>常驻指令</strong>：<span class="mono">AGENTS.md</span> 之类的文件，写着「这个项目用什么规范、有什么禁忌、希望 agent 怎么干活」。这些指令也被包装成一个源，注册进同一个注册表——于是它和环境、日期<strong>一视同仁</strong>地参与基线、增量、投影。<strong>项目规范变了（你改了 AGENTS.md），它也能像目录变化一样，被增量地告知模型。</strong></p>
+<p>把这三个源放一起看，opencode「喂给模型的世界」就有了血肉：<strong>环境</strong>告诉它「我在哪、什么平台」，<strong>日期</strong>告诉它「现在何时」，<strong>指令</strong>告诉它「这个项目的规矩」。三者各是一个独立的源，各自观察、各自增量、各自原位更新，最后由注册表汇成一份完整、有序、可增量的系统上下文。<strong>这就是前五课那套抽象，落到实处的全部模样。</strong></p>
+<p>还有一点值得回味：这三个源是 opencode <strong>内置</strong>的，但它们和「将来某个插件贡献的源」<strong>站在完全平等的位置</strong>上。<span class="mono">core/environment</span> 并不因为姓「core」就享有什么特权——它也是规规矩矩 <span class="mono">make</span> 一个 <span class="mono">Source</span>、注册进同一个注册表。这意味着：<strong>opencode 自己用的，和它开放给第三方扩展的，是同一套机制</strong>。这种「自己人和外人吃同一锅饭」的设计（业界叫 dogfooding——吃自家的狗粮），是一套扩展机制健康的最好证明：因为框架的作者自己就靠它过日子，它就不可能是个糊弄人的、二等的扩展点。你将来想给 opencode 加一个「当前分支名」或「最近一次构建状态」的上下文源，走的会是和 <span class="mono">core/date</span> 一模一样的那五行——这，就是好抽象最慷慨的承诺。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">core/environment</div><div class="v">「我在哪」：目录、项目根、git、平台</div></div>
+  <div class="cell"><div class="k">core/date</div><div class="v">「现在何时」：今天的日期（跨天会更新）</div></div>
+  <div class="cell"><div class="k">InstructionContext</div><div class="v">「这里的规矩」：AGENTS.md 等常驻指令</div></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这一课把第五部分前五课的抽象，<strong>兑现成了几个真实、极简的源</strong>：</p>
+  <ul>
+    <li><strong>源的定义短得惊人</strong>：十来行声明 key/codec/load/baseline/update，重活全被框架（codec 派生判等、注册表、纪元、投影）吸走——这是「好抽象」的试金石。</li>
+    <li><strong>core/environment</strong>：用 <span class="mono">&lt;env&gt;</span> 标签裹住目录/项目根/git/平台——agent 最起码得知道的「我在哪」。</li>
+    <li><strong>core/date</strong>：连「日期」都是源，因为会话可能<strong>跨午夜</strong>——任何「可能变」的信息都值得用源框架保持新鲜。</li>
+    <li><strong>措辞区分</strong>：baseline 平铺、update 用「now」轻点「这是变化」——连语气都为模型着想。</li>
+    <li><strong>InstructionContext</strong>：AGENTS.md 等项目指令，也是一个一视同仁的源。</li>
+  </ul>
+  <p>到这里，系统上下文的「常态」全部讲透：抽象（L21-23）、落进会话（L24）、中途更新（L25）、具体内置（本课）。整个第五部分只剩最后一块、也是最硬的一块拼图——第 24 课反复点名、却始终没拆的 <span class="mono">AgentReplacementBlocked</span>：<strong>当你中途换了一个 agent，那份属于旧 agent 的上下文纪元，该怎么办？为什么「替换」有时会被「阻挡」？</strong>这就是下一课、也是第五部分压轴的 <strong>Agent 切换与 Epoch 替换（第 27 课）</strong>。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>一个完整的源定义有多简单？看 <span class="mono">core/environment</span> 的全貌——五个字段，没一句废话：</p>
+  <pre class="code"><span class="cm">// 简化自 system-context/builtins.ts</span>
+SystemContext.<span class="fn">make</span>({
+  key: SystemContext.Key.<span class="fn">make</span>(<span class="st">"core/environment"</span>),     <span class="cm">// 唯一标识</span>
+  codec: Schema.<span class="fn">toCodecJson</span>(Schema.String),               <span class="cm">// 值是字符串</span>
+  load: Effect.<span class="fn">succeed</span>(environment),                      <span class="cm">// 怎么观察</span>
+  baseline: (env) =&gt; <span class="st">`Here is ...:\n${'$'}{env}`</span>,            <span class="cm">// 首次全文</span>
+  update: (_prev, env) =&gt; <span class="st">`The environment ...is now:\n${'$'}{env}`</span>, <span class="cm">// 变化文本</span>
+})</pre>
+  <p>就这么五行。<strong>没有</strong>一行在写「怎么序列化」（<span class="mono">codec</span> 一指，第 22 课的 encode/decode/equivalent 自动就位）；<strong>没有</strong>一行在写「怎么注册、怎么排序、怎么并发」（交给第 23 课的注册表）；<strong>没有</strong>一行在写「怎么持久化、怎么钉序号、怎么投影成 System 消息」（交给第 24、25 课）。一个源的作者，只需回答五个最本质的问题：<strong>叫什么、值长啥样、怎么观察、首次怎么说、变了怎么说</strong>。其余一切，前五课那套机制全替他答了。<strong>这五行的清爽，是前面所有复杂换来的——复杂被收进了框架，简单留给了使用者。</strong></p>
+  <div class="cols">
+    <div class="col"><h4>框架扛走的（你看不见）</h4><p>encode/decode/equivalent 判等、scoped 注册、按 key 排序、并发观察、纪元持久化、钉 baselineSeq、投影成 System 消息、原位落位……一大堆。</p></div>
+    <div class="col"><h4>源作者写的（就五行）</h4><p>key、codec、load、baseline、update。回答「叫什么/值长啥样/怎么观察/首次怎么说/变了怎么说」，完。</p></div>
+  </div>
+  <div class="cellgroup">
+    <div class="cell"><div class="k">key</div><div class="v">"core/date" —— 唯一标识</div></div>
+    <div class="cell"><div class="k">codec</div><div class="v">Schema.String —— 值是字符串</div></div>
+    <div class="cell"><div class="k">load</div><div class="v">取今天日期 —— 怎么观察</div></div>
+    <div class="cell"><div class="k">baseline / update</div><div class="v">「Today's date: X」/「…is now: X」—— 首次 / 变化怎么说</div></div>
+  </div>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li>前五课的抽象，兑现成的真实源<strong>简单得惊人</strong>：十来行声明 <strong>key/codec/load/baseline/update</strong>，重活全被框架吸走——这是「好抽象」的试金石。</li>
+    <li><strong>core/environment</strong>：<span class="mono">&lt;env&gt;</span> 标签裹住<strong>目录、项目根、是否 git、平台</strong>——agent 最起码得知道的「我在哪」。</li>
+    <li><strong>core/date</strong>：连「日期」都做成源，因为会话可能<strong>跨午夜</strong>变天——任何「可能变」的信息都值得用源框架保持新鲜。</li>
+    <li><strong>措辞区分初始与变化</strong>：baseline「Today's date: X」平铺，update「Today's date is now: X」用 now 轻点变化——连语气都为模型着想。</li>
+    <li><strong>InstructionContext</strong>（AGENTS.md 等项目指令）也是一视同仁的源：环境「我在哪」、日期「何时」、指令「规矩」，三者共同织成模型所处的世界。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. 为什么连「日期」都要做成一个带 baseline/update 的源？</div>
+  <ol class="opts">
+    <li>纯粹是为了演示框架</li>
+    <li>因为日期会变——会话可能跨午夜，跨天后 reconcile 自动发更新、把模型的「今天」拨正</li>
+    <li>为了占满上下文窗口</li>
+    <li>因为日期很重要</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。会话可能从晚聊到凌晨、跨过午夜。若日期开场写死，过午夜模型的「今天」就错了(把昨天当今天、deadline 算错)。做成源后下轮 reconcile 发现变化、publish 更新「Today's date is now:…」。任何「可能变」的信息都值得用源框架保持新鲜。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. 内置源的定义往往只有十来行，这说明了什么？</div>
+  <ol class="opts">
+    <li>说明日期和环境不重要</li>
+    <li>好抽象的试金石：复杂被吸进框架，源作者只需声明 key/codec/load/baseline/update 五件本质的事</li>
+    <li>说明代码没写完</li>
+    <li>说明这些源功能很弱</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。源里没一行写「怎么序列化/注册/排序/并发/持久化/钉序号/投影成 System 消息」——这些全被前五课的框架吸走。作者只答五个本质问题：叫什么/值长啥样/怎么观察/首次怎么说/变了怎么说。加新东西近乎填空=好抽象；反之繁琐=坏抽象。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. core/environment 为什么只挑了目录/项目根/git/平台这四项，而非把所有环境变量都倒给模型？</div>
+  <ol class="opts">
+    <li>因为其它环境变量读不到</li>
+    <li>给模型的上下文贵精不贵多——只给「不给就会做错事」的，多余信息是噪声、挤占 token、分散注意</li>
+    <li>随便挑的，没有理由</li>
+    <li>为了让代码更短</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。这四项各自影响 agent 决策：工作目录→相对路径算对、项目根→不改项目外文件、is-git→要不要用 git、平台→ls 还是 dir。其余环境变量大多是噪声，只会挤占宝贵上下文、分散模型注意。贵精不贵多，和第 18 课对 token 寸土寸金的敬畏一以贯之。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里说 core 内置源和「将来插件贡献的源」站在完全平等的位置（dogfooding/吃自家狗粮）——框架作者自己就靠它过日子，扩展点就不可能是二等的。为什么「自己人和外人吃同一套机制」是扩展机制健康的最好证明？</li>
+    <li>课里赞赏 baseline/update 用「now」一词的差别去暗示「这是变化」——一个几乎没人会注意的细节。结合你用过的工具/读过的提示，举一个「为读者（哪怕是 AI）多花一点心思的措辞」让体验明显变好的例子。</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">Lessons 21 to 25 built a rather precise machine: the source algebra, codec-derived equality, the registry, the context epoch, in-place System messages… all about <strong>"mechanism."</strong> This lesson, at last, is time to <strong>lift the lid and see what parts are actually inside</strong> — what opencode's truly built-in context sources actually look like. And the most knowing-smile discovery is: <strong>they're unbelievably simple</strong>. A source's complete definition is often a dozen lines. The seemingly-complex machinery of the past five lessons, at the concrete source, <strong>dissolves into a few crisp declarations</strong>. What this lesson wants you to feel is the sweetest reward of "good abstraction": <strong>absorb the complexity into the framework, leave the use site simple to near-transparency.</strong></p>
+<p>Why call out "sources are this simple"? Because it's the <strong>touchstone</strong> of whether an abstraction succeeds. A bad abstraction makes "add a new thing" tedious — you must know a heap of internal detail, carefully wire up various connections. A good abstraction makes "add a new thing" <strong>nearly fill-in-the-blank</strong>: you only declare the bit of info <strong>unique</strong> to this thing, and the rest — serialization, equality, registration, refresh, projection — the framework wraps up for you. Through two real built-in sources, <span class="mono">core/environment</span> and <span class="mono">core/date</span>, this lesson lets you see firsthand: to what degree the past five lessons' machinery simplifies "writing a context source."</p>
+
+<div class="card analogy">
+  <div class="tag">🧩 Analogy</div>
+  Imagine you spent great effort building a <strong>"smart form system"</strong>: it auto-validates, auto-stores version history, auto-highlights "what changed since last time." The system itself is complex — but precisely because it's complex, <strong>actually filling in a form is dead simple</strong>. To fill the "current location form," you just write one line "Location: Beijing"; the "date form," just "Today: Monday." Validation, archiving, comparison, change-flagging — these the form system silently does behind the scenes, and <strong>the form-filler needn't worry about any of it</strong>. opencode's built-in sources are just such "filled-in forms": <span class="mono">core/environment</span> fills "directory, project root, is-git-repo," <span class="mono">core/date</span> fills "what's today." The forms are pitifully short, because the past five lessons' "form system" (the source framework) long since carried off all the heavy lifting. <strong>The simpler the form, the more it proves how powerful the system is.</strong>
+</div>
+
+<h2>core/environment: the environment you're in</h2>
+<p>The first built-in source is <span class="mono">core/environment</span> — it tells the model "what runtime environment you're in right now." The value it observes is an environment description wrapped in <span class="mono">&lt;env&gt;</span> tags:</p>
+<pre class="code"><span class="cm">// simplified from system-context/builtins.ts</span>
+<span class="kw">const</span> environment = [
+  <span class="st">"&lt;env&gt;"</span>,
+  <span class="st">`  Working directory: ${'$'}{location.directory}`</span>,        <span class="cm">// working directory</span>
+  <span class="st">`  Workspace root folder: ${'$'}{location.project.directory}`</span>, <span class="cm">// project root</span>
+  <span class="st">`  Is directory a git repo: ${'$'}{...}`</span>,                  <span class="cm">// is it a git repo</span>
+  <span class="st">`  Platform: ${'$'}{process.platform}`</span>,                    <span class="cm">// OS platform</span>
+  <span class="st">"&lt;/env&gt;"</span>,
+].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
+<p>Note the <span class="mono">&lt;env&gt;...&lt;/env&gt;</span> tags — a common trick for feeding structured info to an LLM: XML-like tags <strong>draw clear boundaries</strong> around a block of info, so the model recognizes "this is the environment block" at a glance, not confusing it with the body. The four items inside are also chosen practically: <strong>working directory</strong> (where I work), <strong>project root</strong> (where this project's boundary is), <strong>is-git-repo</strong> (whether git commands are usable), <strong>platform</strong> (Linux or Mac, affecting command syntax). These four are exactly the bare minimum an agent meant to write code and run commands for you <strong>must know about "where am I."</strong></p>
+<p>The selection of these four itself shows the designer's grasp of "what an agent truly needs." It does <strong>not</strong> dump the whole system's environment variables, disk capacity, CPU model at the model — mostly noise that only crowds the precious context and distracts the model. What it handpicks is the few that <strong>genuinely affect the agent's decisions</strong>: knowing the <strong>working directory</strong>, relative paths compute right; knowing the <strong>project root</strong>, it won't edit files outside the project; knowing <strong>is-git-repo</strong>, it decides whether to use git for diffs; knowing the <strong>platform</strong>, it knows to write <span class="mono">ls</span> or <span class="mono">dir</span>. <strong>Context given to the model is about quality, not quantity</strong> — each item should be one where "not giving it would cause mistakes," not "no harm giving it." This restraint is of one piece with Lesson 18's tool output to disk, and the whole system's reverence for "tokens are precious."</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">Working directory</div><div class="v">current dir — where commands run, where relative paths compute from</div></div>
+  <div class="cell"><div class="k">Workspace root</div><div class="v">project root directory — the project's boundary</div></div>
+  <div class="cell"><div class="k">Is git repo</div><div class="v">whether git is usable (affects the agent's choices)</div></div>
+  <div class="cell"><div class="k">Platform</div><div class="v">linux/darwin/win32 — command syntax varies by platform</div></div>
+</div>
+
+<h2>core/date: even "the date" is a source</h2>
+<p>The second built-in source <span class="mono">core/date</span> is simple to a single <span class="mono">load</span> line: get today's date. But its most intriguing point is exactly a question: <strong>why make "the date," of all things, a source with <span class="mono">baseline</span>/<span class="mono">update</span>, rather than just hard-code "today is X" at the start and be done?</strong></p>
+<pre class="code"><span class="cm">// simplified from system-context/builtins.ts — a source, under ten lines</span>
+SystemContext.<span class="fn">make</span>({
+  key: SystemContext.Key.<span class="fn">make</span>(<span class="st">"core/date"</span>),
+  codec: Schema.<span class="fn">toCodecJson</span>(Schema.String),
+  load: DateTime.nowAsDate.<span class="fn">pipe</span>(Effect.<span class="fn">map</span>((d) =&gt; d.<span class="fn">toDateString</span>())),
+  baseline: (date) =&gt; <span class="st">`Today's date: ${'$'}{date}`</span>,            <span class="cm">// first time</span>
+  update: (_prev, date) =&gt; <span class="st">`Today's date is now: ${'$'}{date}`</span>,  <span class="cm">// after crossing a day</span>
+})</pre>
+<p>The answer: <strong>because the date changes</strong>. A session may chat from evening into the next morning — <strong>crossing midnight</strong>. If the date is hard-coded at the start, then past midnight the model's "today" is <strong>wrong</strong>, possibly mistaking yesterday for today, miscounting a deadline by a day. Make the date a source, and the next round's <span class="mono">prepare</span> reconcile finds "the date changed," auto-publishing an update — so the model reads "Today's date is now: ...," the clock seamlessly corrected. <strong>Even "the date," seemingly unchanging, is "alive" in a possibly-long session</strong> — exactly the meaning of the past five lessons' incremental mechanism: it doesn't care about size, any "possibly-changing" environment info can be kept fresh elegantly by the same source framework.</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">Mon 21:00</span><span class="tl-desc">session starts → baseline: "Today's date: Mon Jun 23"</span></div>
+  <div class="tl-item"><span class="tl-time">Mon 23:30</span><span class="tl-desc">still chatting → reconcile: date unchanged → Unchanged, silent</span></div>
+  <div class="tl-item"><span class="tl-time">★ midnight 00:00</span><span class="tl-desc">the date changed!</span></div>
+  <div class="tl-item"><span class="tl-time">Tue 00:15</span><span class="tl-desc">next round → reconcile: changed → update: "Today's date is now: Tue Jun 24"</span></div>
+</div>
+<div class="cols">
+  <div class="col"><h4>baseline: "Today's date: X"</h4><p>First notification. The wording reads like <strong>stating a fact</strong>.</p></div>
+  <div class="col"><h4>update: "Today's date is now: X"</h4><p>After crossing a day. That <strong>now</strong> signals to the model "this is a <strong>change</strong>."</p></div>
+</div>
+<p>Savor the <strong>wording difference</strong> between <span class="mono">baseline</span> and <span class="mono">update</span>: first is "Today's date: X" (flatly stated), after change is "Today's date is now: X" — the extra <span class="mono">now</span> gently reminds the model "note, this is newly changed." Same on the environment source: baseline says "Here is some useful information…," update says "The environment …is now:". This little care of <strong>using the wording itself to distinguish "initial" from "change"</strong> seems trivial but makes the model's reading more natural — it senses from between the lines "oh, this changed later," rather than yet another repetition. <strong>Good context isn't only correct in content but correct in the tone of "is this new news."</strong></p>
+<p>This detail is so small almost no one would notice, yet it's the purest expression of "considering the reader" — only here the "reader" is an LLM. A careless implementation could use identical wording for baseline and update; the info gets through either way. But opencode spent this extra care: making the "first statement" read like a statement, the "subsequent change" read like a change. To the model, "now" is a faint but clear signal helping it separate "a restatement of the current state" from "a change just happened." <strong>Keeping the user's (even an AI's) reading experience in mind, refusing to be casual about even a single word's choice — this near-obsessive thoughtfulness is often the subtle, decisive watershed between "works" and "works well."</strong></p>
+
+<h2>And instructions: InstructionContext</h2>
+<p>Beyond environment and date, there's a "heavier" built-in source — <span class="mono">InstructionContext</span> (<span class="mono">instruction-context.ts</span>). It handles the project's <strong>standing instructions</strong>: files like <span class="mono">AGENTS.md</span>, stating "what conventions this project uses, what's taboo, how it wants the agent to work." These instructions are also wrapped into a source, registered into the same registry — so it participates in baseline, increment, projection <strong>on equal footing</strong> with environment and date. <strong>Change the project conventions (you edit AGENTS.md), and it too can be incrementally told to the model, just like a directory change.</strong></p>
+<p>Put these three sources together and opencode's "world fed to the model" has flesh and blood: <strong>environment</strong> tells it "where I am, what platform," <strong>date</strong> tells it "when it is now," <strong>instructions</strong> tell it "this project's rules." Each is an independent source, each observing, each incrementing, each updating in place, finally gathered by the registry into one complete, ordered, incrementable system context. <strong>This is the full look of the past five lessons' abstraction landed in practice.</strong></p>
+<p>One more thing to mull: these three sources are opencode's <strong>built-ins</strong>, but they stand on <strong>completely equal footing</strong> with "a source some plugin contributes in future." <span class="mono">core/environment</span> enjoys no privilege for being surnamed "core" — it too dutifully <span class="mono">make</span>s a <span class="mono">Source</span> and registers into the same registry. This means: <strong>what opencode uses itself and what it opens to third-party extension are the same mechanism</strong>. This "insiders and outsiders eat from the same pot" design (the industry calls it dogfooding — eating your own dog food) is the best proof of a healthy extension mechanism: because the framework's authors live on it themselves, it can't be a perfunctory, second-class extension point. Want to add a "current branch name" or "last build status" context source to opencode in future? You'd write the exact same five lines as <span class="mono">core/date</span> — that's the most generous promise of a good abstraction.</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">core/environment</div><div class="v">"where I am": directory, project root, git, platform</div></div>
+  <div class="cell"><div class="k">core/date</div><div class="v">"when it is now": today's date (updates across days)</div></div>
+  <div class="cell"><div class="k">InstructionContext</div><div class="v">"the rules here": standing instructions like AGENTS.md</div></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture</div>
+  <p>This lesson cashes the first five lessons' abstraction <strong>into a few real, minimal sources</strong>:</p>
+  <ul>
+    <li><strong>Source definitions are astonishingly short</strong>: a dozen lines declaring key/codec/load/baseline/update, the heavy lifting all absorbed by the framework (codec-derived equality, registry, epoch, projection) — the touchstone of "good abstraction."</li>
+    <li><strong>core/environment</strong>: <span class="mono">&lt;env&gt;</span> tags wrapping directory/project-root/git/platform — the bare minimum an agent must know about "where am I."</li>
+    <li><strong>core/date</strong>: even "the date" is a source, because a session may <strong>cross midnight</strong> — any "possibly-changing" info deserves keeping fresh by the source framework.</li>
+    <li><strong>Wording distinction</strong>: baseline flat, update uses "now" to lightly flag "this is a change" — even the tone considers the model.</li>
+    <li><strong>InstructionContext</strong>: project instructions like AGENTS.md are also an equal-footing source.</li>
+  </ul>
+  <p>By here, system context's "normal state" is fully covered: abstraction (L21-23), landing in the session (L24), mid-conversation update (L25), concrete built-ins (this lesson). Part 5 has only the last and hardest puzzle piece left — the <span class="mono">AgentReplacementBlocked</span> Lesson 24 kept naming but never unpacked: <strong>when you switch an agent mid-way, what becomes of the context epoch belonging to the old agent? Why is "replacement" sometimes "blocked"?</strong> That's the next lesson, Part 5's finale — <strong>Agent switch & epoch replacement (Lesson 27)</strong>.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p>How simple is a complete source definition? See <span class="mono">core/environment</span> in full — five fields, not a wasted word:</p>
+  <pre class="code"><span class="cm">// simplified from system-context/builtins.ts</span>
+SystemContext.<span class="fn">make</span>({
+  key: SystemContext.Key.<span class="fn">make</span>(<span class="st">"core/environment"</span>),     <span class="cm">// unique identity</span>
+  codec: Schema.<span class="fn">toCodecJson</span>(Schema.String),               <span class="cm">// value is a string</span>
+  load: Effect.<span class="fn">succeed</span>(environment),                      <span class="cm">// how to observe</span>
+  baseline: (env) =&gt; <span class="st">`Here is ...:\n${'$'}{env}`</span>,            <span class="cm">// first-time full text</span>
+  update: (_prev, env) =&gt; <span class="st">`The environment ...is now:\n${'$'}{env}`</span>, <span class="cm">// change text</span>
+})</pre>
+  <p>Just these five lines. <strong>Not</strong> a line writing "how to serialize" (one point to a <span class="mono">codec</span>, and Lesson 22's encode/decode/equivalent fall into place automatically); <strong>not</strong> a line writing "how to register, sort, parallelize" (handed to Lesson 23's registry); <strong>not</strong> a line writing "how to persist, pin a sequence, project into a System message" (handed to Lessons 24, 25). A source author need only answer five most-essential questions: <strong>what it's called, what the value looks like, how to observe, how to say it first time, how to say it on change</strong>. Everything else, the past five lessons' machinery answers for them. <strong>The crispness of these five lines is bought by all the prior complexity — complexity absorbed into the framework, simplicity left for the user.</strong></p>
+  <div class="cols">
+    <div class="col"><h4>what the framework carries (unseen)</h4><p>encode/decode/equivalent equality, scoped registration, sort by key, concurrent observe, epoch persistence, pin baselineSeq, project into a System message, in-place positioning… a whole heap.</p></div>
+    <div class="col"><h4>what the source author writes (just five lines)</h4><p>key, codec, load, baseline, update. Answer "name/value shape/how to observe/first-time/on-change," done.</p></div>
+  </div>
+  <div class="cellgroup">
+    <div class="cell"><div class="k">key</div><div class="v">"core/date" — unique identity</div></div>
+    <div class="cell"><div class="k">codec</div><div class="v">Schema.String — value is a string</div></div>
+    <div class="cell"><div class="k">load</div><div class="v">get today's date — how to observe</div></div>
+    <div class="cell"><div class="k">baseline / update</div><div class="v">"Today's date: X" / "…is now: X" — first-time / on-change</div></div>
+  </div>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li>The first five lessons' abstraction cashes into real sources that are <strong>astonishingly simple</strong>: a dozen lines declaring <strong>key/codec/load/baseline/update</strong>, the heavy lifting all absorbed by the framework — the touchstone of "good abstraction."</li>
+    <li><strong>core/environment</strong>: <span class="mono">&lt;env&gt;</span> tags wrapping <strong>directory, project root, is-git, platform</strong> — the bare minimum an agent must know about "where am I."</li>
+    <li><strong>core/date</strong>: even "the date" is a source, because a session may <strong>cross midnight</strong> — any "possibly-changing" info deserves keeping fresh by the source framework.</li>
+    <li><strong>Wording distinguishes initial from change</strong>: baseline "Today's date: X" flat, update "Today's date is now: X" with "now" lightly flagging the change — even the tone considers the model.</li>
+    <li><strong>InstructionContext</strong> (project instructions like AGENTS.md) is also an equal-footing source: environment "where I am," date "when," instructions "the rules" — together weaving the world the model is in.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. Why is even "the date" made a source with baseline/update?</div>
+  <ol class="opts">
+    <li>Purely to demo the framework</li>
+    <li>Because the date changes — a session may cross midnight; after crossing, reconcile auto-sends an update, correcting the model's "today"</li>
+    <li>To fill up the context window</li>
+    <li>Because the date is important</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. A session may chat from evening into early morning, crossing midnight. Hard-coded at start, past midnight the model's "today" is wrong (yesterday as today, miscounted deadline). As a source, next round's reconcile finds the change and publishes "Today's date is now:…". Any possibly-changing info deserves staying fresh via the source framework.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. Built-in source definitions are often just a dozen lines — what does this show?</div>
+  <ol class="opts">
+    <li>It shows date and environment don't matter</li>
+    <li>The touchstone of good abstraction: complexity absorbed into the framework, the source author declares only five essentials — key/codec/load/baseline/update</li>
+    <li>It shows the code is unfinished</li>
+    <li>It shows these sources are weak</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. No line writes "how to serialize/register/sort/parallelize/persist/pin-seq/project into a System message" — all absorbed by the past five lessons' framework. The author answers five essentials: name/value shape/how to observe/first-time/on-change. Adding a thing being near fill-in-the-blank = good abstraction; tedious = bad.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. Why does core/environment pick only directory/root/git/platform, not dump all environment variables at the model?</div>
+  <ol class="opts">
+    <li>Because other env vars can't be read</li>
+    <li>Context for the model is about quality not quantity — give only what "would cause mistakes if omitted"; extra info is noise, crowds tokens, distracts</li>
+    <li>Picked at random, no reason</li>
+    <li>To make the code shorter</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Each of the four affects agent decisions: working dir→relative paths, project root→don't edit outside, is-git→whether to use git, platform→ls or dir. Other env vars are mostly noise crowding precious context and distracting. Quality not quantity, of one piece with Lesson 18's reverence for precious tokens.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson says core built-in sources stand on equal footing with "sources future plugins contribute" (dogfooding) — the framework authors live on it themselves, so the extension point can't be second-class. Why is "insiders and outsiders using the same mechanism" the best proof of a healthy extension mechanism?</li>
+    <li>The lesson praises baseline/update using the word "now" to hint "this is a change" — a detail almost no one notices. From tools you've used or prompts you've read, give an example where "a bit more care in wording for the reader (even an AI)" noticeably improved the experience.</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="25-mid-conversation.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">会话中系统消息</span><span class="lang-en">Mid-conversation messages</span></div></a><a class="next" href="27-agent-switch-epoch.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">Agent 切换与 Epoch 替换</span><span class="lang-en">Agent switch &amp; epoch</span></div></a></div>
 </div>
 <script>

@@ -1118,6 +1118,47 @@ QUIZZES = {
             {"zh": "课里说「只要你能把一件事表达成一个带 seq 的事件，它就能自动、原位、可重放地出现在模型读到的历史里」。基于这条，设想一种 opencode 目前没有、但可以用同样方式接入的新「中途信息」，说说它会怎么走这条流水线。", "en": "The lesson says \"as long as you can express something as an event with a seq, it can automatically, in-place, replayably appear in the history the model reads.\" Based on this, imagine a new kind of \"mid-conversation info\" opencode doesn't yet have but could plug in the same way, and describe how it would travel this pipeline."},
         ],
     },
+    "26-builtin-sources.html": {
+        "mcq": [
+            {
+                "q": {"zh": "为什么连「日期」都要做成一个带 baseline/update 的源？", "en": "Why is even \"the date\" made a source with baseline/update?"},
+                "opts": [
+                    {"zh": "因为日期会变——会话可能跨午夜，跨天后 reconcile 自动发更新、把模型的「今天」拨正", "en": "Because the date changes — a session may cross midnight; after crossing, reconcile auto-sends an update, correcting the model's \"today\""},
+                    {"zh": "因为日期很重要", "en": "Because the date is important"},
+                    {"zh": "为了占满上下文窗口", "en": "To fill up the context window"},
+                    {"zh": "纯粹是为了演示框架", "en": "Purely to demo the framework"},
+                ],
+                "answer": 0,
+                "why": {"zh": "会话可能从晚聊到凌晨、跨过午夜。若日期开场写死，过午夜模型的「今天」就错了(把昨天当今天、deadline 算错)。做成源后下轮 reconcile 发现变化、publish 更新「Today's date is now:…」。任何「可能变」的信息都值得用源框架保持新鲜。", "en": "A session may chat from evening into early morning, crossing midnight. Hard-coded at start, past midnight the model's \"today\" is wrong (yesterday as today, miscounted deadline). As a source, next round's reconcile finds the change and publishes \"Today's date is now:…\". Any possibly-changing info deserves staying fresh via the source framework."},
+            },
+            {
+                "q": {"zh": "内置源的定义往往只有十来行，这说明了什么？", "en": "Built-in source definitions are often just a dozen lines — what does this show?"},
+                "opts": [
+                    {"zh": "好抽象的试金石：复杂被吸进框架，源作者只需声明 key/codec/load/baseline/update 五件本质的事", "en": "The touchstone of good abstraction: complexity absorbed into the framework, the source author declares only five essentials — key/codec/load/baseline/update"},
+                    {"zh": "说明这些源功能很弱", "en": "It shows these sources are weak"},
+                    {"zh": "说明代码没写完", "en": "It shows the code is unfinished"},
+                    {"zh": "说明日期和环境不重要", "en": "It shows date and environment don't matter"},
+                ],
+                "answer": 0,
+                "why": {"zh": "源里没一行写「怎么序列化/注册/排序/并发/持久化/钉序号/投影成 System 消息」——这些全被前五课的框架吸走。作者只答五个本质问题：叫什么/值长啥样/怎么观察/首次怎么说/变了怎么说。加新东西近乎填空=好抽象；反之繁琐=坏抽象。", "en": "No line writes \"how to serialize/register/sort/parallelize/persist/pin-seq/project into a System message\" — all absorbed by the past five lessons' framework. The author answers five essentials: name/value shape/how to observe/first-time/on-change. Adding a thing being near fill-in-the-blank = good abstraction; tedious = bad."},
+            },
+            {
+                "q": {"zh": "core/environment 为什么只挑了目录/项目根/git/平台这四项，而非把所有环境变量都倒给模型？", "en": "Why does core/environment pick only directory/root/git/platform, not dump all environment variables at the model?"},
+                "opts": [
+                    {"zh": "给模型的上下文贵精不贵多——只给「不给就会做错事」的，多余信息是噪声、挤占 token、分散注意", "en": "Context for the model is about quality not quantity — give only what \"would cause mistakes if omitted\"; extra info is noise, crowds tokens, distracts"},
+                    {"zh": "因为其它环境变量读不到", "en": "Because other env vars can't be read"},
+                    {"zh": "为了让代码更短", "en": "To make the code shorter"},
+                    {"zh": "随便挑的，没有理由", "en": "Picked at random, no reason"},
+                ],
+                "answer": 0,
+                "why": {"zh": "这四项各自影响 agent 决策：工作目录→相对路径算对、项目根→不改项目外文件、is-git→要不要用 git、平台→ls 还是 dir。其余环境变量大多是噪声，只会挤占宝贵上下文、分散模型注意。贵精不贵多，和第 18 课对 token 寸土寸金的敬畏一以贯之。", "en": "Each of the four affects agent decisions: working dir→relative paths, project root→don't edit outside, is-git→whether to use git, platform→ls or dir. Other env vars are mostly noise crowding precious context and distracting. Quality not quantity, of one piece with Lesson 18's reverence for precious tokens."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说 core 内置源和「将来插件贡献的源」站在完全平等的位置（dogfooding/吃自家狗粮）——框架作者自己就靠它过日子，扩展点就不可能是二等的。为什么「自己人和外人吃同一套机制」是扩展机制健康的最好证明？", "en": "The lesson says core built-in sources stand on equal footing with \"sources future plugins contribute\" (dogfooding) — the framework authors live on it themselves, so the extension point can't be second-class. Why is \"insiders and outsiders using the same mechanism\" the best proof of a healthy extension mechanism?"},
+            {"zh": "课里赞赏 baseline/update 用「now」一词的差别去暗示「这是变化」——一个几乎没人会注意的细节。结合你用过的工具/读过的提示，举一个「为读者（哪怕是 AI）多花一点心思的措辞」让体验明显变好的例子。", "en": "The lesson praises baseline/update using the word \"now\" to hint \"this is a change\" — a detail almost no one notices. From tools you've used or prompts you've read, give an example where \"a bit more care in wording for the reader (even an AI)\" noticeably improved the experience."},
+        ],
+    },
 }
 
 def render(fname, lang):
