@@ -1405,6 +1405,47 @@ QUIZZES = {
             {"zh": "课里说 Gemini 的差异「不在能力而在叫法」：functionCall / tool_use / tool_calls 指的是同一件事，\"model\" 和 \"assistant\" 是同一个角色。core 坚持只认一套规范名、让适配器翻译，而不是认全部三套叫法。请论证：为什么「让 N 个外部系统各自适配到 1 套内部规范」，比「让内部认得 N 套外部叫法」更可扩展？当外部供应商从 4 家涨到 40 家时，两种方案的维护成本曲线分别是什么样的？", "en": "The lesson says Gemini's differences are \"not in capability but in naming\": functionCall / tool_use / tool_calls mean the same thing, \"model\" and \"assistant\" are the same role. core insists on one canonical name set and lets adapters translate, rather than knowing all three sets. Argue: why is \"having N external systems each adapt to 1 internal canonical\" more scalable than \"having the internal know N external namings\"? As vendors grow from 4 to 40, what do the two approaches' maintenance-cost curves look like?"},
         ],
     },
+    "33-routing-transport.html": {
+        "mcq": [
+            {
+                "q": {"zh": "一次 Route.stream 请求，从规范请求到规范事件，经历的完整流水线是？", "en": "What's the complete pipeline of one Route.stream request, from canonical request to canonical events?"},
+                "opts": [
+                    {"zh": "①protocol.body.from 编码 → ②endpoint 寻址 → ③auth 签名 → ④transport 取字节流 → ⑤framing 切帧 → ⑥protocol.stream 解码成 LLMEvent", "en": "①protocol.body.from encode → ②endpoint address → ③auth sign → ④transport to byte stream → ⑤framing cut frames → ⑥protocol.stream decode to LLMEvent"},
+                    {"zh": "protocol 一个函数直接发请求、收响应、解码，全包了", "en": "protocol does it all in one function: send, receive, decode"},
+                    {"zh": "transport 负责编解码，protocol 负责发网络", "en": "transport does codec, protocol does the network"},
+                    {"zh": "framing 负责认证，auth 负责切帧", "en": "framing does auth, auth does framing"},
+                ],
+                "answer": 0,
+                "why": {"zh": "①⑥是协议（语言层）的活，②③④⑤是传输基础设施（网络层）的活。两段以「请求体」和「帧」为抽象接口对接：协议吐出/吃进抽象物、不碰网络；基础设施只搬字节、只切帧、不认方言。正是这种干净分工让每段都能单独替换——第 29 课的「两栏表」至此接上了完整上下文，第一次通上电转起来。", "en": "①⑥ are the protocol's (language layer) work, ②③④⑤ the transport infrastructure's (network layer). The two halves interface via \"request body\" and \"frame\" abstractions: protocol emits/eats abstractions, never touching the network; infrastructure only moves bytes and cuts frames, knowing no dialect. This clean division lets each segment be swapped alone — lesson 29's \"two-column form\" now has full context, powered up and spinning for the first time."},
+            },
+            {
+                "q": {"zh": "framing.ts 的注释说「帧的类型对这一层是不透明的」，这句话为什么重要？", "en": "framing.ts's comment says \"the frame type is opaque to this layer\"; why does this matter?"},
+                "opts": [
+                    {"zh": "因为 framing 只管「把字节切成一份份」、不管每份里装什么，所以同一种分帧（如 SSE）能被任意协议复用，服务 Anthropic/Gemini/OpenAI 三套方言", "en": "Because framing only \"cuts bytes into portions,\" not caring what each holds, so one framing (e.g. SSE) is reusable by any protocol, serving Anthropic/Gemini/OpenAI's three dialects"},
+                    {"zh": "因为 framing 会加密帧内容", "en": "Because framing encrypts the frame contents"},
+                    {"zh": "因为帧必须是二进制的", "en": "Because frames must be binary"},
+                    {"zh": "因为 framing 比 protocol 更重要", "en": "Because framing is more important than protocol"},
+                ],
+                "answer": 0,
+                "why": {"zh": "framing 是「传输与协议之间、字节流形状的那道缝」：接口只有 frame:(字节流)=>(帧流)。它对「帧里是什么」保持无知，于是 SSE 这一种分帧能同时服务三套完全不同的方言——「帧里是什么」是协议 stream.event 解码该操心的。假如没这道缝，「按 data: 空行切」就得在每个协议里各抄一遍，又是第 28 课最忌讳的重复。一道恰当的缝换来上下两层各自的自由。", "en": "framing is \"the byte-stream-shaped seam between transport and protocol\": its interface is just frame:(bytes)=>(frames). It stays ignorant of \"what's in the frame,\" so the single SSE framing serves three wholly different dialects at once — \"what's in the frame\" is the protocol stream.event decode's worry. Without this seam, \"cut by data: blank line\" would be copied into each protocol, again lesson 28's abhorred duplication. A well-placed seam buys both layers their freedom."},
+            },
+            {
+                "q": {"zh": "为什么说一个 Route 是「六个正交旋钮」拼出来的？这对新增供应商意味着什么？", "en": "Why is a Route said to be assembled from \"six orthogonal knobs\"? What does this mean for adding a provider?"},
+                "opts": [
+                    {"zh": "Route.make 由 id/protocol/endpoint/auth/transport/framing 六个可独立替换的零件组成；新增一家常常只是「给六个旋钮挑一组取值」，复用本质是「只拧一两个旋钮」", "en": "Route.make is six independently-swappable parts: id/protocol/endpoint/auth/transport/framing; adding one is often just \"pick a set of values for the six knobs,\" reuse is essentially \"turn one or two knobs\""},
+                    {"zh": "Route 是铁板一块，新增供应商要从头重写", "en": "Route is monolithic; adding a provider means rewriting from scratch"},
+                    {"zh": "六个旋钮必须一起改，不能单独动", "en": "All six knobs must change together, none alone"},
+                    {"zh": "旋钮越多说明设计越糟", "en": "More knobs means worse design"},
+                ],
+                "answer": 0,
+                "why": {"zh": "六个旋钮各管一维、可独立替换，组合空间却覆盖所有现实供应商。这把前几课的「魔法」全祛魅了：OpenAI 兼容=拨 protocol 到 openai-chat+改 endpoint；Bedrock=把 framing 从 SSE 拨到二进制；Responses WS=把 transport 从 HTTP 拨到 WS。每个聪明复用都是「只拧一两个旋钮、其余照旧」。而类型参数 Frame 在 framing↔protocol 接缝强制对齐——正交但不放任，自由组合+类型兜底。", "en": "Six knobs each own one dimension, independently swappable, yet the combination space covers all real providers. This demystifies prior lessons' \"magic\": OpenAI-compatible = turn protocol to openai-chat + change endpoint; Bedrock = turn framing from SSE to binary; Responses WS = turn transport from HTTP to WS. Each clever reuse is \"turn one or two knobs, leave the rest.\" And the type parameter Frame forces framing↔protocol alignment at the seam — orthogonal but not lawless, free composition + type backstop."},
+            },
+        ],
+        "open": [
+            {"zh": "课里把 OpenAI Responses 同时支持 HTTP 与 WebSocket，解释为「哪种传输划算就用哪种，并把选择做成一个可拨动的旋钮」，而不是「为了时髦上 WebSocket」。结合 HTTP（无状态、省心、universal）与 WebSocket（双向、实时、但要管连接保活/重连）的权衡，谈谈你会在什么场景选 WebSocket、什么场景坚持 HTTP？把传输做成「旋钮」而非写死，给未来留下了什么样的余地？", "en": "The lesson explains OpenAI Responses supporting both HTTP and WebSocket as \"use whichever transport is worthwhile, making the choice a turnable knob,\" not \"adopt WebSocket to be trendy.\" Weighing HTTP (stateless, carefree, universal) against WebSocket (bidirectional, real-time, but must manage keepalive/reconnect), discuss when you'd choose WebSocket and when you'd stick with HTTP. Making transport a \"knob\" rather than hardcoded leaves what headroom for the future?"},
+            {"zh": "课里强调「正交不等于放任」：六个旋钮能自由组合，但类型参数 Frame 在 framing 和 protocol 的接缝处强制对齐（SSE 切出 string 帧，配它的 protocol.stream.event 就得是 Codec<Event, string>）。请谈谈「用类型系统在模块接缝处设防」相比「靠文档约定/代码评审来防止错配」的优势；你能想到自己项目里哪个接缝，也值得用类型（而非口头约定）来强制对齐？", "en": "The lesson stresses \"orthogonal doesn't mean lawless\": the six knobs combine freely, but the type parameter Frame forces alignment at the framing/protocol seam (SSE cuts string frames, so its protocol.stream.event must be Codec<Event, string>). Discuss the advantage of \"guarding a module seam with the type system\" over \"preventing mismatches via documentation/code review.\" Which seam in your own project also deserves type-enforced (not verbal) alignment?"},
+        ],
+    },
 }
 
 def render(fname, lang):
