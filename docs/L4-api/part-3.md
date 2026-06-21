@@ -6,6 +6,7 @@ opencode 源文件（`/home/verden/course/opencode`）→ Part 3 中讲到它的
 | --- | --- | --- |
 | `packages/opencode/src/server/server.ts` | `HttpApiApp.webHandler().handler`（`(request)=>Response`）；`Server.openapi()` = `OpenApi.fromApi(PublicApi)`；`Server.Default().app.fetch` | L09, L12, L13 |
 | `packages/opencode/src/server/routes/instance/httpapi/groups/` | **21 个路由组**目录（能力地图） | L09, L10 |
+| `…/httpapi/api.ts` | 把各组用 `.addHttpApi(...)` 汇总成 `InstanceHttpApi` / `RootHttpApi` / `OpenCodeHttpApi` | L09 |
 | `…/httpapi/groups/session.ts` | `HttpApi.make("session").add(HttpApiGroup.make(…).add(HttpApiEndpoint.get("list", …, {query,success,error}).annotateMerge(…)))` | L10 |
 | `…/httpapi/groups/event.ts` | 单端点 `subscribe`，`success: Schema.String.pipe(HttpApiSchema.asText({contentType:"text/event-stream"}))` | L11 |
 | `…/httpapi/handlers/` | **20 个 handler 文件**（实现各组端点） | L10 |
