@@ -328,8 +328,304 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第六部分 · LLM 协议层</span><span class="lang-en">Part 6 · LLM Layer</span></div>
     <h1><span class="lang-zh">Gemini 与 Bedrock 协议</span><span class="lang-en">Gemini &amp; Bedrock</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《Gemini 与 Bedrock 协议》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“Gemini 与 Bedrock 协议”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Gemini & Bedrock" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Gemini & Bedrock" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">第 30、31 课我们看了 Anthropic 和 OpenAI 两份「填好的表」。这一课一口气再看两家——Gemini 与 Bedrock，它俩各自带来一个新维度的启发。<strong>Gemini</strong> 是「方言」主题的又一个变奏：它把几乎每个字段都改了名（Google 的 camelCase 风格），还给「推理签名」起了<strong>第三个名字</strong>——至此三大家三种叫法，这张「同物异名」的对照表你看完会会心一笑。而 <strong>Bedrock</strong> 才是这一课真正的主角，它揭示了一件深刻的事：<strong>同样是 Claude，跑在 AWS Bedrock 上却需要另写一份协议</strong>——不是因为方言变了（它说的还是 Anthropic 那套块+签名），而是因为<strong>「网络传输」彻底变了</strong>：Bedrock 不用大家熟悉的 SSE，而用 AWS 自家的<strong>二进制事件流</strong>。这正好印证了第 31 课结尾那句话：「方言相同、网络不同，照样得另起一份协议。」</p>
+<p>所以这一课其实在讲两件事。表面上，是认识 Gemini 和 Bedrock 两种新方言；骨子里，是借 Bedrock 这个绝佳样本，看清第 29 课那张表里 <span class="mono">stream</span> 之下还藏着一层——<strong>framing（分帧）</strong>。protocol 负责「帧→事件」，可帧本身怎么从字节流里切出来？SSE 那种「按空行切」太简单以至于你都没注意到它的存在；而 Bedrock 的二进制分帧，会把这层「字节→帧」的状态机<strong>结结实实地展示</strong>给你看。读完你会发现：原来流式解码是<strong>套娃</strong>的——字节→帧是一台状态机，帧→事件又是一台状态机。</p>
+
+<div class="card analogy">
+  <div class="tag">📡 生活类比</div>
+  还是那队同声传译。<strong>Gemini</strong> 这位翻译，业务上和别人没本质不同，但他有个怪癖：所有术语都要用自家的叫法——别人说「助手」他偏说「模型方」，别人说「系统提示」他塞进一个叫 <span class="mono">systemInstruction</span> 的专属抽屉，连「这段是机器的思考」都要盖一个他独有的 <span class="mono">thoughtSignature</span> 戳。换汤不换药，但你不熟悉他的叫法就对不上账。<strong>Bedrock</strong> 这位则更微妙：他翻译的内容和 Anthropic 那位<strong>一模一样</strong>（因为背后是同一个 Claude），可他不通过「正常电话线」（SSE）传话，而是走一条<strong>军用加密专线</strong>（AWS 二进制事件流）——每句话都裹在固定格式的信封里：先 4 字节写「这封信多长」，再写信头长度、校验码、信头、正文、末尾再来个校验码。你得先有一台「拆信封机」把一封封信从连续的字节流里准确切出来、验好校验码，才能把里面的话交给翻译去理解。<strong>同一个翻译内容，因为传输专线不同，就得在最外层多配一台拆信封机。</strong>
+</div>
+
+<h2>Gemini：把每个字段都改了名的方言</h2>
+<p>翻开 <span class="mono">gemini.ts</span>，扑面而来的是浓浓的 Google 风。它的请求体顶层叫 <span class="mono">contents</span>（不是 messages），每条是 <span class="mono">{role, parts}</span>，而 <span class="mono">role</span> 只有 <span class="mono">"user"</span> 和 <span class="mono">"model"</span> 两种——<strong>没有 "assistant"，Google 管助手叫「model」</strong>。系统提示又一次被拎到顶层，叫 <span class="mono">systemInstruction</span>（和 Anthropic 的 system、与 OpenAI 当普通消息，是三种摆法了）。内容不叫 content 而叫 <span class="mono">parts</span>，每个 part 可以是：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">text</div><div class="c-txt">文本片段</div></div>
+  <div class="cell"><div class="c-tag">functionCall</div><div class="c-txt">工具调用（camelCase！不是 tool_use 也不是 tool_calls）</div></div>
+  <div class="cell"><div class="c-tag">functionResponse</div><div class="c-txt">工具结果回传</div></div>
+  <div class="cell"><div class="c-tag">inline_data</div><div class="c-txt">内联图片等多模态数据</div></div>
+  <div class="cell"><div class="c-tag">thought + thoughtSignature</div><div class="c-txt">标记为思考的 part，带「思考签名」</div></div>
+</div>
+<p>看到 <span class="mono">thoughtSignature</span> 了吗？这就是本课第一个「会心一笑」的点。回顾一下：让模型跨轮信任自己上一轮的推理，第 30 课 Anthropic 叫 <span class="mono">signature</span>，第 31 课 OpenAI Responses 叫 <span class="mono">encrypted_content</span>，到了 Gemini 这儿叫 <span class="mono">thoughtSignature</span>——<strong>同一个概念，三家三个名字</strong>。明明是一回事，偏偏没人愿意跟别人叫一样的名字。把它们并排一放，「协议即方言」这五个字就再不抽象了：</p>
+<table class="t">
+  <tr><th>供应商</th><th>「信任上轮推理」的字段名</th><th>风格</th></tr>
+  <tr><td>Anthropic</td><td>signature</td><td>密码学签名验真</td></tr>
+  <tr><td>OpenAI Responses</td><td>encrypted_content</td><td>加密密文托管</td></tr>
+  <tr><td>Gemini</td><td>thoughtSignature</td><td>思考签名</td></tr>
+</table>
+<p>还有个有意思的差别：用量统计上，Gemini <strong>把思考 token 单列</strong>了——<span class="mono">usageMetadata</span> 里有 <span class="mono">thoughtsTokenCount</span> 字段，和 <span class="mono">candidatesTokenCount</span>（输出）、<span class="mono">promptTokenCount</span>（输入）并列。这跟第 30 课 Anthropic「把 thinking 算进 output、不单列」恰好相反。你看，连「思考 token 算不算单独一项」这种细节，三家都各有主张——而 opencode 的 <span class="mono">mapUsage</span> 们，就是把这些五花八门的口径，统统翻译成 core 认的那套规范 Usage。<strong>方言的差异有多碎，适配器吸收的功夫就有多细。</strong></p>
+<p>Gemini 这一节看似只是「认认 Google 的命名」，但它有个更深的教益：<strong>方言的差异往往不在「能力」而在「叫法」</strong>。functionCall 和 tool_use、tool_calls 三个名字，指的是同一件事——「助手想调一个工具」；"model" 和 "assistant" 也是同一个角色。能力上三家几乎对等，可只要叫法不统一，core 就不可能直接对接任何一家——它要么被迫认全部三套叫法（耦合灾难），要么坚持只认自己那一套规范名、让适配器去翻译。opencode 选了后者。所以当你写 <span class="mono">gemini.ts</span> 的 <span class="mono">body.from</span> 时，本质上是在做一本「<strong>规范名 ↔ Google 名</strong>」的双语词典：core 的「assistant」翻成「model」，core 的「工具调用」翻成「functionCall」，core 的统一 system 翻进「systemInstruction」抽屉。这本词典越全，core 就越干净。</p>
+
+<h2>Bedrock：同一个 Claude，却要另起一份协议</h2>
+<p>现在来到本课的重头戏。AWS Bedrock 是个「模型批发商」——它转售包括 Claude 在内的多家模型，统一用自家的 <strong>Converse</strong> API。打开 <span class="mono">bedrock-converse.ts</span>，你会有种<strong>似曾相识</strong>的感觉：消息是 user/assistant 的块数组，块里有 <span class="mono">text</span> / <span class="mono">toolUse</span> / <span class="mono">toolResult</span> / <span class="mono">reasoningContent</span>（带 <span class="mono">signature</span>），system 是顶层块数组，还有熟悉的缓存读写计数……</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">text</div><div class="c-txt">文本块</div></div>
+  <div class="cell"><div class="c-tag">toolUse</div><div class="c-txt">工具调用（带 toolUseId）</div></div>
+  <div class="cell"><div class="c-tag">toolResult</div><div class="c-txt">工具结果（按 toolUseId 对应）</div></div>
+  <div class="cell"><div class="c-tag">reasoningContent</div><div class="c-txt">推理内容，带 signature——和 Anthropic 同源！</div></div>
+</div>
+<p>为什么这么像 Anthropic？因为<strong>背后跑的就是 Claude</strong>，Bedrock 的 Converse 不过是给它套了层 AWS 的壳。连缓存逻辑都共享——还记得第 30 课说「4 个断点上限 + TTL 两档被抽到 <span class="mono">utils/cache.ts</span> 与 Bedrock 共享」吗？这里就是那个 Bedrock：<span class="mono">bedrock-converse.ts</span> 引入 <span class="mono">utils/bedrock-cache</span>，吃的正是同一套 4 断点规矩。<strong>方言几乎一样，那为什么不直接复用 Anthropic 协议、像 openai-compatible 那样 24 行了事？</strong>问题就出在「最外层那台拆信封机」上——传输方式根本不同。</p>
+<div class="cols">
+  <div class="col"><h4>Anthropic 官方</h4><p>方言：块 + signature。传输：<strong>SSE</strong>——一行行 UTF-8 文本，按空行分帧，人眼可读。framing 极简。</p></div>
+  <div class="col"><h4>Bedrock 上的 Claude</h4><p>方言：几乎相同（块 + reasoningContent.signature）。传输：<strong>AWS 二进制事件流</strong>——固定格式的二进制帧 + CRC 校验。framing 复杂。</p></div>
+</div>
+<p>看清楚这张对照表的要害：<strong>左右两栏的「方言」几乎一模一样，差别全在「传输」那一行</strong>。如果协议里把「方言编解码」和「传输分帧」搅在一起，那 Bedrock 就只能把 Anthropic 的编解码逻辑<strong>整段抄一遍</strong>、再换掉传输——这正是第 28 课最忌讳的重复。而 opencode 因为早早把 framing 拆成了 Route 里的独立零件，Bedrock 才能「<strong>方言尽量复用、只换那台拆信封机</strong>」。一张对照表，把「为什么要把传输和编解码分开」讲得明明白白。</p>
+<p>Anthropic 官方用 SSE（一行行文本、按空行分帧），而 Bedrock 用的是 <strong>AWS 二进制事件流协议</strong>：响应不是人类可读的文本，而是一连串<strong>固定格式的二进制帧</strong>。每一帧的结构是这样的：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">[4]</span><span class="t-txt">total length：整帧总长度</span></div>
+  <div class="t-row"><span class="t-num">[4]</span><span class="t-txt">headers length：信头部分长度</span></div>
+  <div class="t-row"><span class="t-num">[4]</span><span class="t-txt">prelude CRC：前导校验码</span></div>
+  <div class="t-row"><span class="t-num">[…]</span><span class="t-txt">headers：含 :event-type（如 messageStart / contentBlockDelta）</span></div>
+  <div class="t-row"><span class="t-num">[…]</span><span class="t-txt">payload：真正的 JSON 正文</span></div>
+  <div class="t-row"><span class="t-num">[4]</span><span class="t-txt">message CRC：整帧校验码</span></div>
+</div>
+<p>这套 <span class="mono">[length][headers-length][prelude-crc][headers][payload][crc]</span> 的格式，正是 <span class="mono">bedrock-event-stream.ts</span> 这个 <strong>framing（分帧）</strong>层在处理的。它借 <span class="mono">@smithy/eventstream-codec</span> 校验帧结构和 CRC，再按 <span class="mono">:event-type</span> 头把 payload 重新包成带类型的 JSON，交给 protocol 的 stream 状态机去解。<strong>这就是为什么 Bedrock 要单独一份协议</strong>：方言（编解码）可以和 Anthropic 几乎雷同，但 framing（怎么从字节流里切出一帧）必须换成 AWS 这套——而 framing 正是第 31 课说的、Route 里与 protocol 正交的那个独立零件。Bedrock 把这个零件换掉，其余尽量复用，是「正交切分」威力的活教材。</p>
+
+<h2>套娃的状态机：字节→帧→事件</h2>
+<p>Bedrock 的 framing 层还藏着一个第 29 课的「老朋友」。从网络上下来的是<strong>连续的字节</strong>，一帧的边界不会乖乖落在网络分块的边界上——一个网络 chunk 里可能有半帧、也可能有三帧半。于是 framing 必须自己<strong>攒字节、找帧界</strong>，这又是一台状态机，只不过它处理的是<strong>更底层的字节</strong>：</p>
+<div class="flow">
+  <div class="f-node">网络 chunk<br><small>连续字节，帧界不对齐</small></div>
+  <div class="f-arrow">appendChunk →</div>
+  <div class="f-node">FrameBufferState<br><small>{buffer, offset} 攒着</small></div>
+  <div class="f-arrow">consumeFrames →</div>
+  <div class="f-node">完整帧们<br><small>够一帧就切一帧出来</small></div>
+</div>
+<p>它的状态是一个 <span class="mono">FrameBufferState{buffer, offset}</span>：<span class="mono">buffer</span> 攒着收到的字节，<span class="mono">offset</span> 是已读到的位置。每来一个网络 chunk，就 <span class="mono">appendChunk</span> 把它接到 buffer 尾上（顺手把 offset 之前已消费的前缀<strong>压缩</strong>丢掉，于是 buffer 不会随流无限膨胀——最多比「还活着的窗口」多出一个 chunk）；然后 <span class="mono">consumeFrames</span> 一帧一帧地切：只要剩余字节够拼出一整帧，就用<strong>零拷贝的 subarray</strong> 切出来、验 CRC、吐给上层。这台「字节→帧」的状态机，和第 29 课那台「帧→事件」的状态机，结构如出一辙——都是 <span class="mono">(状态, 新输入) → [新状态, 吐出的东西]</span>。<strong>流式解码原来是套娃的</strong>：framing 把字节攒成帧，protocol.stream 把帧攒成事件，两层各管一段、各是一台状态机，严丝合缝地叠在一起。第 29 课你以为只有一台状态机，到 Bedrock 这儿，你看见了它底下还垫着另一台。这种「同一个模式在不同抽象层反复出现」的现象，在好的代码库里很常见——一旦你认得了「攒输入、够了就吐、留住未尽的部分继续攒」这个骨架，无论它出现在字节层、帧层还是事件层，你都能<strong>一眼认出老朋友</strong>，不必从头理解。这就是吃透一个核心模式的复利：它会在你读代码的余生里，一次次替你省下理解成本。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这一课用 Gemini 和 Bedrock 这两个样本，把第 29~31 课埋下的几条线索都收了个漂亮的口：</p>
+  <ul>
+    <li><strong>Gemini = 全面改名的方言</strong>：<span class="mono">contents</span>/<span class="mono">parts</span>、role 用 <span class="mono">"model"</span> 不用 "assistant"、systemInstruction 顶层、functionCall/Response 的 camelCase 风、思考 token 单列（thoughtsTokenCount）。</li>
+    <li><strong>「信任上轮推理」三家三名</strong>：Anthropic <span class="mono">signature</span> / OpenAI <span class="mono">encrypted_content</span> / Gemini <span class="mono">thoughtSignature</span>——同物异名，「协议即方言」的最佳注脚。</li>
+    <li><strong>Bedrock = 同方言、异传输</strong>：跑的是 Claude，方言（块+signature、共享 4 断点缓存）几乎等于 Anthropic，但传输是 AWS <strong>二进制事件流</strong>（<span class="mono">[length][headers-length][prelude-crc][headers][payload][crc]</span>），所以必须另起一份协议。印证第 31 课「方言同、网络异 → 另一份协议」。</li>
+    <li><strong>套娃状态机</strong>：framing 层 <span class="mono">FrameBufferState{buffer,offset}</span> 把字节攒成帧（零拷贝 subarray + 压缩防膨胀），protocol.stream 再把帧攒成事件——两台 <span class="mono">(state,input)→[state,out]</span> 状态机叠在一起。</li>
+  </ul>
+  <p>至此你已集齐主流方言的全家福：Anthropic、OpenAI（Chat+Responses）、Gemini、Bedrock。它们千差万别，却都被钉进第 29 课那张统一的 <span class="mono">Protocol</span> 表里。下一课（L33）我们就正式拉开 <span class="mono">stream</span> 之下那层 <strong>framing 与 transport</strong>——Bedrock 已经让你尝了一口二进制分帧，下一课会把 HTTP（SSE）与 WebSocket 两种传输、以及分帧机制讲全。Bedrock 是从「协议」通往「传输」的天然桥梁。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">appendChunk</span> 的「压缩」是个值得细品的小工程：</p>
+  <pre class="code"><span class="cm">// 简化自 bedrock-event-stream.ts</span>
+<span class="kw">const</span> <span class="fn">appendChunk</span> = (state, chunk) =&gt; {
+  <span class="kw">const</span> remaining = state.buffer.length - state.offset  <span class="cm">// 还没读的部分</span>
+  <span class="kw">const</span> next = <span class="kw">new</span> Uint8Array(remaining + chunk.length)
+  next.set(state.buffer.subarray(state.offset), 0)  <span class="cm">// 丢掉已消费前缀</span>
+  next.set(chunk, remaining)                          <span class="cm">// 接上新 chunk</span>
+  <span class="kw">return</span> { buffer: next, offset: 0 }                  <span class="cm">// offset 归零</span>
+}</pre>
+  <p>妙在哪？如果天真地「只追加、不丢弃」，那么一个跑了几分钟、传了几兆字节的长流，buffer 会<strong>无限膨胀</strong>到把整个响应都堆在内存里。这里每次 append 都<strong>顺手把 offset 之前已经读完、再不会用到的字节扔掉</strong>，只保留「还没拼成完整帧的活跃窗口」+ 刚到的这个 chunk。源码注释一语道破：这把 buffer 的增长<strong>限制在「最多比活跃窗口多一个网络 chunk」</strong>，无论流多长。读取用 <span class="mono">subarray</span> 是零拷贝（只是开个视图、不复制字节），只在 append 时分配一次新数组——<strong>该省的拷贝省掉、该有的内存上界守住</strong>。处理无界流时，这种「有界内存」的自觉，是把玩具代码和生产代码区分开的关键细节。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>Gemini</strong>（<span class="mono">gemini.ts</span>）是全面改名的方言：顶层 <span class="mono">contents</span>、每条 <span class="mono">{role, parts}</span>、role 是 <span class="mono">"user"/"model"</span>（无 assistant）、system 进 <span class="mono">systemInstruction</span> 顶层、工具用 camelCase 的 <span class="mono">functionCall</span>/<span class="mono">functionResponse</span>、思考 token 单列（<span class="mono">thoughtsTokenCount</span>）。</li>
+    <li><strong>「信任上轮推理」三家三名</strong>：Anthropic <span class="mono">signature</span>、OpenAI Responses <span class="mono">encrypted_content</span>、Gemini <span class="mono">thoughtSignature</span>——同一概念三种叫法，「协议即方言」的最直观例证。</li>
+    <li><strong>Bedrock</strong>（<span class="mono">bedrock-converse.ts</span>）转售 Claude，用 AWS Converse API；方言几乎等同 Anthropic（块 + <span class="mono">reasoningContent.signature</span>、共享 <span class="mono">utils/cache</span> 的 4 断点缓存），但<strong>传输用 AWS 二进制事件流</strong>，故必须另起一份协议。</li>
+    <li><strong>二进制帧结构</strong>：<span class="mono">[length:4][headers-length:4][prelude-crc:4][headers][payload][crc:4]</span>，由 <span class="mono">bedrock-event-stream.ts</span>（framing 层）借 <span class="mono">@smithy/eventstream-codec</span> 校验 CRC、按 <span class="mono">:event-type</span> 头重组 JSON。framing 是 Route 里与 protocol 正交的独立零件。</li>
+    <li><strong>套娃状态机</strong>：framing 用 <span class="mono">FrameBufferState{buffer,offset}</span> 把字节攒成帧（零拷贝 <span class="mono">subarray</span>、append 时压缩丢弃已消费前缀以保证有界内存），protocol.stream 再把帧攒成事件——两层都是 <span class="mono">(state,input)→[state,out]</span>。这是通往第 33 课传输层的天然桥梁。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. 「让模型跨轮信任自己上一轮的推理」，三大供应商各起了什么名字？</div>
+  <ol class="opts">
+    <li>Anthropic 叫 signature、OpenAI Responses 叫 encrypted_content、Gemini 叫 thoughtSignature——同一概念三家三个名字</li>
+    <li>三家都叫 signature</li>
+    <li>三家都不支持这个功能</li>
+    <li>三家都叫 reasoning_token</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。这是「协议即方言」最直观的注脚：能力几乎一样（都让模型延续思维链、都不把明文推理直接给客户端），叫法却三家三样——signature（密码学签名验真）/ encrypted_content（加密密文托管）/ thoughtSignature（思考签名）。core 只认一套规范名，全靠各家 body.from 把这些异名翻译过去。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. Bedrock 上跑的就是 Claude、方言几乎等同 Anthropic，为什么还要单独写一份协议、不能像 openai-compatible 那样几行复用？</div>
+  <ol class="opts">
+    <li>因为 Bedrock 不支持工具调用</li>
+    <li>因为传输方式不同：Anthropic 官方用 SSE 文本流，Bedrock 用 AWS 二进制事件流，framing（分帧）必须换——方言可复用，但拆帧的机器不同</li>
+    <li>因为 Bedrock 上的 Claude 是不同的模型</li>
+    <li>因为 AWS 要求每家都重写</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。方言（编解码：块+signature、共享 4 断点缓存）几乎等于 Anthropic，但传输彻底不同：Bedrock 走 AWS 二进制事件流（每帧 [length][headers-length][prelude-crc][headers][payload][crc]），不是 SSE。framing 是 Route 里与 protocol 正交的独立零件，Bedrock 换掉它、其余尽量复用。这正印证第 31 课「方言同、网络异 → 另一份协议」。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. Bedrock framing 的 FrameBufferState{buffer,offset}，在 appendChunk 时为什么要「压缩」丢掉 offset 之前的字节？</div>
+  <ol class="opts">
+    <li>为了保证有界内存：把已消费、再不用的前缀丢掉，buffer 增长被限制在「最多比活跃窗口多一个网络 chunk」，无论流多长</li>
+    <li>为了让代码更短</li>
+    <li>压缩纯粹是装饰，没有作用</li>
+    <li>为了加密缓冲区内容</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。若天真地「只追加不丢弃」，一个传几兆字节的长流会让 buffer 无限膨胀、把整个响应堆进内存。每次 append 顺手扔掉 offset 之前已读完的字节，只留「还没拼成完整帧的活跃窗口」+ 新 chunk，于是内存有上界。读取用零拷贝 subarray、只在 append 分配一次——处理无界流时，这种有界内存的自觉正是生产级代码的标志。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里揭示流式解码是「套娃」的：framing 把字节攒成帧、protocol.stream 把帧攒成事件，两层都是同一个骨架 (state, input) → [state, out]。请你举一个自己写过或见过的「同一个模式在不同抽象层反复出现」的例子（如解析器、网络协议栈、编译器各 pass），并说说「认得这个骨架」是怎么帮你更快读懂陌生代码的。</li>
+    <li>课里说 Gemini 的差异「不在能力而在叫法」：functionCall / tool_use / tool_calls 指的是同一件事，"model" 和 "assistant" 是同一个角色。core 坚持只认一套规范名、让适配器翻译，而不是认全部三套叫法。请论证：为什么「让 N 个外部系统各自适配到 1 套内部规范」，比「让内部认得 N 套外部叫法」更可扩展？当外部供应商从 4 家涨到 40 家时，两种方案的维护成本曲线分别是什么样的？</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">Lessons 30 and 31 looked at Anthropic's and OpenAI's "filled-in forms." This lesson covers two more vendors at once—Gemini and Bedrock—each bringing a new dimension of insight. <strong>Gemini</strong> is another variation on the "dialect" theme: it renames nearly every field (Google's camelCase style), and gives "reasoning signature" a <strong>third name</strong>—so now three big vendors, three names; you'll smile knowingly when you see this "same thing, different names" table. But <strong>Bedrock</strong> is this lesson's real star, revealing something profound: <strong>the same Claude, run on AWS Bedrock, needs a separately written protocol</strong>—not because the dialect changed (it still speaks Anthropic's blocks+signature), but because the <strong>"network transport" changed entirely</strong>: Bedrock doesn't use the familiar SSE but AWS's own <strong>binary event stream</strong>. This exactly confirms lesson 31's closing line: "same dialect, different network—still needs another protocol."</p>
+<p>So this lesson really covers two things. On the surface, getting to know Gemini's and Bedrock's two new dialects; underneath, using Bedrock as a perfect sample to see that beneath lesson 29's form's <span class="mono">stream</span> hides yet another layer—<strong>framing</strong>. protocol owns "frame→event," but how is a frame itself cut from the byte stream? SSE's "split on blank line" is so simple you didn't even notice its existence; but Bedrock's binary framing <strong>solidly displays</strong> this "byte→frame" state machine for you. After reading you'll find: streaming decode is a <strong>nesting doll</strong>—byte→frame is one state machine, frame→event is another.</p>
+
+<div class="card analogy">
+  <div class="tag">📡 Analogy</div>
+  Same interpreter relay. <strong>Gemini</strong>, this interpreter, is essentially no different in business, but has a quirk: every term must use his own naming—others say "assistant," he insists on "model side"; others say "system prompt," he stuffs it into a dedicated drawer called <span class="mono">systemInstruction</span>; even "this segment is the machine thinking" must get his unique <span class="mono">thoughtSignature</span> stamp. Same wine, different bottle, but if you don't know his naming you can't reconcile the books. <strong>Bedrock</strong> is subtler: the content he translates is <strong>identical</strong> to Anthropic's (because the same Claude is behind it), yet he doesn't relay over the "normal phone line" (SSE) but a <strong>military encrypted dedicated line</strong> (AWS binary event stream)—each sentence wrapped in a fixed-format envelope: first 4 bytes write "how long this letter is," then header length, checksum, headers, payload, and another checksum at the end. You first need a "letter-opening machine" to accurately cut letter after letter from the continuous byte stream and verify checksums, before handing the words inside to the interpreter. <strong>The same translation content, because the transport line differs, requires one extra letter-opening machine on the outermost layer.</strong>
+</div>
+
+<h2>Gemini: a dialect that renamed every field</h2>
+<p>Open <span class="mono">gemini.ts</span> and you're hit by strong Google flavor. Its request body's top level is called <span class="mono">contents</span> (not messages), each entry is <span class="mono">{role, parts}</span>, and <span class="mono">role</span> is only <span class="mono">"user"</span> or <span class="mono">"model"</span>—<strong>no "assistant," Google calls the assistant "model."</strong> The system prompt is again hoisted to the top level, called <span class="mono">systemInstruction</span> (Anthropic's system, OpenAI's ordinary message, and now this make three placements). Content isn't content but <span class="mono">parts</span>, each part can be:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">text</div><div class="c-txt">text fragment</div></div>
+  <div class="cell"><div class="c-tag">functionCall</div><div class="c-txt">tool call (camelCase! not tool_use, not tool_calls)</div></div>
+  <div class="cell"><div class="c-tag">functionResponse</div><div class="c-txt">tool result returned</div></div>
+  <div class="cell"><div class="c-tag">inline_data</div><div class="c-txt">inline image and other multimodal data</div></div>
+  <div class="cell"><div class="c-tag">thought + thoughtSignature</div><div class="c-txt">a part marked as thought, with a "thought signature"</div></div>
+</div>
+<p>See <span class="mono">thoughtSignature</span>? This is the lesson's first "knowing smile." Recall: to let the model trust its own prior reasoning across turns, lesson 30's Anthropic calls it <span class="mono">signature</span>, lesson 31's OpenAI Responses calls it <span class="mono">encrypted_content</span>, and here in Gemini it's <span class="mono">thoughtSignature</span>—<strong>the same concept, three vendors, three names</strong>. Lay them side by side and the five words "protocol = dialect" stop being abstract:</p>
+<table class="t">
+  <tr><th>Vendor</th><th>Field for "trust prior reasoning"</th><th>Style</th></tr>
+  <tr><td>Anthropic</td><td>signature</td><td>cryptographic signature verification</td></tr>
+  <tr><td>OpenAI Responses</td><td>encrypted_content</td><td>encrypted ciphertext custody</td></tr>
+  <tr><td>Gemini</td><td>thoughtSignature</td><td>thought signature</td></tr>
+</table>
+<p>Another interesting difference: on usage stats, Gemini <strong>breaks out thinking tokens</strong>—<span class="mono">usageMetadata</span> has a <span class="mono">thoughtsTokenCount</span> field, alongside <span class="mono">candidatesTokenCount</span> (output) and <span class="mono">promptTokenCount</span> (input). This is exactly the opposite of lesson 30's Anthropic "counts thinking into output, not broken out." See, even a detail like "is the thinking token a separate item" has each of the three with its own stance—and opencode's <span class="mono">mapUsage</span>s translate all these varied conventions into core's one canonical Usage. <strong>However granular the dialect's differences, that's how fine the adapter's absorption work must be.</strong></p>
+<p>This Gemini section may look like just "learning Google's naming," but it has a deeper lesson: <strong>dialect differences are often not in "capability" but in "naming."</strong> functionCall, tool_use, tool_calls—three names refer to the same thing: "the assistant wants to call a tool"; "model" and "assistant" are the same role too. Capability-wise the three are nearly equal, yet as long as naming isn't unified, core can't directly interface with any one of them—it must either be forced to know all three sets of names (a coupling disaster), or insist on knowing only its own canonical names and let adapters translate. opencode chose the latter. So when you write <span class="mono">gemini.ts</span>'s <span class="mono">body.from</span>, you're essentially building a "<strong>canonical name ↔ Google name</strong>" bilingual dictionary: core's "assistant" translates to "model," core's "tool call" to "functionCall," core's unified system into the "systemInstruction" drawer. The fuller this dictionary, the cleaner core stays.</p>
+
+<h2>Bedrock: the same Claude, yet needs a separate protocol</h2>
+<p>Now the lesson's centerpiece. AWS Bedrock is a "model wholesaler"—it resells multiple models including Claude, uniformly via its own <strong>Converse</strong> API. Open <span class="mono">bedrock-converse.ts</span> and you'll feel a <strong>déjà vu</strong>: messages are user/assistant block arrays, blocks have <span class="mono">text</span> / <span class="mono">toolUse</span> / <span class="mono">toolResult</span> / <span class="mono">reasoningContent</span> (with <span class="mono">signature</span>), system is a top-level block array, plus familiar cache read/write counters…</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">text</div><div class="c-txt">text block</div></div>
+  <div class="cell"><div class="c-tag">toolUse</div><div class="c-txt">tool call (with toolUseId)</div></div>
+  <div class="cell"><div class="c-tag">toolResult</div><div class="c-txt">tool result (matched by toolUseId)</div></div>
+  <div class="cell"><div class="c-tag">reasoningContent</div><div class="c-txt">reasoning content, with signature—same lineage as Anthropic!</div></div>
+</div>
+<p>Why so like Anthropic? Because <strong>Claude is what runs behind it</strong>; Bedrock's Converse merely wraps it in an AWS shell. Even the cache logic is shared—remember lesson 30 saying "the 4-breakpoint cap + two TTL buckets is hoisted into <span class="mono">utils/cache.ts</span> shared with Bedrock"? This is that Bedrock: <span class="mono">bedrock-converse.ts</span> imports <span class="mono">utils/bedrock-cache</span>, eating the same 4-breakpoint rules. <strong>The dialect is nearly identical, so why not just reuse the Anthropic protocol, 24-lines like openai-compatible?</strong> The problem is at "the outermost letter-opening machine"—the transport differs fundamentally.</p>
+<div class="cols">
+  <div class="col"><h4>Anthropic official</h4><p>Dialect: blocks + signature. Transport: <strong>SSE</strong>—line-by-line UTF-8 text, framed on blank lines, human-readable. Framing is trivial.</p></div>
+  <div class="col"><h4>Claude on Bedrock</h4><p>Dialect: nearly the same (blocks + reasoningContent.signature). Transport: <strong>AWS binary event stream</strong>—fixed-format binary frames + CRC checks. Framing is complex.</p></div>
+</div>
+<p>See clearly this table's crux: <strong>the left and right "dialects" are nearly identical, the difference all in the "transport" row</strong>. If a protocol mixed "dialect codec" with "transport framing," then Bedrock could only <strong>copy Anthropic's codec logic wholesale</strong> then swap the transport—exactly the duplication lesson 28 most abhors. But because opencode early on split framing into an independent part of Route, Bedrock can "<strong>reuse the dialect as much as possible, swap only that letter-opening machine</strong>." One table makes "why separate transport from codec" crystal clear.</p>
+<p>Anthropic official uses SSE (line-by-line text, framed on blank lines), while Bedrock uses the <strong>AWS binary event stream protocol</strong>: the response isn't human-readable text but a run of <strong>fixed-format binary frames</strong>. Each frame's structure is:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">[4]</span><span class="t-txt">total length: the whole frame's length</span></div>
+  <div class="t-row"><span class="t-num">[4]</span><span class="t-txt">headers length: the header section's length</span></div>
+  <div class="t-row"><span class="t-num">[4]</span><span class="t-txt">prelude CRC: the prelude checksum</span></div>
+  <div class="t-row"><span class="t-num">[…]</span><span class="t-txt">headers: includes :event-type (e.g. messageStart / contentBlockDelta)</span></div>
+  <div class="t-row"><span class="t-num">[…]</span><span class="t-txt">payload: the actual JSON body</span></div>
+  <div class="t-row"><span class="t-num">[4]</span><span class="t-txt">message CRC: the whole frame's checksum</span></div>
+</div>
+<p>This <span class="mono">[length][headers-length][prelude-crc][headers][payload][crc]</span> format is exactly what <span class="mono">bedrock-event-stream.ts</span>, the <strong>framing</strong> layer, handles. It uses <span class="mono">@smithy/eventstream-codec</span> to validate frame structure and CRCs, then re-wraps the payload into typed JSON by the <span class="mono">:event-type</span> header, handing it to the protocol's stream state machine to decode. <strong>This is why Bedrock needs a separate protocol</strong>: the dialect (codec) can be nearly identical to Anthropic, but the framing (how to cut a frame from the byte stream) must switch to AWS's—and framing is exactly lesson 31's mentioned independent part of Route, orthogonal to protocol. Bedrock swaps this part out, reuses the rest as much as possible—a living textbook of "orthogonal split"'s power.</p>
+
+<h2>Nesting-doll state machines: byte→frame→event</h2>
+<p>Bedrock's framing layer also hides an "old friend" from lesson 29. What comes off the network is <strong>continuous bytes</strong>, and a frame's boundary won't obligingly land on a network chunk's boundary—one network chunk may hold half a frame, or three and a half. So framing must itself <strong>accumulate bytes, find frame boundaries</strong>—another state machine, only it handles <strong>lower-level bytes</strong>:</p>
+<div class="flow">
+  <div class="f-node">network chunk<br><small>continuous bytes, frame bounds unaligned</small></div>
+  <div class="f-arrow">appendChunk →</div>
+  <div class="f-node">FrameBufferState<br><small>{buffer, offset} accumulating</small></div>
+  <div class="f-arrow">consumeFrames →</div>
+  <div class="f-node">complete frames<br><small>cut one out once enough for a frame</small></div>
+</div>
+<p>Its state is a <span class="mono">FrameBufferState{buffer, offset}</span>: <span class="mono">buffer</span> accumulates received bytes, <span class="mono">offset</span> is the read position. Each network chunk arriving, <span class="mono">appendChunk</span> joins it to the buffer's tail (incidentally <strong>compacting away</strong> the already-consumed prefix before offset, so the buffer doesn't grow unboundedly with the stream—at most one chunk past the "live window"); then <span class="mono">consumeFrames</span> cuts frame by frame: as long as remaining bytes suffice for a whole frame, cut it out with <strong>zero-copy subarray</strong>, verify CRC, emit upward. This "byte→frame" state machine and lesson 29's "frame→event" state machine are structurally identical—both <span class="mono">(state, new input) → [new state, things emitted]</span>. <strong>Streaming decode is a nesting doll after all</strong>: framing accumulates bytes into frames, protocol.stream accumulates frames into events, two layers each owning a stretch, each a state machine, stacked seamlessly. Lesson 29 you thought there was only one state machine; here at Bedrock, you see another cushioning it underneath. This "same pattern recurring at different abstraction layers" is common in good codebases—once you recognize the skeleton of "accumulate input, emit when enough, keep the unfinished part accumulating," wherever it appears—byte layer, frame layer, or event layer—you'll <strong>spot the old friend at a glance</strong>, no need to understand from scratch. That's the compound interest of mastering one core pattern: it saves you comprehension cost, again and again, for the rest of your reading life.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson uses the two samples Gemini and Bedrock to tie off, beautifully, several threads laid down in lessons 29–31:</p>
+  <ul>
+    <li><strong>Gemini = a fully-renamed dialect</strong>: <span class="mono">contents</span>/<span class="mono">parts</span>, role uses <span class="mono">"model"</span> not "assistant", systemInstruction top-level, functionCall/Response camelCase style, thinking tokens broken out (thoughtsTokenCount).</li>
+    <li><strong>"Trust prior reasoning," three vendors three names</strong>: Anthropic <span class="mono">signature</span> / OpenAI <span class="mono">encrypted_content</span> / Gemini <span class="mono">thoughtSignature</span>—same thing, different names, the best footnote to "protocol = dialect."</li>
+    <li><strong>Bedrock = same dialect, different transport</strong>: runs Claude, dialect (blocks+signature, shared 4-breakpoint cache) nearly equals Anthropic, but transport is AWS <strong>binary event stream</strong> (<span class="mono">[length][headers-length][prelude-crc][headers][payload][crc]</span>), so it must have a separate protocol. Confirms lesson 31's "same dialect, different network → another protocol."</li>
+    <li><strong>Nesting-doll state machines</strong>: the framing layer's <span class="mono">FrameBufferState{buffer,offset}</span> accumulates bytes into frames (zero-copy subarray + compaction against bloat), protocol.stream then accumulates frames into events—two <span class="mono">(state,input)→[state,out]</span> state machines stacked.</li>
+  </ul>
+  <p>Now you've collected the full family of mainstream dialects: Anthropic, OpenAI (Chat+Responses), Gemini, Bedrock. Wildly different, yet all nailed into lesson 29's one unified <span class="mono">Protocol</span> form. Next lesson (L33) we formally pull open the <strong>framing and transport</strong> layer beneath <span class="mono">stream</span>—Bedrock has let you taste binary framing; next lesson rounds out both HTTP (SSE) and WebSocket transports plus the framing mechanism. Bedrock is the natural bridge from "protocol" to "transport."</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p><span class="mono">appendChunk</span>'s "compaction" is a small piece of engineering worth savoring:</p>
+  <pre class="code"><span class="cm">// simplified from bedrock-event-stream.ts</span>
+<span class="kw">const</span> <span class="fn">appendChunk</span> = (state, chunk) =&gt; {
+  <span class="kw">const</span> remaining = state.buffer.length - state.offset  <span class="cm">// the not-yet-read part</span>
+  <span class="kw">const</span> next = <span class="kw">new</span> Uint8Array(remaining + chunk.length)
+  next.set(state.buffer.subarray(state.offset), 0)  <span class="cm">// drop consumed prefix</span>
+  next.set(chunk, remaining)                          <span class="cm">// append new chunk</span>
+  <span class="kw">return</span> { buffer: next, offset: 0 }                  <span class="cm">// offset back to zero</span>
+}</pre>
+  <p>What's clever? If you naively "only append, never drop," then a long stream running for minutes, transmitting megabytes, would <strong>grow the buffer unboundedly</strong> until the whole response piles up in memory. Here each append <strong>incidentally discards the bytes before offset that are already read and will never be used again</strong>, keeping only "the active window not yet assembled into a complete frame" + the just-arrived chunk. The source comment nails it: this bounds buffer growth to "<strong>at most one network chunk past the active window</strong>," however long the stream. Reads use <span class="mono">subarray</span> which is zero-copy (just open a view, don't copy bytes), allocating a new array only on append—<strong>save the copies you should, hold the memory bound you must</strong>. When handling unbounded streams, this awareness of "bounded memory" is the key detail separating toy code from production code.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>Gemini</strong> (<span class="mono">gemini.ts</span>) is a fully-renamed dialect: top-level <span class="mono">contents</span>, each entry <span class="mono">{role, parts}</span>, role is <span class="mono">"user"/"model"</span> (no assistant), system goes into top-level <span class="mono">systemInstruction</span>, tools use camelCase <span class="mono">functionCall</span>/<span class="mono">functionResponse</span>, thinking tokens broken out (<span class="mono">thoughtsTokenCount</span>).</li>
+    <li><strong>"Trust prior reasoning," three vendors three names</strong>: Anthropic <span class="mono">signature</span>, OpenAI Responses <span class="mono">encrypted_content</span>, Gemini <span class="mono">thoughtSignature</span>—one concept, three names, the most vivid evidence of "protocol = dialect."</li>
+    <li><strong>Bedrock</strong> (<span class="mono">bedrock-converse.ts</span>) resells Claude via AWS Converse API; the dialect nearly equals Anthropic (blocks + <span class="mono">reasoningContent.signature</span>, shares <span class="mono">utils/cache</span>'s 4-breakpoint cache), but the <strong>transport uses AWS binary event stream</strong>, so it must have a separate protocol.</li>
+    <li><strong>Binary frame structure</strong>: <span class="mono">[length:4][headers-length:4][prelude-crc:4][headers][payload][crc:4]</span>, handled by <span class="mono">bedrock-event-stream.ts</span> (framing layer) using <span class="mono">@smithy/eventstream-codec</span> to verify CRCs and reassemble JSON by the <span class="mono">:event-type</span> header. framing is an independent part of Route, orthogonal to protocol.</li>
+    <li><strong>Nesting-doll state machines</strong>: framing uses <span class="mono">FrameBufferState{buffer,offset}</span> to accumulate bytes into frames (zero-copy <span class="mono">subarray</span>, compacting away consumed prefix on append for bounded memory), protocol.stream then accumulates frames into events—both <span class="mono">(state,input)→[state,out]</span>. The bridge to lesson 33's transport layer.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. For "letting the model trust its own prior reasoning across turns," what did the three big vendors each name it?</div>
+  <ol class="opts">
+    <li>Anthropic calls it signature, OpenAI Responses encrypted_content, Gemini thoughtSignature — one concept, three names</li>
+    <li>All three call it signature</li>
+    <li>None of the three support this</li>
+    <li>All three call it reasoning_token</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. This is the most vivid footnote to "protocol = dialect": near-identical capability (all let the model continue its chain of thought, none hand plaintext reasoning straight to the client), yet three different names—signature (cryptographic verification) / encrypted_content (encrypted custody) / thoughtSignature (thought signature). core knows only one canonical set of names; each vendor's body.from translates these aliases over.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. Bedrock runs Claude with a dialect nearly identical to Anthropic, so why a separate protocol instead of a few-line reuse like openai-compatible?</div>
+  <ol class="opts">
+    <li>Because Bedrock doesn't support tool calls</li>
+    <li>Because the transport differs: Anthropic official uses SSE text streams, Bedrock uses AWS binary event streams, so framing must change — the dialect is reusable but the frame-cutting machine differs</li>
+    <li>Because Claude on Bedrock is a different model</li>
+    <li>Because AWS requires everyone to rewrite</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. The dialect (codec: blocks+signature, shared 4-breakpoint cache) nearly equals Anthropic, but the transport differs entirely: Bedrock uses AWS binary event stream (each frame [length][headers-length][prelude-crc][headers][payload][crc]), not SSE. framing is an independent part of Route orthogonal to protocol; Bedrock swaps it, reuses the rest. This confirms lesson 31's "same dialect, different network → another protocol."</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. Why does Bedrock framing's FrameBufferState{buffer,offset} "compact" away bytes before offset on appendChunk?</div>
+  <ol class="opts">
+    <li>To guarantee bounded memory: dropping the consumed, never-again-needed prefix bounds buffer growth to "at most one network chunk past the active window," however long the stream</li>
+    <li>To make the code shorter</li>
+    <li>Compaction is purely decorative, does nothing</li>
+    <li>To encrypt the buffer contents</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. Naively "append-only, never drop" would let a megabyte-long stream grow the buffer unboundedly, piling the whole response into memory. Each append incidentally discards already-read bytes before offset, keeping only "the active window not yet a full frame" + the new chunk, so memory is bounded. Reads use zero-copy subarray, allocating only on append — when handling unbounded streams, this bounded-memory awareness is the mark of production-grade code.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson reveals streaming decode is a "nesting doll": framing accumulates bytes into frames, protocol.stream accumulates frames into events, both the same skeleton (state, input) → [state, out]. Give an example you've written or seen of "the same pattern recurring at different abstraction layers" (e.g. parsers, network protocol stacks, compiler passes), and discuss how "recognizing this skeleton" helped you read unfamiliar code faster.</li>
+    <li>The lesson says Gemini's differences are "not in capability but in naming": functionCall / tool_use / tool_calls mean the same thing, "model" and "assistant" are the same role. core insists on one canonical name set and lets adapters translate, rather than knowing all three sets. Argue: why is "having N external systems each adapt to 1 internal canonical" more scalable than "having the internal know N external namings"? As vendors grow from 4 to 40, what do the two approaches' maintenance-cost curves look like?</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="31-openai-protocol.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">OpenAI Chat/Responses 协议</span><span class="lang-en">The OpenAI protocols</span></div></a><a class="next" href="33-routing-transport.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">路由与传输</span><span class="lang-en">Routing &amp; transport</span></div></a></div>
 </div>
 <script>

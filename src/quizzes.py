@@ -1364,6 +1364,47 @@ QUIZZES = {
             {"zh": "课里强调 Route 与 Protocol 是正交的两层：protocol 管编解码、route 管端点/分帧/认证，于是「换供应商常常只是换端点、复用 protocol」。下一课的 Bedrock 是反例——同样的 Anthropic 方言，却因传输/认证走 AWS 而需另一份协议。请你想象：如果当初没有把 protocol 和 route 拆开，而是把端点、认证都写死在协议里，新增「OpenAI 兼容」厂商和「Bedrock 上的 Claude」会分别变得多痛苦？", "en": "The lesson stresses Route and Protocol are orthogonal: protocol owns codec, route owns endpoint/framing/auth, so \"switching providers is often just switch endpoint, reuse protocol.\" Next lesson's Bedrock is a counterexample—the same Anthropic dialect, yet needing another protocol because transport/auth go via AWS. Imagine: had protocol and route not been split, with endpoint and auth hardcoded into the protocol, how painful would adding an \"OpenAI-compatible\" vendor and \"Claude on Bedrock\" each become?"},
         ],
     },
+    "32-gemini-bedrock.html": {
+        "mcq": [
+            {
+                "q": {"zh": "「让模型跨轮信任自己上一轮的推理」，三大供应商各起了什么名字？", "en": "For \"letting the model trust its own prior reasoning across turns,\" what did the three big vendors each name it?"},
+                "opts": [
+                    {"zh": "Anthropic 叫 signature、OpenAI Responses 叫 encrypted_content、Gemini 叫 thoughtSignature——同一概念三家三个名字", "en": "Anthropic calls it signature, OpenAI Responses encrypted_content, Gemini thoughtSignature — one concept, three names"},
+                    {"zh": "三家都叫 signature", "en": "All three call it signature"},
+                    {"zh": "三家都不支持这个功能", "en": "None of the three support this"},
+                    {"zh": "三家都叫 reasoning_token", "en": "All three call it reasoning_token"},
+                ],
+                "answer": 0,
+                "why": {"zh": "这是「协议即方言」最直观的注脚：能力几乎一样（都让模型延续思维链、都不把明文推理直接给客户端），叫法却三家三样——signature（密码学签名验真）/ encrypted_content（加密密文托管）/ thoughtSignature（思考签名）。core 只认一套规范名，全靠各家 body.from 把这些异名翻译过去。", "en": "This is the most vivid footnote to \"protocol = dialect\": near-identical capability (all let the model continue its chain of thought, none hand plaintext reasoning straight to the client), yet three different names—signature (cryptographic verification) / encrypted_content (encrypted custody) / thoughtSignature (thought signature). core knows only one canonical set of names; each vendor's body.from translates these aliases over."},
+            },
+            {
+                "q": {"zh": "Bedrock 上跑的就是 Claude、方言几乎等同 Anthropic，为什么还要单独写一份协议、不能像 openai-compatible 那样几行复用？", "en": "Bedrock runs Claude with a dialect nearly identical to Anthropic, so why a separate protocol instead of a few-line reuse like openai-compatible?"},
+                "opts": [
+                    {"zh": "因为传输方式不同：Anthropic 官方用 SSE 文本流，Bedrock 用 AWS 二进制事件流，framing（分帧）必须换——方言可复用，但拆帧的机器不同", "en": "Because the transport differs: Anthropic official uses SSE text streams, Bedrock uses AWS binary event streams, so framing must change — the dialect is reusable but the frame-cutting machine differs"},
+                    {"zh": "因为 Bedrock 上的 Claude 是不同的模型", "en": "Because Claude on Bedrock is a different model"},
+                    {"zh": "因为 AWS 要求每家都重写", "en": "Because AWS requires everyone to rewrite"},
+                    {"zh": "因为 Bedrock 不支持工具调用", "en": "Because Bedrock doesn't support tool calls"},
+                ],
+                "answer": 0,
+                "why": {"zh": "方言（编解码：块+signature、共享 4 断点缓存）几乎等于 Anthropic，但传输彻底不同：Bedrock 走 AWS 二进制事件流（每帧 [length][headers-length][prelude-crc][headers][payload][crc]），不是 SSE。framing 是 Route 里与 protocol 正交的独立零件，Bedrock 换掉它、其余尽量复用。这正印证第 31 课「方言同、网络异 → 另一份协议」。", "en": "The dialect (codec: blocks+signature, shared 4-breakpoint cache) nearly equals Anthropic, but the transport differs entirely: Bedrock uses AWS binary event stream (each frame [length][headers-length][prelude-crc][headers][payload][crc]), not SSE. framing is an independent part of Route orthogonal to protocol; Bedrock swaps it, reuses the rest. This confirms lesson 31's \"same dialect, different network → another protocol.\""},
+            },
+            {
+                "q": {"zh": "Bedrock framing 的 FrameBufferState{buffer,offset}，在 appendChunk 时为什么要「压缩」丢掉 offset 之前的字节？", "en": "Why does Bedrock framing's FrameBufferState{buffer,offset} \"compact\" away bytes before offset on appendChunk?"},
+                "opts": [
+                    {"zh": "为了保证有界内存：把已消费、再不用的前缀丢掉，buffer 增长被限制在「最多比活跃窗口多一个网络 chunk」，无论流多长", "en": "To guarantee bounded memory: dropping the consumed, never-again-needed prefix bounds buffer growth to \"at most one network chunk past the active window,\" however long the stream"},
+                    {"zh": "为了让代码更短", "en": "To make the code shorter"},
+                    {"zh": "为了加密缓冲区内容", "en": "To encrypt the buffer contents"},
+                    {"zh": "压缩纯粹是装饰，没有作用", "en": "Compaction is purely decorative, does nothing"},
+                ],
+                "answer": 0,
+                "why": {"zh": "若天真地「只追加不丢弃」，一个传几兆字节的长流会让 buffer 无限膨胀、把整个响应堆进内存。每次 append 顺手扔掉 offset 之前已读完的字节，只留「还没拼成完整帧的活跃窗口」+ 新 chunk，于是内存有上界。读取用零拷贝 subarray、只在 append 分配一次——处理无界流时，这种有界内存的自觉正是生产级代码的标志。", "en": "Naively \"append-only, never drop\" would let a megabyte-long stream grow the buffer unboundedly, piling the whole response into memory. Each append incidentally discards already-read bytes before offset, keeping only \"the active window not yet a full frame\" + the new chunk, so memory is bounded. Reads use zero-copy subarray, allocating only on append — when handling unbounded streams, this bounded-memory awareness is the mark of production-grade code."},
+            },
+        ],
+        "open": [
+            {"zh": "课里揭示流式解码是「套娃」的：framing 把字节攒成帧、protocol.stream 把帧攒成事件，两层都是同一个骨架 (state, input) → [state, out]。请你举一个自己写过或见过的「同一个模式在不同抽象层反复出现」的例子（如解析器、网络协议栈、编译器各 pass），并说说「认得这个骨架」是怎么帮你更快读懂陌生代码的。", "en": "The lesson reveals streaming decode is a \"nesting doll\": framing accumulates bytes into frames, protocol.stream accumulates frames into events, both the same skeleton (state, input) → [state, out]. Give an example you've written or seen of \"the same pattern recurring at different abstraction layers\" (e.g. parsers, network protocol stacks, compiler passes), and discuss how \"recognizing this skeleton\" helped you read unfamiliar code faster."},
+            {"zh": "课里说 Gemini 的差异「不在能力而在叫法」：functionCall / tool_use / tool_calls 指的是同一件事，\"model\" 和 \"assistant\" 是同一个角色。core 坚持只认一套规范名、让适配器翻译，而不是认全部三套叫法。请论证：为什么「让 N 个外部系统各自适配到 1 套内部规范」，比「让内部认得 N 套外部叫法」更可扩展？当外部供应商从 4 家涨到 40 家时，两种方案的维护成本曲线分别是什么样的？", "en": "The lesson says Gemini's differences are \"not in capability but in naming\": functionCall / tool_use / tool_calls mean the same thing, \"model\" and \"assistant\" are the same role. core insists on one canonical name set and lets adapters translate, rather than knowing all three sets. Argue: why is \"having N external systems each adapt to 1 internal canonical\" more scalable than \"having the internal know N external namings\"? As vendors grow from 4 to 40, what do the two approaches' maintenance-cost curves look like?"},
+        ],
+    },
 }
 
 def render(fname, lang):
