@@ -252,18 +252,18 @@ LESSON_49 = {
   <div class="cell"><div class="c-tag">运行状态</div><div class="c-txt"><span class="mono">agent</span>、<span class="mono">model</span>(JSON)、<span class="mono">permission</span>(JSON,L41 Ruleset)、<span class="mono">revert</span>(JSON)</div></div>
   <div class="cell"><div class="c-tag">时间</div><div class="c-txt"><span class="mono">...Timestamps</span>、<span class="mono">time_compacting</span>、<span class="mono">time_archived</span></div></div>
 </div>
-<p>注意 <span class="mono">parent_id</span> 那个<strong>自指外键</strong>：一个 session 可以是另一个 session 的子会话——这正是 M4 里 agent 派生子任务（subagent）时，子会话挂在父会话名下的落盘方式。而几乎所有其它表，都通过外键指回 session。把这张关系网铺开看：</p>
+<p>注意 <span class="mono">parent_id</span> 那个<strong>自指列</strong>：一个 session 可以是另一个 session 的子会话——这正是 M4 里 agent 派生子任务（subagent）时，子会话挂在父会话名下的落盘方式。但要留神：<span class="mono">parent_id</span> 只是一个<strong>带索引的普通列、并非强制外键</strong>（源码里它没有 <span class="mono">.references()</span>），所以删掉父会话<strong>不会</strong>级联删掉子会话。而其它表则大多通过<strong>带 cascade 的外键</strong>指回 session。把这张关系网铺开看：</p>
 <table class="t">
-  <tr><th>父表</th><th>子表（外键 + cascade）</th><th>关系</th></tr>
-  <tr><td>project</td><td>session（project_id）</td><td>一个项目 N 个会话</td></tr>
-  <tr><td>session</td><td>session（parent_id 自指）</td><td>父会话 N 个子会话</td></tr>
-  <tr><td>session</td><td>message → part</td><td>V1：会话 N 消息 N 片段</td></tr>
-  <tr><td>session</td><td>session_message</td><td>V2：会话 N 消息（按 seq）</td></tr>
-  <tr><td>session</td><td>session_input</td><td>V2：会话 N 条待处理输入</td></tr>
-  <tr><td>session</td><td>session_context_epoch</td><td>1:1（主键即 session_id）</td></tr>
-  <tr><td>session</td><td>todo</td><td>会话 N 条待办</td></tr>
+  <tr><th>父表</th><th>子表</th><th>关系（是否级联）</th></tr>
+  <tr><td>project</td><td>session（project_id）</td><td>一个项目 N 个会话 · cascade</td></tr>
+  <tr><td>session</td><td>session（parent_id）</td><td>父会话 N 个子会话 · <strong>自指索引、非外键、不级联</strong></td></tr>
+  <tr><td>session</td><td>message → part</td><td>V1：会话 N 消息 N 片段 · cascade</td></tr>
+  <tr><td>session</td><td>session_message</td><td>V2：会话 N 消息（按 seq）· cascade</td></tr>
+  <tr><td>session</td><td>session_input</td><td>V2：会话 N 条待处理输入 · cascade</td></tr>
+  <tr><td>session</td><td>session_context_epoch</td><td>1:1（主键即 session_id）· cascade</td></tr>
+  <tr><td>session</td><td>todo</td><td>会话 N 条待办 · cascade</td></tr>
 </table>
-<p>这张表最该品的，是那一片 <span class="mono">onDelete:"cascade"</span> 编织出的<strong>「级联删除网」</strong>。删一个 project，它名下所有 session 跟着删；删一个 session，它名下所有 message/part/session_message/session_input/epoch/todo 全部跟着删。<strong>数据库在结构层面就保证了「没有孤儿数据」</strong>——你永远不会查到一条「属于某个早已不存在的会话」的消息。这种一致性不是靠应用代码小心翼翼地手动删，而是靠外键约束<strong>由数据库强制兜底</strong>（也正因如此，上一课那句 <span class="mono">PRAGMA foreign_keys=ON</span> 才不可省）。把一次「删掉 project」的级联走一遍，就能看清这棵树是怎么连根拔起的：</p>
+<p>这张表最该品的，是那一片 <span class="mono">onDelete:"cascade"</span> 编织出的<strong>「级联删除网」</strong>（注意它<strong>不含</strong> parent_id 那条——自指列没有外键，不参与级联）。删一个 project，它名下所有 session 跟着删；删一个 session，它名下所有 message/part/session_message/session_input/epoch/todo 全部跟着删。<strong>数据库在结构层面就保证了「没有孤儿数据」</strong>——你永远不会查到一条「属于某个早已不存在的会话」的消息。这种一致性不是靠应用代码小心翼翼地手动删，而是靠外键约束<strong>由数据库强制兜底</strong>（也正因如此，上一课那句 <span class="mono">PRAGMA foreign_keys=ON</span> 才不可省）。把一次「删掉 project」的级联走一遍，就能看清这棵树是怎么连根拔起的：</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">删</span><span class="t-txt">DELETE FROM project WHERE id=…（拔起树根）</span></div>
   <div class="t-row"><span class="t-num">↓</span><span class="t-txt">该 project 名下所有 session 自动删（project_id cascade）</span></div>
@@ -369,18 +369,18 @@ sqliteTable(<span class="st">"session_input"</span>, {
   <div class="cell"><div class="c-tag">runtime state</div><div class="c-txt"><span class="mono">agent</span>, <span class="mono">model</span>(JSON), <span class="mono">permission</span>(JSON,L41 Ruleset), <span class="mono">revert</span>(JSON)</div></div>
   <div class="cell"><div class="c-tag">time</div><div class="c-txt"><span class="mono">...Timestamps</span>, <span class="mono">time_compacting</span>, <span class="mono">time_archived</span></div></div>
 </div>
-<p>Note that <span class="mono">parent_id</span> <strong>self-referencing foreign key</strong>: a session can be a sub-session of another—exactly how, in M4 when an agent spawns a subtask (subagent), the sub-session is parked under the parent on disk. And nearly all other tables point back to session by foreign key. Spreading out this relationship web:</p>
+<p>Note that <span class="mono">parent_id</span> <strong>self-referencing column</strong>: a session can be a sub-session of another—exactly how, in M4 when an agent spawns a subtask (subagent), the sub-session is parked under the parent on disk. But note: <span class="mono">parent_id</span> is just an <strong>indexed plain column, not an enforced foreign key</strong> (it has no <span class="mono">.references()</span> in source), so deleting a parent session does <strong>not</strong> cascade-delete sub-sessions. Other tables, by contrast, mostly point back to session via a <strong>cascading foreign key</strong>. Spreading out this relationship web:</p>
 <table class="t">
-  <tr><th>parent table</th><th>child table (FK + cascade)</th><th>relation</th></tr>
-  <tr><td>project</td><td>session (project_id)</td><td>one project N sessions</td></tr>
-  <tr><td>session</td><td>session (parent_id self-ref)</td><td>parent session N sub-sessions</td></tr>
-  <tr><td>session</td><td>message → part</td><td>V1: session N messages N parts</td></tr>
-  <tr><td>session</td><td>session_message</td><td>V2: session N messages (by seq)</td></tr>
-  <tr><td>session</td><td>session_input</td><td>V2: session N pending inputs</td></tr>
-  <tr><td>session</td><td>session_context_epoch</td><td>1:1 (PK is session_id)</td></tr>
-  <tr><td>session</td><td>todo</td><td>session N todos</td></tr>
+  <tr><th>parent table</th><th>child table</th><th>relation (cascading?)</th></tr>
+  <tr><td>project</td><td>session (project_id)</td><td>one project N sessions · cascade</td></tr>
+  <tr><td>session</td><td>session (parent_id)</td><td>parent session N sub-sessions · <strong>self-ref index, not FK, no cascade</strong></td></tr>
+  <tr><td>session</td><td>message → part</td><td>V1: session N messages N parts · cascade</td></tr>
+  <tr><td>session</td><td>session_message</td><td>V2: session N messages (by seq) · cascade</td></tr>
+  <tr><td>session</td><td>session_input</td><td>V2: session N pending inputs · cascade</td></tr>
+  <tr><td>session</td><td>session_context_epoch</td><td>1:1 (PK is session_id) · cascade</td></tr>
+  <tr><td>session</td><td>todo</td><td>session N todos · cascade</td></tr>
 </table>
-<p>What this table most deserves savoring is the <strong>"cascade-delete web"</strong> woven by all those <span class="mono">onDelete:"cascade"</span>. Delete a project, all its sessions delete; delete a session, all its message/part/session_message/session_input/epoch/todo delete. <strong>At the structural level the database guarantees "no orphan data"</strong>—you'll never query a message "belonging to a session that no longer exists." This consistency isn't from app code carefully deleting by hand but from foreign-key constraints <strong>enforced as a backstop by the database</strong> (and exactly why last lesson's <span class="mono">PRAGMA foreign_keys=ON</span> can't be omitted). Walking through one "delete a project" cascade shows how the tree is uprooted:</p>
+<p>What this table most deserves savoring is the <strong>"cascade-delete web"</strong> woven by all those <span class="mono">onDelete:"cascade"</span> (note it <strong>excludes</strong> the parent_id row—a self-ref column has no foreign key and takes no part in cascade). Delete a project, all its sessions delete; delete a session, all its message/part/session_message/session_input/epoch/todo delete. <strong>At the structural level the database guarantees "no orphan data"</strong>—you'll never query a message "belonging to a session that no longer exists." This consistency isn't from app code carefully deleting by hand but from foreign-key constraints <strong>enforced as a backstop by the database</strong> (and exactly why last lesson's <span class="mono">PRAGMA foreign_keys=ON</span> can't be omitted). Walking through one "delete a project" cascade shows how the tree is uprooted:</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">del</span><span class="t-txt">DELETE FROM project WHERE id=… (pull the root)</span></div>
   <div class="t-row"><span class="t-num">↓</span><span class="t-txt">all sessions under that project auto-delete (project_id cascade)</span></div>
@@ -733,15 +733,15 @@ LESSON_51 = {
 <p>压缩（对话记忆）和快照（文件记忆）合体，就有了 <strong>revert</strong>——一颗真正的「后悔药」。<span class="mono">revert.ts</span> 让你指定退回到某条消息（<span class="mono">messageID</span>，可细到 <span class="mono">partID</span>），它做的是<strong>两件事的合体</strong>：</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">退对话</div><div class="c-txt">把该消息<strong>之后</strong>的消息从可见历史里裁掉——对话回到那一刻</div></div>
-  <div class="cell"><div class="c-tag">退文件</div><div class="c-txt"><span class="mono">snap.restore(快照)</span> 把工作目录还原——文件回到那一刻</div></div>
-  <div class="cell"><div class="c-tag">可反悔</div><div class="c-txt">revert 前先 <span class="mono">snap.track()</span> 存下当前状态；<span class="mono">unrevert</span> 再 restore 回去——后悔药也有后悔药</div></div>
+  <div class="cell"><div class="c-tag">退文件</div><div class="c-txt"><span class="mono">snap.revert(补丁)</span> 把改动过的文件逐一还原——文件回到那一刻</div></div>
+  <div class="cell"><div class="c-tag">可反悔</div><div class="c-txt">revert 前先 <span class="mono">snap.track()</span> 存下当前状态；<span class="mono">unrevert</span> 再用 <span class="mono">snap.restore</span> 整体还原回去——后悔药也有后悔药</div></div>
 </div>
-<p>这个「可反悔」的设计尤其周到：<span class="mono">revert</span> 在还原之前，会<strong>先给「现在」拍一张快照</strong>存进 session 的 <span class="mono">revert</span> 字段（还记得 L49 session 表那个 <span class="mono">revert: {messageID, partID?, snapshot?, diff?}</span> JSON 列吗？这里正是它的用武之地）。于是 <span class="mono">unrevert</span> 能把你<strong>带回 revert 之前的那一刻</strong>——退回过去之后，你<strong>还能反悔退回的动作本身</strong>。把这条时间轴画出来：</p>
+<p>这个「可反悔」的设计尤其周到：<span class="mono">revert</span> 在还原之前，会<strong>先给「现在」拍一张快照</strong>存进 session 的 <span class="mono">revert</span> 字段（还记得 L49 session 表那个 <span class="mono">revert: {messageID, partID?, snapshot?, diff?}</span> JSON 列吗？这里正是它的用武之地）。于是 <span class="mono">unrevert</span> 能把你<strong>带回 revert 之前的那一刻</strong>——退回过去之后，你<strong>还能反悔退回的动作本身</strong>。（细分一下：前进的 revert 用 <span class="mono">snap.revert</span> 按补丁把改动过的文件逐一退回，而 unrevert 用 <span class="mono">snap.restore</span> 把 revert 前那张整快照一次性还原。）把这条时间轴画出来：</p>
 <div class="timeline">
   <div class="tl-item"><div class="tl-time">每步</div><div class="tl-text">工具操作前后 track() 不断拍快照</div></div>
-  <div class="tl-item"><div class="tl-time">revert</div><div class="tl-text">先 track 存下「现在」→ restore 到消息 N 的快照 + 裁掉 N 之后的消息</div></div>
+  <div class="tl-item"><div class="tl-time">revert</div><div class="tl-text">先 track 存下「现在」→ snap.revert 把改动过的文件退回消息 N 时的状态 + 裁掉 N 之后的消息</div></div>
   <div class="tl-item"><div class="tl-time">结果</div><div class="tl-text">对话与文件一起回到消息 N 那一刻</div></div>
-  <div class="tl-item"><div class="tl-time">unrevert</div><div class="tl-text">restore 回 revert 前存下的快照——反悔成功</div></div>
+  <div class="tl-item"><div class="tl-time">unrevert</div><div class="tl-text">snap.restore 回 revert 前存下的快照——反悔成功</div></div>
 </div>
 <p>把对话与文件<strong>绑定在同一条时间轴上一起回退</strong>，是 revert 最关键的洞见：单退对话不退文件，你会面对「对话以为没改过、文件却已被改」的错乱；单退文件不退对话同理。唯有<strong>两者作为一个整体一起回到过去</strong>，那一刻的世界才是自洽的。这背后是 L49 那张 session 表的 <span class="mono">revert</span> 列在默默支撑——状态被持久化，所以哪怕重启，这颗「后悔药」依然有效。</p>
 
@@ -751,7 +751,7 @@ LESSON_51 = {
   <ul>
     <li><strong>压缩与摘要</strong>（<span class="mono">session/compaction.ts</span>）：<span class="mono">compactIfNeeded</span> 在请求 token &gt; <span class="mono">上下文−max(输出,缓冲20k)</span> 时触发；<span class="mono">select</span> 切分=近况留原文(<span class="mono">DEFAULT_KEEP_TOKENS</span>≈8k)+远的折成结构化摘要(固定模板 Goal/Constraints/Progress/Decisions/Next Steps/Context/Files)；LLM 无工具限 4096 token 生成；<strong>锚定式增量更新</strong>（旧摘要上保留/删除/并入，主线不断裂）。回响 L42「上下文稀缺」。</li>
     <li><strong>快照=影子 git 仓库</strong>（<span class="mono">snapshot/index.ts</span>）：独立 <span class="mono">--git-dir</span>（数据目录下）+ <span class="mono">--work-tree</span> 指真实工作目录，<strong>绝不碰你的 .git</strong>；<span class="mono">track</span>=<span class="mono">write-tree</span> 出树哈希、<span class="mono">restore</span>=<span class="mono">read-tree</span>+<span class="mono">checkout-index</span>；<span class="mono">alternates</span> 共享对象省空间、尊重 .gitignore、屏蔽大文件。复用 git（如 L39 复用 Ripgrep）。</li>
-    <li><strong>Revert=对话+文件一起回退</strong>（<span class="mono">session/revert.ts</span>）：退对话(裁掉消息 N 之后)+退文件(<span class="mono">snap.restore</span>)；<strong>可反悔</strong>（revert 前先 track 存当前→unrevert 还原），状态存进 L49 session 表的 <span class="mono">revert</span> JSON 列，重启仍有效。</li>
+    <li><strong>Revert=对话+文件一起回退</strong>（<span class="mono">session/revert.ts</span>）：退对话(裁掉消息 N 之后)+退文件(<span class="mono">snap.revert</span> 按补丁逐一还原改动过的文件)；<strong>可反悔</strong>（revert 前先 track 存当前→unrevert 用 <span class="mono">snap.restore</span> 整体还原），状态存进 L49 session 表的 <span class="mono">revert</span> JSON 列，重启仍有效。</li>
     <li><strong>统一主题</strong>：L48–50 忠实地<strong>存</strong>，L51 智慧地<strong>管</strong>——压缩管记忆容量、快照/revert 管记忆时间轴。对话与文件绑在同一时间轴一起回退，那一刻的世界才自洽。</li>
   </ul>
   <p>至此 <strong>M9 持久化与存储</strong>全部讲完：从 Drizzle/SQLite 地基（L48）、核心表网（L49）、V1→V2 迁移（L50），到这一课的压缩与快照/revert（L51）——opencode 如何忠实地存、安全地搬、智慧地管它的全部「记忆」。下一部分 <strong>M10 转向 TUI 与客户端渲染</strong>：这些存下来的会话、消息、上下文，最终怎样在你的终端里被渲染成一个流畅的交互界面。</p>
@@ -789,7 +789,7 @@ LESSON_51 = {
     <li><strong>压缩=近况留原文+远的折成摘要</strong>（<span class="mono">compaction.ts</span>）：请求 token 超 <span class="mono">上下文−max(输出,缓冲20k)</span> 触发；<span class="mono">select</span> 保留最近≈8k token 原文、其余交 LLM 填固定结构摘要模板（Goal/Constraints/Progress/Decisions/Next Steps/Context/Files）；可从单条消息中间切，把保留预算用到极致。</li>
     <li><strong>锚定式增量摘要</strong>：已压缩过则在旧摘要上「保留/删除/并入」而非重写，让主线跨多次压缩不断裂、不被逐渐稀释遗忘。同 L42「上下文稀缺」哲学的不同层级回响。</li>
     <li><strong>快照=影子 git 仓库</strong>（<span class="mono">snapshot/index.ts</span>）：独立 <span class="mono">--git-dir</span>+<span class="mono">--work-tree</span> 指真实工作目录，<strong>绝不碰你的 .git</strong>；<span class="mono">track</span>=<span class="mono">write-tree</span>（轻量树快照而非 commit）、<span class="mono">restore</span>=<span class="mono">read-tree</span>+<span class="mono">checkout-index</span>；alternates 共享对象、尊重 gitignore。复用 git 这把利器（如 L39 复用 Ripgrep）。</li>
-    <li><strong>Revert=对话+文件一起回退</strong>（<span class="mono">revert.ts</span>）：退对话(裁消息 N 之后)+退文件(restore 快照)绑在同一时间轴，那一刻才自洽；<strong>可 unrevert 反悔</strong>（revert 前先 track 存当前）。状态存进 L49 session 表 <span class="mono">revert</span> JSON 列、重启仍有效。</li>
+    <li><strong>Revert=对话+文件一起回退</strong>（<span class="mono">revert.ts</span>）：退对话(裁消息 N 之后)+退文件(<span class="mono">snap.revert</span> 按补丁还原)绑在同一时间轴，那一刻才自洽；<strong>可 unrevert 反悔</strong>（revert 前先 track 存当前，unrevert 用 <span class="mono">snap.restore</span> 整体还原）。状态存进 L49 session 表 <span class="mono">revert</span> JSON 列、重启仍有效。</li>
     <li><strong>M9 收官</strong>：L48–50 忠实地存/搬，L51 智慧地管（容量靠压缩、时间轴靠快照/revert）。下一部分 M10 讲 TUI——这些记忆怎样在终端被渲染成交互界面。</li>
   </ul>
 </div>
@@ -849,15 +849,15 @@ LESSON_51 = {
 <p>Compaction (conversation memory) and snapshot (file memory) combined give <strong>revert</strong>—a real "regret pill." <span class="mono">revert.ts</span> lets you specify rolling back to a message (<span class="mono">messageID</span>, down to <span class="mono">partID</span>), doing a <strong>fusion of two things</strong>:</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">rewind the conversation</div><div class="c-txt">trim messages <strong>after</strong> that message from visible history—the conversation returns to that moment</div></div>
-  <div class="cell"><div class="c-tag">rewind the files</div><div class="c-txt"><span class="mono">snap.restore(snapshot)</span> restores the working directory—files return to that moment</div></div>
-  <div class="cell"><div class="c-tag">reversible</div><div class="c-txt">before revert, <span class="mono">snap.track()</span> saves the current state; <span class="mono">unrevert</span> restores back—even the regret pill has a regret pill</div></div>
+  <div class="cell"><div class="c-tag">rewind the files</div><div class="c-txt"><span class="mono">snap.revert(patches)</span> reverts the changed files one by one—files return to that moment</div></div>
+  <div class="cell"><div class="c-tag">reversible</div><div class="c-txt">before revert, <span class="mono">snap.track()</span> saves the current state; <span class="mono">unrevert</span> restores wholesale via <span class="mono">snap.restore</span>—even the regret pill has a regret pill</div></div>
 </div>
-<p>This "reversible" design is especially thoughtful: before restoring, <span class="mono">revert</span> <strong>first takes a snapshot of "now"</strong> and stores it in the session's <span class="mono">revert</span> field (remember L49's session-table <span class="mono">revert: {messageID, partID?, snapshot?, diff?}</span> JSON column? here's exactly where it earns its keep). So <span class="mono">unrevert</span> can <strong>bring you back to the moment before revert</strong>—after rolling back to the past, you <strong>can still take back the rollback itself</strong>. Drawing this timeline:</p>
+<p>This "reversible" design is especially thoughtful: before restoring, <span class="mono">revert</span> <strong>first takes a snapshot of "now"</strong> and stores it in the session's <span class="mono">revert</span> field (remember L49's session-table <span class="mono">revert: {messageID, partID?, snapshot?, diff?}</span> JSON column? here's exactly where it earns its keep). So <span class="mono">unrevert</span> can <strong>bring you back to the moment before revert</strong>—after rolling back to the past, you <strong>can still take back the rollback itself</strong>. (To be precise: the forward revert uses <span class="mono">snap.revert</span> to roll the changed files back per-patch, while unrevert uses <span class="mono">snap.restore</span> to restore that whole pre-revert snapshot in one shot.) Drawing this timeline:</p>
 <div class="timeline">
   <div class="tl-item"><div class="tl-time">each step</div><div class="tl-text">track() keeps snapshotting around tool operations</div></div>
-  <div class="tl-item"><div class="tl-time">revert</div><div class="tl-text">first track to save "now" → restore to message N's snapshot + trim messages after N</div></div>
+  <div class="tl-item"><div class="tl-time">revert</div><div class="tl-text">first track to save "now" → snap.revert rolls the changed files back to message N's state + trim messages after N</div></div>
   <div class="tl-item"><div class="tl-time">result</div><div class="tl-text">conversation and files return together to the moment of message N</div></div>
-  <div class="tl-item"><div class="tl-time">unrevert</div><div class="tl-text">restore back to the snapshot saved before revert—take-back succeeds</div></div>
+  <div class="tl-item"><div class="tl-time">unrevert</div><div class="tl-text">snap.restore back to the snapshot saved before revert—take-back succeeds</div></div>
 </div>
 <p>Binding conversation and files <strong>on the same timeline to roll back together</strong> is revert's key insight: rewind the conversation but not the files and you face the disorder of "the conversation thinks nothing changed, yet the files are already changed"; rewind files but not conversation, likewise. Only when <strong>both, as a whole, return to the past together</strong> is that moment's world self-consistent. Behind this is L49's session-table <span class="mono">revert</span> column quietly supporting it—the state is persisted, so even after a restart this "regret pill" still works.</p>
 
@@ -867,7 +867,7 @@ LESSON_51 = {
   <ul>
     <li><strong>compaction and summary</strong> (<span class="mono">session/compaction.ts</span>): <span class="mono">compactIfNeeded</span> triggers when request tokens &gt; <span class="mono">context−max(output,buffer 20k)</span>; <span class="mono">select</span> split = keep the near verbatim (<span class="mono">DEFAULT_KEEP_TOKENS</span>≈8k) + fold the far into a structured summary (fixed template Goal/Constraints/Progress/Decisions/Next Steps/Context/Files); LLM generates with no tools capped at 4096 tokens; <strong>anchored incremental update</strong> (preserve/remove/merge on the old summary, main thread unbroken). Echoes L42's "context scarce."</li>
     <li><strong>snapshot = shadow git repo</strong> (<span class="mono">snapshot/index.ts</span>): a separate <span class="mono">--git-dir</span> (under data dir) + <span class="mono">--work-tree</span> at the real working directory, <strong>never touching your .git</strong>; <span class="mono">track</span>=<span class="mono">write-tree</span> for a tree hash, <span class="mono">restore</span>=<span class="mono">read-tree</span>+<span class="mono">checkout-index</span>; <span class="mono">alternates</span> share objects to save space, respects .gitignore, blocks large files. Reuse git (like L39 reusing Ripgrep).</li>
-    <li><strong>revert = conversation+files roll back together</strong> (<span class="mono">session/revert.ts</span>): rewind conversation (trim after message N) + rewind files (<span class="mono">snap.restore</span>); <strong>reversible</strong> (track current before revert → unrevert restores), state stored in L49 session-table's <span class="mono">revert</span> JSON column, works after restart.</li>
+    <li><strong>revert = conversation+files roll back together</strong> (<span class="mono">session/revert.ts</span>): rewind conversation (trim after message N) + rewind files (<span class="mono">snap.revert</span> rolls the changed files back per-patch); <strong>reversible</strong> (track current before revert → unrevert restores wholesale via <span class="mono">snap.restore</span>), state stored in L49 session-table's <span class="mono">revert</span> JSON column, works after restart.</li>
     <li><strong>unifying theme</strong>: L48–50 faithfully <strong>store</strong>, L51 wisely <strong>manage</strong>—compaction manages memory capacity, snapshot/revert manages memory's timeline. Conversation and files bound on the same timeline to roll back together, only then is that moment's world self-consistent.</li>
   </ul>
   <p>With this <strong>M9 Persistence and Storage</strong> is fully covered: from the Drizzle/SQLite foundation (L48), the core table web (L49), V1→V2 migration (L50), to this lesson's compaction and snapshot/revert (L51)—how opencode faithfully stores, safely moves, and wisely manages all its "memory." The next part <strong>M10 turns to TUI and client rendering</strong>: how these stored sessions, messages, contexts ultimately get rendered into a fluid interactive interface in your terminal.</p>
@@ -905,7 +905,7 @@ LESSON_51 = {
     <li><strong>compaction = keep near verbatim + fold far into summary</strong> (<span class="mono">compaction.ts</span>): triggers when request tokens exceed <span class="mono">context−max(output,buffer 20k)</span>; <span class="mono">select</span> keeps the most recent ≈8k tokens verbatim, hands the rest to the LLM to fill a fixed-structure summary template (Goal/Constraints/Progress/Decisions/Next Steps/Context/Files); can cut mid-message to use the keep budget to the hilt.</li>
     <li><strong>anchored incremental summary</strong>: if already compacted, "preserve/remove/merge" on the old summary rather than rewrite, keeping the main thread unbroken across multiple compactions, not gradually diluted and forgotten. The same "context scarce" philosophy as L42 echoing at a different level.</li>
     <li><strong>snapshot = shadow git repo</strong> (<span class="mono">snapshot/index.ts</span>): a separate <span class="mono">--git-dir</span>+<span class="mono">--work-tree</span> at the real working directory, <strong>never touching your .git</strong>; <span class="mono">track</span>=<span class="mono">write-tree</span> (lightweight tree snapshot, not a commit), <span class="mono">restore</span>=<span class="mono">read-tree</span>+<span class="mono">checkout-index</span>; alternates share objects, respects gitignore. Reuse git's power (like L39 reusing Ripgrep).</li>
-    <li><strong>revert = conversation+files roll back together</strong> (<span class="mono">revert.ts</span>): rewind conversation (trim after message N) + rewind files (restore snapshot) bound on the same timeline, only then self-consistent; <strong>can unrevert</strong> (track current before revert). State stored in L49 session-table's <span class="mono">revert</span> JSON column, works after restart.</li>
+    <li><strong>revert = conversation+files roll back together</strong> (<span class="mono">revert.ts</span>): rewind conversation (trim after message N) + rewind files (<span class="mono">snap.revert</span> per-patch) bound on the same timeline, only then self-consistent; <strong>can unrevert</strong> (track current before revert, unrevert restores wholesale via <span class="mono">snap.restore</span>). State stored in L49 session-table's <span class="mono">revert</span> JSON column, works after restart.</li>
     <li><strong>M9 finale</strong>: L48–50 faithfully store/move, L51 wisely manage (capacity via compaction, timeline via snapshot/revert). The next part M10 covers TUI—how these memories get rendered into an interactive interface in the terminal.</li>
   </ul>
 </div>

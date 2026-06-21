@@ -346,18 +346,18 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="cell"><div class="c-tag">运行状态</div><div class="c-txt"><span class="mono">agent</span>、<span class="mono">model</span>(JSON)、<span class="mono">permission</span>(JSON,L41 Ruleset)、<span class="mono">revert</span>(JSON)</div></div>
   <div class="cell"><div class="c-tag">时间</div><div class="c-txt"><span class="mono">...Timestamps</span>、<span class="mono">time_compacting</span>、<span class="mono">time_archived</span></div></div>
 </div>
-<p>注意 <span class="mono">parent_id</span> 那个<strong>自指外键</strong>：一个 session 可以是另一个 session 的子会话——这正是 M4 里 agent 派生子任务（subagent）时，子会话挂在父会话名下的落盘方式。而几乎所有其它表，都通过外键指回 session。把这张关系网铺开看：</p>
+<p>注意 <span class="mono">parent_id</span> 那个<strong>自指列</strong>：一个 session 可以是另一个 session 的子会话——这正是 M4 里 agent 派生子任务（subagent）时，子会话挂在父会话名下的落盘方式。但要留神：<span class="mono">parent_id</span> 只是一个<strong>带索引的普通列、并非强制外键</strong>（源码里它没有 <span class="mono">.references()</span>），所以删掉父会话<strong>不会</strong>级联删掉子会话。而其它表则大多通过<strong>带 cascade 的外键</strong>指回 session。把这张关系网铺开看：</p>
 <table class="t">
-  <tr><th>父表</th><th>子表（外键 + cascade）</th><th>关系</th></tr>
-  <tr><td>project</td><td>session（project_id）</td><td>一个项目 N 个会话</td></tr>
-  <tr><td>session</td><td>session（parent_id 自指）</td><td>父会话 N 个子会话</td></tr>
-  <tr><td>session</td><td>message → part</td><td>V1：会话 N 消息 N 片段</td></tr>
-  <tr><td>session</td><td>session_message</td><td>V2：会话 N 消息（按 seq）</td></tr>
-  <tr><td>session</td><td>session_input</td><td>V2：会话 N 条待处理输入</td></tr>
-  <tr><td>session</td><td>session_context_epoch</td><td>1:1（主键即 session_id）</td></tr>
-  <tr><td>session</td><td>todo</td><td>会话 N 条待办</td></tr>
+  <tr><th>父表</th><th>子表</th><th>关系（是否级联）</th></tr>
+  <tr><td>project</td><td>session（project_id）</td><td>一个项目 N 个会话 · cascade</td></tr>
+  <tr><td>session</td><td>session（parent_id）</td><td>父会话 N 个子会话 · <strong>自指索引、非外键、不级联</strong></td></tr>
+  <tr><td>session</td><td>message → part</td><td>V1：会话 N 消息 N 片段 · cascade</td></tr>
+  <tr><td>session</td><td>session_message</td><td>V2：会话 N 消息（按 seq）· cascade</td></tr>
+  <tr><td>session</td><td>session_input</td><td>V2：会话 N 条待处理输入 · cascade</td></tr>
+  <tr><td>session</td><td>session_context_epoch</td><td>1:1（主键即 session_id）· cascade</td></tr>
+  <tr><td>session</td><td>todo</td><td>会话 N 条待办 · cascade</td></tr>
 </table>
-<p>这张表最该品的，是那一片 <span class="mono">onDelete:"cascade"</span> 编织出的<strong>「级联删除网」</strong>。删一个 project，它名下所有 session 跟着删；删一个 session，它名下所有 message/part/session_message/session_input/epoch/todo 全部跟着删。<strong>数据库在结构层面就保证了「没有孤儿数据」</strong>——你永远不会查到一条「属于某个早已不存在的会话」的消息。这种一致性不是靠应用代码小心翼翼地手动删，而是靠外键约束<strong>由数据库强制兜底</strong>（也正因如此，上一课那句 <span class="mono">PRAGMA foreign_keys=ON</span> 才不可省）。把一次「删掉 project」的级联走一遍，就能看清这棵树是怎么连根拔起的：</p>
+<p>这张表最该品的，是那一片 <span class="mono">onDelete:"cascade"</span> 编织出的<strong>「级联删除网」</strong>（注意它<strong>不含</strong> parent_id 那条——自指列没有外键，不参与级联）。删一个 project，它名下所有 session 跟着删；删一个 session，它名下所有 message/part/session_message/session_input/epoch/todo 全部跟着删。<strong>数据库在结构层面就保证了「没有孤儿数据」</strong>——你永远不会查到一条「属于某个早已不存在的会话」的消息。这种一致性不是靠应用代码小心翼翼地手动删，而是靠外键约束<strong>由数据库强制兜底</strong>（也正因如此，上一课那句 <span class="mono">PRAGMA foreign_keys=ON</span> 才不可省）。把一次「删掉 project」的级联走一遍，就能看清这棵树是怎么连根拔起的：</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">删</span><span class="t-txt">DELETE FROM project WHERE id=…（拔起树根）</span></div>
   <div class="t-row"><span class="t-num">↓</span><span class="t-txt">该 project 名下所有 session 自动删（project_id cascade）</span></div>
@@ -456,7 +456,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。session 是整张表网的根/中枢：project→session（project_id），session→message→part（两级）、session→session_message/session_input/session_context_epoch/todo，几乎所有外键都带 onDelete:cascade。于是删一个 project，其下所有 session 跟着删；删一个 session，其下所有 message/part/session_message/input/epoch/todo 全部跟着删——「拔起树根连根带走所有枝叶」。这种「无孤儿」一致性不是靠应用代码小心手动删，而是靠外键约束由数据库强制兜底（也正因此 L48 那句 PRAGMA foreign_keys=ON 不可省——SQLite 默认不强制外键，必须显式打开 cascade 才生效）。session 自身还有 parent_id 自指外键，支持子会话（subagent 落盘）。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。session 是整张表网的根/中枢：project→session（project_id），session→message→part（两级）、session→session_message/session_input/session_context_epoch/todo，几乎所有外键都带 onDelete:cascade。于是删一个 project，其下所有 session 跟着删；删一个 session，其下所有 message/part/session_message/input/epoch/todo 全部跟着删——「拔起树根连根带走所有枝叶」。这种「无孤儿」一致性不是靠应用代码小心手动删，而是靠外键约束由数据库强制兜底（也正因此 L48 那句 PRAGMA foreign_keys=ON 不可省——SQLite 默认不强制外键，必须显式打开 cascade 才生效）。session 自身还有 parent_id 自指列（带索引的普通列、并非外键），指向父会话（subagent 落盘）；注意它没有 cascade，删父会话不会连带删子会话。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -511,18 +511,18 @@ sqliteTable(<span class="st">"session_input"</span>, {
   <div class="cell"><div class="c-tag">runtime state</div><div class="c-txt"><span class="mono">agent</span>, <span class="mono">model</span>(JSON), <span class="mono">permission</span>(JSON,L41 Ruleset), <span class="mono">revert</span>(JSON)</div></div>
   <div class="cell"><div class="c-tag">time</div><div class="c-txt"><span class="mono">...Timestamps</span>, <span class="mono">time_compacting</span>, <span class="mono">time_archived</span></div></div>
 </div>
-<p>Note that <span class="mono">parent_id</span> <strong>self-referencing foreign key</strong>: a session can be a sub-session of another—exactly how, in M4 when an agent spawns a subtask (subagent), the sub-session is parked under the parent on disk. And nearly all other tables point back to session by foreign key. Spreading out this relationship web:</p>
+<p>Note that <span class="mono">parent_id</span> <strong>self-referencing column</strong>: a session can be a sub-session of another—exactly how, in M4 when an agent spawns a subtask (subagent), the sub-session is parked under the parent on disk. But note: <span class="mono">parent_id</span> is just an <strong>indexed plain column, not an enforced foreign key</strong> (it has no <span class="mono">.references()</span> in source), so deleting a parent session does <strong>not</strong> cascade-delete sub-sessions. Other tables, by contrast, mostly point back to session via a <strong>cascading foreign key</strong>. Spreading out this relationship web:</p>
 <table class="t">
-  <tr><th>parent table</th><th>child table (FK + cascade)</th><th>relation</th></tr>
-  <tr><td>project</td><td>session (project_id)</td><td>one project N sessions</td></tr>
-  <tr><td>session</td><td>session (parent_id self-ref)</td><td>parent session N sub-sessions</td></tr>
-  <tr><td>session</td><td>message → part</td><td>V1: session N messages N parts</td></tr>
-  <tr><td>session</td><td>session_message</td><td>V2: session N messages (by seq)</td></tr>
-  <tr><td>session</td><td>session_input</td><td>V2: session N pending inputs</td></tr>
-  <tr><td>session</td><td>session_context_epoch</td><td>1:1 (PK is session_id)</td></tr>
-  <tr><td>session</td><td>todo</td><td>session N todos</td></tr>
+  <tr><th>parent table</th><th>child table</th><th>relation (cascading?)</th></tr>
+  <tr><td>project</td><td>session (project_id)</td><td>one project N sessions · cascade</td></tr>
+  <tr><td>session</td><td>session (parent_id)</td><td>parent session N sub-sessions · <strong>self-ref index, not FK, no cascade</strong></td></tr>
+  <tr><td>session</td><td>message → part</td><td>V1: session N messages N parts · cascade</td></tr>
+  <tr><td>session</td><td>session_message</td><td>V2: session N messages (by seq) · cascade</td></tr>
+  <tr><td>session</td><td>session_input</td><td>V2: session N pending inputs · cascade</td></tr>
+  <tr><td>session</td><td>session_context_epoch</td><td>1:1 (PK is session_id) · cascade</td></tr>
+  <tr><td>session</td><td>todo</td><td>session N todos · cascade</td></tr>
 </table>
-<p>What this table most deserves savoring is the <strong>"cascade-delete web"</strong> woven by all those <span class="mono">onDelete:"cascade"</span>. Delete a project, all its sessions delete; delete a session, all its message/part/session_message/session_input/epoch/todo delete. <strong>At the structural level the database guarantees "no orphan data"</strong>—you'll never query a message "belonging to a session that no longer exists." This consistency isn't from app code carefully deleting by hand but from foreign-key constraints <strong>enforced as a backstop by the database</strong> (and exactly why last lesson's <span class="mono">PRAGMA foreign_keys=ON</span> can't be omitted). Walking through one "delete a project" cascade shows how the tree is uprooted:</p>
+<p>What this table most deserves savoring is the <strong>"cascade-delete web"</strong> woven by all those <span class="mono">onDelete:"cascade"</span> (note it <strong>excludes</strong> the parent_id row—a self-ref column has no foreign key and takes no part in cascade). Delete a project, all its sessions delete; delete a session, all its message/part/session_message/session_input/epoch/todo delete. <strong>At the structural level the database guarantees "no orphan data"</strong>—you'll never query a message "belonging to a session that no longer exists." This consistency isn't from app code carefully deleting by hand but from foreign-key constraints <strong>enforced as a backstop by the database</strong> (and exactly why last lesson's <span class="mono">PRAGMA foreign_keys=ON</span> can't be omitted). Walking through one "delete a project" cascade shows how the tree is uprooted:</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">del</span><span class="t-txt">DELETE FROM project WHERE id=… (pull the root)</span></div>
   <div class="t-row"><span class="t-num">↓</span><span class="t-txt">all sessions under that project auto-delete (project_id cascade)</span></div>
@@ -621,7 +621,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. session is the root/hub of the whole table web: project→session (project_id), session→message→part (two levels), session→session_message/session_input/session_context_epoch/todo, nearly all FKs with onDelete:cascade. So delete a project, all its sessions follow; delete a session, all its message/part/session_message/input/epoch/todo follow — "uproot the tree taking all branches." This "no orphan" consistency isn't from app code carefully deleting by hand but from FK constraints enforced as a backstop by the DB (and exactly why L48's PRAGMA foreign_keys=ON can't be omitted — SQLite doesn't enforce FKs by default, cascade only works if explicitly turned on). session itself also has a parent_id self-ref FK, supporting sub-sessions (subagent on disk).</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. session is the root/hub of the whole table web: project→session (project_id), session→message→part (two levels), session→session_message/session_input/session_context_epoch/todo, nearly all FKs with onDelete:cascade. So delete a project, all its sessions follow; delete a session, all its message/part/session_message/input/epoch/todo follow — "uproot the tree taking all branches." This "no orphan" consistency isn't from app code carefully deleting by hand but from FK constraints enforced as a backstop by the DB (and exactly why L48's PRAGMA foreign_keys=ON can't be omitted — SQLite doesn't enforce FKs by default, cascade only works if explicitly turned on). session itself also has a parent_id self-referencing column (an indexed plain column, not a foreign key) pointing at the parent session (subagent on disk); note it has no cascade, so deleting a parent session doesn't delete its sub-sessions.</div></div></div>
   </details>
 </div>
 <div class="quiz">
