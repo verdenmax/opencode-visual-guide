@@ -339,6 +339,47 @@ QUIZZES = {
             {"zh": "课里说“是 Effect 的依赖模型塑造了 V2 的模块形状”。结合第 4 课的“巨石 vs 小协作者”，谈谈你的理解。", "en": "The lesson says “Effect's dependency model shapes V2's module form”. Relate this to Lesson 4's “boulders vs small collaborators” in your own words."},
         ],
     },
+    "07-concurrency-primitives.html": {
+        "mcq": [
+            {
+                "q": {"zh": "Fiber 相比普通 Promise，最关键的多出来的能力是什么？", "en": "What is the key extra ability a Fiber has over a plain Promise?"},
+                "opts": [
+                    {"zh": "可以被有序地 interrupt（中断并清理资源），而普通 Promise 一旦发起就无法取消", "en": "It can be interrupted in an orderly way (cancel + clean up), while a plain Promise can't be cancelled once started"},
+                    {"zh": "它本身跑得更快", "en": "It simply runs faster"},
+                    {"zh": "它会自动重试失败的任务", "en": "It auto-retries failed tasks"},
+                    {"zh": "它占用更少内存", "en": "It uses less memory"},
+                ],
+                "answer": 0,
+                "why": {"zh": "Fiber 是一个正在跑的 Effect 的句柄，可 join 等结果、可 interrupt 有序停下并清理。普通 Promise 无法取消——这对随时可能被用户打断的 agent 是刚需。", "en": "A Fiber is a handle to a running Effect: join for the result, interrupt to stop in order and clean up. A plain Promise can't cancel — a must for an interruptible agent."},
+            },
+            {
+                "q": {"zh": "agent 被用户打断时，runner 调用 FiberSet.clear(toolFibers) 做了什么？", "en": "When the user interrupts, what does the runner's FiberSet.clear(toolFibers) do?"},
+                "opts": [
+                    {"zh": "把整组正在跑的工具一次性中断，并触发它们各自的资源清理", "en": "Interrupt the whole running tool group at once and trigger each one's resource cleanup"},
+                    {"zh": "清空日志文件", "en": "Clear the log files"},
+                    {"zh": "重启整个 server", "en": "Restart the whole server"},
+                    {"zh": "把当前进度存盘", "en": "Save the current progress to disk"},
+                ],
+                "answer": 0,
+                "why": {"zh": "结构化并发保证开了多少就能收回多少：clear 把整组 Fiber 召回，避免出现"用户喊停了、某工具还在偷偷写文件"的野任务。", "en": "Structured concurrency guarantees you reel back all you launched: clear recalls the whole Fiber group, avoiding a wild task still writing a file after the user stopped."},
+            },
+            {
+                "q": {"zh": "为什么"记录结果、再发出事件"这样的关键区要包在 uninterruptibleMask 里？", "en": "Why wrap a critical region like record-then-emit in uninterruptibleMask?"},
+                "opts": [
+                    {"zh": "保证这类必须成对完成的操作不被半路打断，避免"记了却没通知"的不一致", "en": "To guarantee such paired operations aren't interrupted midway, avoiding recorded-but-not-announced inconsistency"},
+                    {"zh": "让它跑得更快", "en": "To make it run faster"},
+                    {"zh": "禁止任何并发", "en": "To forbid all concurrency"},
+                    {"zh": "给数据加密", "en": "To encrypt the data"},
+                ],
+                "answer": 0,
+                "why": {"zh": "默认可中断很灵敏，但成对操作中途被打断会留下不一致；uninterruptibleMask 把那一小块圈成原子，必要时用 restore 再开可中断小窗。", "en": "Default interruptibility is responsive, but a paired op interrupted midway leaves inconsistency; uninterruptibleMask makes that small region atomic, with restore to reopen an interruptible window if needed."},
+            },
+        ],
+        "open": [
+            {"zh": "课里把结构化并发比作“消灭 goto”。说说“开了多少就能收回多少”对一个随时可被打断的 agent，为什么是正确性问题、而不只是性能问题。", "en": "The lesson likens structured concurrency to “killing goto”. Explain why “reel back all you launched” is a correctness issue (not just performance) for an interruptible agent."},
+            {"zh": "对照表里，Promise.all 和 FiberSet 拉开差距的是哪两行？结合你实际用 AI agent 的体验，说说这两点为什么重要。", "en": "In the comparison table, which two rows separate Promise.all from FiberSet? From your own experience using an AI agent, say why those two matter."},
+        ],
+    },
 }
 
 def render(fname, lang):

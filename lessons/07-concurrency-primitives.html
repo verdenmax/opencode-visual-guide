@@ -328,8 +328,232 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第二部分 · Effect 地基</span><span class="lang-en">Part 2 · Effect Foundations</span></div>
     <h1><span class="lang-zh">并发原语</span><span class="lang-en">Concurrency primitives</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《并发原语》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“并发原语”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Concurrency primitives" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Concurrency primitives" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">前两课打了地基：Effect 让计算成为可组合的值，Service/Layer 管好了依赖。这一课讲它<strong>最显眼的回报</strong>——并发。回想第 3 课那条 agent 循环：模型一步里要"读三个文件"，server 不排队、而是<strong>三个一起跑</strong>，还能在你喊停时<strong>干净地全部收住</strong>。这种"开得出、更收得回"的能力，靠的就是 Effect 的并发原语 <span class="mono">Fiber</span> 和 <span class="mono">FiberSet</span>。它们正是 V2 工具执行的心脏，这一课把它讲透。</p>
+<p>为什么把并发单拎一课？因为它是 Effect 在 opencode 里<strong>最看得见摸得着</strong>的回报。前两课的"描述成值""依赖注入"偏抽象，要慢慢体会；并发不一样——你每次看着 agent "唰"地同时读好几个文件、又能在你按下 Esc 的瞬间整个停住，背后就是这一课的东西在工作。可以说，<strong>Fiber 和 FiberSet 是 Effect 那套抽象兑现成的、你天天都在感受的具体体验</strong>。学好它，你不光读懂了代码，也理解了那种"流畅又可控"的手感究竟从何而来。</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 生活类比</div>
+  把一次并发执行想成一个<strong>包工头带一组工人</strong>。每派出去一个工人干一件活，就是一个 <strong>Fiber</strong>——一条轻量的"执行线"，工头手里攥着它的"<strong>对讲机</strong>"，随时能问"干完没"、也能喊"<strong>立刻停手</strong>"。把这一组工人一起管起来的花名册，就是 <strong>FiberSet</strong>。普通的 <span class="mono">Promise.all</span> 像"派出去就失联"：活派下去了，可一旦要中途叫停，你根本没有对讲机。Effect 的并发不一样——<strong>每条执行线都留着一根可回收的绳子</strong>，要么一起等它们干完，要么一声令下全部召回。而且这根绳子还是<strong>分层</strong>的：上一层一收，下面挂着的全跟着回来，绝不会有谁被落在外面继续空转——这正是"结构化"这三个字真正的分量所在，也是它远胜裸 Promise 的根本之处。
+</div>
+
+<h2>Fiber：一条能随时叫停的"执行线"</h2>
+<p>先认 <strong>Fiber</strong>。它常被叫做"轻量线程"，但更准的理解是：<strong>一个正在运行的 Effect 的句柄</strong>。你把一段 Effect <span class="mono">fork</span>（分叉）出去，它就在后台跑起来，同时给你一个 Fiber——凭它，你能 <span class="mono">join</span>（等它出结果）或 <span class="mono">interrupt</span>（中断它）。</p>
+<p>关键词是 <strong>interrupt（可中断）</strong>。普通的 <span class="mono">Promise</span> 一旦发起就<strong>无法取消</strong>——你能不去 await 它，但它还在跑、还在耗资源、副作用照样发生。Fiber 不是：中断一个 Fiber，Effect 会沿着它正在做的事<strong>有序地停下来、并触发清理</strong>（关掉它打开的资源）。对一个随时可能被用户打断的 agent 来说，"能干净地取消"不是锦上添花，而是<strong>刚需</strong>。</p>
+<div class="cols">
+  <div class="col"><h4>Promise.all</h4><p>派出去就失联：无法取消，要么等它自己结束，要么忽略结果（但它还在跑）。</p></div>
+  <div class="col"><h4>Fiber</h4><p>留着对讲机：可 <span class="mono">join</span> 等结果、可 <span class="mono">interrupt</span> 有序中断并清理资源。</p></div>
+</div>
+<p>举个最能说明"可中断"价值的场景：你让 agent 跑一个会扫描整个仓库的搜索，跑了两秒你突然意识到搜错了关键词，按下中断。用普通 Promise，那个搜索<strong>还会把剩下的几万个文件扫完</strong>才罢休，白白耗你两秒、还可能刷一屏没用的输出；用 Fiber，中断信号会让它<strong>当场停在下一个可中断点</strong>、并清理掉已占用的句柄。对一个强调"全程可被你引导"的 agent，这种"说停就停、且停得干净"的能力，几乎直接决定了它好不好用。</p>
+
+<h2>FiberSet：管一整组并发任务</h2>
+<p>一个 Fiber 是一条线，<strong>FiberSet</strong> 则是攥住一整把线的"花名册"。agent 一步里要并发跑多个工具，就先建一个 FiberSet，把每个工具的执行<strong>塞进去</strong>，最后统一等它们结束——或者一声令下全部清空。</p>
+<pre class="code"><span class="cm">// 简化自 packages/core/src/session/runner/llm.ts</span>
+<span class="kw">const</span> toolFibers = <span class="kw">yield</span>* FiberSet.<span class="fn">make</span>&lt;<span class="kw">void</span>, Error&gt;()   <span class="cm">// 建花名册</span>
+<span class="cm">// 每来一个 tool-call，就把它的执行 run 进 FiberSet（并发起跑）</span>
+runOneTool(call).<span class="fn">pipe</span>(FiberSet.<span class="fn">run</span>(toolFibers))
+<span class="cm">// 等这一轮工具都结算完：谁先空谁先返回</span>
+Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(toolFibers), FiberSet.<span class="fn">awaitEmpty</span>(toolFibers))</pre>
+<p>三个动作记住就够了：<span class="mono">make</span> 建花名册、<span class="mono">run</span> 把一个任务并发地塞进去、<span class="mono">join</span>/<span class="mono">awaitEmpty</span> 等全组干完。它们一起，把"并发跑 N 个工具、等它们全部结算"这件原本要手写一堆协调代码的事，压成了三行清清楚楚的声明。</p>
+<div class="cellgroup">
+  <div class="cg-cap"><b>FiberSet 的四个动作</b></div>
+  <div class="cells"><span class="cell scale">make</span><span class="lab">建一个空花名册</span></div>
+  <div class="cells"><span class="cell q">run</span><span class="lab">把一个 Effect 并发地塞进去、立即起跑</span></div>
+  <div class="cells"><span class="cell">join / awaitEmpty</span><span class="lab">等全组结算，谁先空谁先返回</span></div>
+  <div class="cells"><span class="cell scale">clear</span><span class="lab">一键中断整组、触发各自清理</span></div>
+</div>
+<p>为什么要专门有个"<strong>集合</strong>"，而不是攥着 N 个 Fiber 各管各的？因为 agent 一轮里要跑几个工具是<strong>动态</strong>的——模型可能要一个、也可能要五个，还可能边跑边追加。FiberSet 把"这一组动态的并发任务"当成一个整体来管：新任务随时 <span class="mono">run</span> 进来，结束的自动从册子里销账，而你对外只需要面对"<strong>这一组</strong>"——等它、或清它。把零散的并发收拢成一个可整体操作的单位，正是 FiberSet 比裸 Fiber 更顺手的地方。</p>
+
+<h2>结构化并发：开得出，更要收得回</h2>
+<p>这套设计真正的精髓，在那个"<strong>收</strong>"字上。"结构化并发"的意思是：<strong>派生出去的并发任务，其生命周期被牢牢框在一个范围内</strong>——范围一结束（正常结束、出错、或被中断），里面所有还在跑的 Fiber 都被<strong>自动收回</strong>，绝不放任它们变成"野线程"在后台游荡。</p>
+<p>落到 agent 循环里就很具体：当用户中途喊停、或这一轮出了错，runner 会调 <span class="mono">FiberSet.clear(toolFibers)</span> 把整组正在跑的工具<strong>一次性全部中断</strong>，连带触发它们各自的资源清理。没有"用户都喊停了、某个工具还在偷偷写文件"的尴尬。<strong>开了多少并发，就能收回多少</strong>——这正是普通 <span class="mono">Promise.all</span> 给不了的保证。</p>
+<div class="flow">
+  <div class="node"><div class="nt">make</div><div class="nd">建 FiberSet</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">run × N</div><div class="nd">并发起跑各工具</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">join / awaitEmpty</div><div class="nd">等全组结算</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">clear（被打断时）</div><div class="nd">全部中断 + 清理</div></div>
+</div>
+<p>对比一下两种世界的差别，最能体会"结构化"的分量：</p>
+<table class="t">
+  <tr><th>能力</th><th>Promise.all</th><th>FiberSet（结构化）</th></tr>
+  <tr><td>并发起跑</td><td>✅</td><td>✅</td></tr>
+  <tr><td>中途取消</td><td>❌ 无法取消</td><td>✅ <span class="mono">clear</span> 一键召回</td></tr>
+  <tr><td>取消时清理资源</td><td>❌ 各自裸奔</td><td>✅ 沿 Fiber 有序清理</td></tr>
+  <tr><td>动态增减任务</td><td>❌ 一次定死</td><td>✅ 随时 <span class="mono">run</span> 进来</td></tr>
+</table>
+<p>这张表里，真正拉开差距的是中间两行——<strong>取消，以及取消时的善后</strong>。一个跑在用户面前、随时可能被喊停的 agent，最怕的就是"喊了停、却停不干净"：模型已经被打断，某个工具却还在后台把文件写到一半。结构化并发从根上杜绝了这种局面：<strong>任务的生死被框在一个范围里，范围一塌，里面的一切跟着有序退场</strong>。这不是性能优化，而是<strong>正确性</strong>的保证。</p>
+<p>多说一句"结构化"这个词的来历。早年的并发有点像 <span class="mono">goto</span>：你 fork 出一个任务，它便脱离了你的控制流自由游荡，谁负责等它、谁负责清它，全凭自觉，漏一个就是一个泄漏或一个野任务。结构化并发借鉴了当年"结构化编程"消灭 goto 的思路——<strong>让并发任务的生命周期严格嵌套进代码的块结构里</strong>：在哪个范围里开的，就在哪个范围结束时收干净。FiberSet 正是这个"范围"的载体。想通这层，你就明白它不只是个"任务列表"，更是一道<strong>纪律</strong>：凡我开出的，必由我收回——这正是大型并发系统能保持可控的关键。</p>
+
+<h2>保护关键区：别在半道上被打断</h2>
+<p>"随时可中断"很强大，但也带来一个新问题：有些操作做了一半被打断会<strong>留下烂摊子</strong>——比如"记下工具结果、再发出事件"这两步，若在中间被中断，就会出现"记了却没通知"的不一致。Effect 用两件工具守住这种关键区：</p>
+<div class="cols">
+  <div class="col"><h4>uninterruptibleMask</h4><p>把一段标记为<strong>不可中断</strong>，保证它要么整段做完、要么整段不做；必要处再用 <span class="mono">restore</span> 放开一小块可中断。</p></div>
+  <div class="col"><h4>Semaphore</h4><p>用 <span class="mono">makeUnsafe(1).withPermit</span> 做一把"<strong>只许一个进</strong>"的锁，保证发布事件这类操作不会并发打架。</p></div>
+</div>
+<p>这两样在 <span class="mono">runner/llm.ts</span> 里都能看到：发布工具结果时套着 Semaphore（同一时刻只发一个），关键的结算区裹在 <span class="mono">uninterruptibleMask</span> 里。它们和"可中断"配成一对——<strong>默认可随时收手，但关键的一两步要稳稳做完</strong>。这种对"何处可中断、何处必须原子"的精细把控，正是手写并发最容易出错、而 Effect 帮你管好的地方。</p>
+<p>这里藏着一个很微妙的平衡：<strong>中断要够灵敏，但不能太鲁莽</strong>。若任何一行都能被中断，那"记结果、发事件"这种必须成对完成的操作就永远不安全；若整段都不可中断，又失去了"说停就停"的灵敏。Effect 的解法是把控制权交给你：<strong>默认可中断，再用 <span class="mono">uninterruptibleMask</span> 精确圈出那一小块"必须原子"的关键区</strong>，必要时还能用 <span class="mono">restore</span> 在关键区里再开一扇可中断的小窗。这种"大面积可中断、关键处不可中断"的精细分寸，手写并发几乎不可能维持正确，而 Effect 把它变成了几个可读的标记。</p>
+
+<h2>这正是 agent 循环的做法</h2>
+<p>把这一课的零件拼起来，你就看懂了第 3 课那条循环的"干一轮"到底怎么干：每出现一个 tool-call，就 <span class="mono">FiberSet.run</span> 并发起跑；这一轮 <span class="mono">join</span> 等全部结算；其间发布结果用 Semaphore 串行、结算区用 <span class="mono">uninterruptibleMask</span> 护住；一旦被打断，<span class="mono">FiberSet.clear</span> 全组召回。第 18 课会把这段逐行拆开——但现在，你已经握住了它的<strong>骨架</strong>。</p>
+<div class="vflow">
+  <div class="step"><b>建册</b>　<span class="mono">FiberSet.make</span> 起一个空花名册</div>
+  <div class="step"><b>并发起跑</b>　每个 tool-call 都 <span class="mono">FiberSet.run</span> 进去，立即并行</div>
+  <div class="step"><b>护住关键区</b>　记录与发布用 <span class="mono">uninterruptibleMask</span> + <span class="mono">Semaphore</span> 串起来</div>
+  <div class="step"><b>等结算</b>　<span class="mono">raceFirst(join, awaitEmpty)</span> 等全组干完</div>
+  <div class="step"><b>被打断则召回</b>　<span class="mono">Cause.hasInterrupts</span> → <span class="mono">FiberSet.clear</span> 全组退场</div>
+</div>
+<p>这套动作每一轮 provider turn 都会走一遍。把它和第 3 课那张"问一轮、干一轮"的图叠在一起看，你会发现"干一轮"这个看似简单的格子里，其实精密地编排着并发、互斥与可中断三件事——而 Effect 的并发原语，正是让这种精密<strong>可读、可信、不易出错</strong>的工具。这也是为什么第 5 课说"正因为要并发跑工具又要能取消，才需要 Fiber"——痛点与工具，在这里严丝合缝地对上了。你或许觉得 Fiber、Semaphore、<span class="mono">uninterruptibleMask</span> 这些名字陌生，但它们要解决的问题，你其实天天在用 agent 时亲身体会：同时干几件事、随时能喊停、喊停后不留烂摊子。把"体验"和"原语"对上号，这一课就没白读。</p>
+
+<div class="card macro">
+  <div class="tag">🌍 宏观理解</div>
+  <strong>Fiber</strong> 是一个正在跑的 Effect 的句柄，可 <span class="mono">join</span> 等结果、可 <span class="mono">interrupt</span> 有序中断并清理——这是普通 <span class="mono">Promise</span>（无法取消）给不了的。<strong>FiberSet</strong> 把一组 Fiber 一起管：<span class="mono">make</span> 建、<span class="mono">run</span> 并发塞入、<span class="mono">join</span>/<span class="mono">awaitEmpty</span> 等全组、<span class="mono">clear</span> 一键召回。"结构化并发"保证<strong>开了多少就能收回多少</strong>；关键区再用 <span class="mono">uninterruptibleMask</span> + <span class="mono">Semaphore</span> 护住。这套"开得出、收得回、护得住"，正是 V2 agent 循环并发跑工具的心脏。一句话记牢：普通并发只会"开"，结构化并发既能"开"也能"收"——而对一个随时要听你指挥、说停就得停的 agent 来说，"收得回"远比"开得快"更要紧。
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 细节 / 源码对应</div>
+  V2 工具执行的并发骨架（简化自 <span class="inline">packages/core/src/session/runner/llm.ts</span>）：
+<pre class="code"><span class="kw">const</span> toolFibers = <span class="kw">yield</span>* FiberSet.<span class="fn">make</span>&lt;<span class="kw">void</span>, ToolOutputStore.Error&gt;()
+<span class="kw">const</span> withPublication = Semaphore.<span class="fn">makeUnsafe</span>(1).withPermit   <span class="cm">// 只许一个发布</span>
+
+<span class="cm">// 每个 tool-call：受保护地记录，再并发 run 进 FiberSet</span>
+Effect.<span class="fn">uninterruptibleMask</span>((restore) =&gt; <span class="cm">/* 记录调用… */</span>)
+  .<span class="fn">pipe</span>(FiberSet.<span class="fn">run</span>(toolFibers))
+
+<span class="cm">// 等这一轮全部结算：谁先空谁先返回</span>
+Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(toolFibers), FiberSet.<span class="fn">awaitEmpty</span>(toolFibers))
+
+<span class="cm">// 被中断时：整组召回，避免野任务</span>
+<span class="kw">if</span> (Cause.<span class="fn">hasInterrupts</span>(cause)) <span class="kw">yield</span>* FiberSet.<span class="fn">clear</span>(toolFibers)</pre>
+  这段 import 行就写着 <span class="mono">FiberSet, Semaphore, Cause, Stream</span>——一行并发原语清单。
+</div>
+
+<div class="card key">
+  <div class="tag">✅ 本课要点</div>
+  <ul>
+    <li><strong>Fiber</strong> = 一个正在跑的 Effect 的句柄，可 <span class="mono">join</span> / <span class="mono">interrupt</span>；普通 Promise 无法取消。</li>
+    <li><strong>FiberSet</strong> 管一组：<span class="mono">make</span> / <span class="mono">run</span>（并发）/ <span class="mono">join</span> / <span class="mono">clear</span>（一键召回）。</li>
+    <li><strong>结构化并发</strong>：派生任务被框在范围内，开多少收多少，不留野线程。</li>
+    <li>关键区用 <span class="mono">uninterruptibleMask</span> + <span class="mono">Semaphore</span> 护住，保证原子与互斥。</li>
+    <li>这正是 agent 循环"并发跑工具、可干净中断"的实现（第 18 课细拆）。</li>
+  </ul>
+</div>
+</div>
+  <div class="lang-en">
+<p class="lead">The last two lessons laid the foundation: Effect makes computation a composable value, and Service/Layer manage dependencies. This lesson covers its <strong>most visible payoff</strong> — concurrency. Recall the agent loop from Lesson 3: asked in one step to "read three files," the server doesn't queue them, it <strong>runs all three at once</strong>, and can <strong>cleanly reel them all back</strong> when you hit stop. That "launch them, but reel them back" ability rests on Effect's concurrency primitives <span class="mono">Fiber</span> and <span class="mono">FiberSet</span>. They're the heart of V2's tool execution, and this lesson makes them clear.</p>
+<p>Why a whole lesson on concurrency? Because it's Effect's <strong>most tangible</strong> payoff in opencode. The last two lessons' "describe as a value" and "dependency injection" are abstract, taking time to feel; concurrency is different — every time you watch the agent read several files at once, then freeze entirely the instant you press Esc, this lesson's machinery is at work. You could say <strong>Fiber and FiberSet are Effect's abstractions cashed out into the concrete experience you feel every day</strong>. Learn them well and you not only read the code but understand where that "fluid yet controllable" feel comes from.</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 Analogy</div>
+  Picture one concurrent execution as a <strong>foreman with a crew</strong>. Each worker sent out to do one task is a <strong>Fiber</strong> — a lightweight "thread of execution," and the foreman keeps its "<strong>walkie-talkie</strong>," able to ask "done yet?" anytime and to shout "<strong>stop now</strong>." The roster managing the whole crew together is the <strong>FiberSet</strong>. A plain <span class="mono">Promise.all</span> is like "send them off and lose contact": the work is dispatched, but if you need to halt midway, you have no walkie-talkie. Effect's concurrency is different — <strong>every thread of execution keeps a recoverable rope</strong>: either wait for them all to finish, or recall every one with a single order. And that rope is <strong>layered</strong>: reel in an upper level and everything hanging below comes back, no one left spinning outside — that's the real weight of the word "structured," and the root of its edge over a bare Promise.
+</div>
+
+<h2>Fiber: a thread of execution you can stop anytime</h2>
+<p>First, <strong>Fiber</strong>. Often called a "lightweight thread," but more precisely: <strong>a handle to a running Effect</strong>. You <span class="mono">fork</span> an Effect off and it runs in the background, giving you a Fiber — with which you can <span class="mono">join</span> (wait for its result) or <span class="mono">interrupt</span> it.</p>
+<p>The keyword is <strong>interrupt (cancellable)</strong>. A plain <span class="mono">Promise</span>, once started, <strong>can't be cancelled</strong> — you can not-await it, but it keeps running, keeps consuming resources, its side effects still happen. A Fiber isn't: interrupt one and Effect <strong>stops it in an orderly way along what it's doing, triggering cleanup</strong> (closing resources it opened). For an agent that may be interrupted by the user at any moment, "cancel cleanly" isn't a nice-to-have but a <strong>must</strong>.</p>
+<div class="cols">
+  <div class="col"><h4>Promise.all</h4><p>Send off and lose contact: can't cancel; either wait for it to end or ignore the result (but it's still running).</p></div>
+  <div class="col"><h4>Fiber</h4><p>Keeps a walkie-talkie: <span class="mono">join</span> for the result, <span class="mono">interrupt</span> for orderly cancellation with resource cleanup.</p></div>
+</div>
+<p>A scenario that best shows the value of "cancellable": you have the agent run a search scanning the whole repo, and two seconds in you realize you searched the wrong keyword and hit interrupt. With a plain Promise, that search <strong>still scans the remaining tens of thousands of files</strong> before stopping, wasting your two seconds and maybe flooding the screen with useless output; with a Fiber, the interrupt signal <strong>stops it at the next interruptible point</strong> and cleans up the handles it held. For an agent that stresses "steerable throughout," this "stop on command, and stop cleanly" ability almost directly decides how good it feels to use.</p>
+
+<h2>FiberSet: manage a whole group of concurrent tasks</h2>
+<p>One Fiber is one thread; a <strong>FiberSet</strong> is the "roster" holding a whole handful of threads. To run several tools concurrently in one step, the agent first makes a FiberSet, <strong>drops</strong> each tool's execution in, and finally waits for them all to settle — or clears them all on one order.</p>
+<pre class="code"><span class="cm">// simplified from packages/core/src/session/runner/llm.ts</span>
+<span class="kw">const</span> toolFibers = <span class="kw">yield</span>* FiberSet.<span class="fn">make</span>&lt;<span class="kw">void</span>, Error&gt;()   <span class="cm">// make the roster</span>
+<span class="cm">// each tool-call: run its execution into the FiberSet (starts concurrently)</span>
+runOneTool(call).<span class="fn">pipe</span>(FiberSet.<span class="fn">run</span>(toolFibers))
+<span class="cm">// wait for this round's tools to settle: first to empty returns</span>
+Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(toolFibers), FiberSet.<span class="fn">awaitEmpty</span>(toolFibers))</pre>
+<p>Three actions are enough to remember: <span class="mono">make</span> the roster, <span class="mono">run</span> a task concurrently into it, <span class="mono">join</span>/<span class="mono">awaitEmpty</span> for the whole group. Together they compress "run N tools concurrently and wait for them all to settle" — once a pile of hand-written coordination code — into three clear declarations.</p>
+<div class="cellgroup">
+  <div class="cg-cap"><b>FiberSet's four actions</b></div>
+  <div class="cells"><span class="cell scale">make</span><span class="lab">create an empty roster</span></div>
+  <div class="cells"><span class="cell q">run</span><span class="lab">drop an Effect in concurrently, start it at once</span></div>
+  <div class="cells"><span class="cell">join / awaitEmpty</span><span class="lab">wait for the whole group, first to empty returns</span></div>
+  <div class="cells"><span class="cell scale">clear</span><span class="lab">interrupt the whole group, trigger each cleanup</span></div>
+</div>
+<p>Why a "<strong>set</strong>" at all, rather than holding N Fibers each managed separately? Because how many tools an agent runs in a round is <strong>dynamic</strong> — the model may want one, or five, and may add more mid-run. FiberSet treats "this dynamic group of concurrent tasks" as one whole: new tasks <span class="mono">run</span> in anytime, finished ones auto-deregister, and you face just "<strong>the group</strong>" — wait it, or clear it. Gathering scattered concurrency into one operable unit is exactly where FiberSet beats bare Fibers.</p>
+
+<h2>Structured concurrency: launch them, but reel them back</h2>
+<p>The design's real essence is in that "<strong>reel</strong>." "Structured concurrency" means: <strong>the lifecycle of spawned concurrent tasks is firmly framed within a scope</strong> — when the scope ends (normally, on error, or interrupted), all Fibers still running inside are <strong>auto-recovered</strong>, never left to roam as "wild threads" in the background.</p>
+<p>In the agent loop it's concrete: when the user halts midway, or this round errors, the runner calls <span class="mono">FiberSet.clear(toolFibers)</span> to <strong>interrupt the whole running group at once</strong>, triggering each one's resource cleanup. No awkward "the user already stopped, yet a tool keeps secretly writing a file." <strong>However much concurrency you launched, you can reel back</strong> — the very guarantee a plain <span class="mono">Promise.all</span> can't give.</p>
+<div class="flow">
+  <div class="node"><div class="nt">make</div><div class="nd">build FiberSet</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">run × N</div><div class="nd">launch tools concurrently</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">join / awaitEmpty</div><div class="nd">wait for the group</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">clear (on interrupt)</div><div class="nd">interrupt all + cleanup</div></div>
+</div>
+<p>Comparing two worlds best conveys the weight of "structured":</p>
+<table class="t">
+  <tr><th>Ability</th><th>Promise.all</th><th>FiberSet (structured)</th></tr>
+  <tr><td>Launch concurrently</td><td>✅</td><td>✅</td></tr>
+  <tr><td>Cancel midway</td><td>❌ can't</td><td>✅ <span class="mono">clear</span> recalls all</td></tr>
+  <tr><td>Clean up on cancel</td><td>❌ each runs bare</td><td>✅ orderly along the Fiber</td></tr>
+  <tr><td>Add/remove tasks dynamically</td><td>❌ fixed once</td><td>✅ <span class="mono">run</span> in anytime</td></tr>
+</table>
+<p>In this table the real gap is the middle two rows — <strong>cancellation, and cleanup on cancellation</strong>. An agent running in front of a user, stoppable anytime, most fears "stopped but not cleanly": the model already interrupted, yet a tool is still half-writing a file in the background. Structured concurrency forecloses this at the root: <strong>a task's life and death are framed in a scope, and when the scope collapses everything inside exits in order</strong>. This isn't a performance optimization — it's a <strong>correctness</strong> guarantee.</p>
+<p>A word on where "structured" comes from. Early concurrency was a bit like <span class="mono">goto</span>: you fork a task and it leaves your control flow to roam, who waits for it and who cleans it left to discipline — miss one and that's a leak or a wild task. Structured concurrency borrows the idea that "structured programming" used to kill goto — <strong>nesting concurrent tasks' lifecycles strictly into the code's block structure</strong>: opened in a scope, reeled in cleanly when that scope ends. FiberSet is the carrier of that "scope." See this and you realize it's not just a "task list" but a <strong>discipline</strong>: whatever I launch, I reel back — the key to a large concurrent system staying in control.</p>
+
+<h2>Protect critical regions: don't get interrupted mid-way</h2>
+<p>"Interruptible anytime" is powerful but brings a new problem: some operations interrupted half-done <strong>leave a mess</strong> — e.g. "record the tool result, then emit an event"; interrupted in between yields "recorded but not announced" inconsistency. Effect guards such critical regions with two tools:</p>
+<div class="cols">
+  <div class="col"><h4>uninterruptibleMask</h4><p>Mark a stretch <strong>uninterruptible</strong>, guaranteeing it's done whole or not at all; where needed, use <span class="mono">restore</span> to reopen a small interruptible window.</p></div>
+  <div class="col"><h4>Semaphore</h4><p>Use <span class="mono">makeUnsafe(1).withPermit</span> as a "<strong>one-at-a-time</strong>" lock, so operations like emitting events don't race.</p></div>
+</div>
+<p>Both appear in <span class="mono">runner/llm.ts</span>: publishing tool results is wrapped in a Semaphore (one at a time), the critical settlement region wrapped in <span class="mono">uninterruptibleMask</span>. They pair with "interruptible" — <strong>interruptible anytime by default, but the key step or two done firmly to completion</strong>. This fine control over "where interruptible, where must be atomic" is exactly where hand-written concurrency goes wrong most, and what Effect manages for you.</p>
+<p>A subtle balance hides here: <strong>interruption must be responsive, but not reckless</strong>. If any line could be interrupted, paired operations like "record result, emit event" are never safe; if the whole stretch is uninterruptible, you lose "stop on command" responsiveness. Effect's fix hands you control: <strong>interruptible by default, then <span class="mono">uninterruptibleMask</span> precisely circles the small "must be atomic" region</strong>, with <span class="mono">restore</span> to reopen an interruptible window inside if needed. This fine sense of "broadly interruptible, uninterruptible at the key spot" is nearly impossible to keep correct by hand, and Effect turns it into a few readable markers.</p>
+
+<h2>This is exactly how the agent loop works</h2>
+<p>Assemble this lesson's parts and you see how Lesson 3's "do a round" actually works: each tool-call <span class="mono">FiberSet.run</span>s concurrently; this round <span class="mono">join</span>s for all to settle; meanwhile publishing results is serialized by a Semaphore and the settlement region guarded by <span class="mono">uninterruptibleMask</span>; once interrupted, <span class="mono">FiberSet.clear</span> recalls the whole group. Lesson 18 takes this apart line by line — but now you hold its <strong>skeleton</strong>.</p>
+<div class="vflow">
+  <div class="step"><b>Make</b>　<span class="mono">FiberSet.make</span> starts an empty roster</div>
+  <div class="step"><b>Launch concurrently</b>　each tool-call <span class="mono">FiberSet.run</span>s in, parallel at once</div>
+  <div class="step"><b>Guard critical regions</b>　record and publish strung with <span class="mono">uninterruptibleMask</span> + <span class="mono">Semaphore</span></div>
+  <div class="step"><b>Await settlement</b>　<span class="mono">raceFirst(join, awaitEmpty)</span> waits for the group</div>
+  <div class="step"><b>Recall if interrupted</b>　<span class="mono">Cause.hasInterrupts</span> → <span class="mono">FiberSet.clear</span> exits the group</div>
+</div>
+<p>This routine runs every provider turn. Overlay it on Lesson 3's "ask a round, do a round" picture and you find that simple-looking "do a round" cell actually orchestrates three things — concurrency, mutual exclusion, and interruptibility — precisely. Effect's concurrency primitives are the tools that make this precision <strong>readable, trustworthy, hard to get wrong</strong>. That's why Lesson 5 said "because you must run tools concurrently and cancel them, you need Fiber" — pain and tool meet seamlessly here. The names Fiber, Semaphore, <span class="mono">uninterruptibleMask</span> may feel foreign, but the problems they solve you feel daily using an agent: do several things at once, stop anytime, leave no mess after stopping. Match "experience" to "primitive" and this lesson paid off.</p>
+
+<div class="card macro">
+  <div class="tag">🌍 Big picture</div>
+  <strong>Fiber</strong> is a handle to a running Effect — <span class="mono">join</span> for the result, <span class="mono">interrupt</span> for orderly cancellation and cleanup — what a plain <span class="mono">Promise</span> (uncancellable) can't give. <strong>FiberSet</strong> manages a group: <span class="mono">make</span>, <span class="mono">run</span> (concurrent), <span class="mono">join</span>/<span class="mono">awaitEmpty</span> for the group, <span class="mono">clear</span> for one-key recall. "Structured concurrency" guarantees <strong>you reel back however much you launched</strong>; critical regions are further guarded by <span class="mono">uninterruptibleMask</span> + <span class="mono">Semaphore</span>. This "launch, reel back, guard" is the heart of how V2's agent loop runs tools concurrently. Remember it in one line: plain concurrency only "launches"; structured concurrency both "launches" and "reels back" — and for an agent that must obey you and stop on command, "reel back" matters far more than "launch fast."
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  The concurrency skeleton of V2 tool execution (simplified from <span class="inline">packages/core/src/session/runner/llm.ts</span>):
+<pre class="code"><span class="kw">const</span> toolFibers = <span class="kw">yield</span>* FiberSet.<span class="fn">make</span>&lt;<span class="kw">void</span>, ToolOutputStore.Error&gt;()
+<span class="kw">const</span> withPublication = Semaphore.<span class="fn">makeUnsafe</span>(1).withPermit   <span class="cm">// only one publishes</span>
+
+<span class="cm">// each tool-call: record under protection, then run concurrently into the FiberSet</span>
+Effect.<span class="fn">uninterruptibleMask</span>((restore) =&gt; <span class="cm">/* record the call… */</span>)
+  .<span class="fn">pipe</span>(FiberSet.<span class="fn">run</span>(toolFibers))
+
+<span class="cm">// wait for this round to settle: first to empty returns</span>
+Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(toolFibers), FiberSet.<span class="fn">awaitEmpty</span>(toolFibers))
+
+<span class="cm">// on interrupt: recall the whole group, avoid wild tasks</span>
+<span class="kw">if</span> (Cause.<span class="fn">hasInterrupts</span>(cause)) <span class="kw">yield</span>* FiberSet.<span class="fn">clear</span>(toolFibers)</pre>
+  Its import line literally reads <span class="mono">FiberSet, Semaphore, Cause, Stream</span> — a one-line concurrency-primitive inventory.
+</div>
+
+<div class="card key">
+  <div class="tag">✅ Key points</div>
+  <ul>
+    <li><strong>Fiber</strong> = a handle to a running Effect, <span class="mono">join</span> / <span class="mono">interrupt</span>; a plain Promise can't cancel.</li>
+    <li><strong>FiberSet</strong> manages a group: <span class="mono">make</span> / <span class="mono">run</span> (concurrent) / <span class="mono">join</span> / <span class="mono">clear</span> (one-key recall).</li>
+    <li><strong>Structured concurrency</strong>: spawned tasks framed in a scope, reel back all you launch, no wild threads.</li>
+    <li>Guard critical regions with <span class="mono">uninterruptibleMask</span> + <span class="mono">Semaphore</span> for atomicity and mutual exclusion.</li>
+    <li>This is exactly the agent loop's "run tools concurrently, interrupt cleanly" (Lesson 18 details it).</li>
+  </ul>
+</div>
+</div>
   <div class="footnav"><a class="prev" href="06-context-layer.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">Context.Service 与 Layer</span><span class="lang-en">Services &amp; Layers</span></div></a><a class="next" href="08-effect-toolbox.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">项目里的 Effect 工具箱</span><span class="lang-en">The Effect toolbox</span></div></a></div>
 </div>
 <script>
