@@ -9,7 +9,7 @@ opencode 源文件（`/home/verden/course/opencode`）→ Part 2 中讲到它的
 | `packages/core/src/effect/memo-map.ts` | `export const memoMap = Layer.makeMemoMapUnsafe()` | L06, L08 |
 | `packages/core/src/effect/keyed-mutex.ts` | `KeyedMutex<Key>`：同 key 串行、异 key 并行 | L08 |
 | `packages/core/src/effect/service-use.ts` | `serviceUse(tag)`：省调用服务样板 | L08 |
-| `packages/core/src/effect/run-service.ts` | `makeRuntime`（共享 memoMap 去重 Layer） | L06, L08 |
+| `packages/core/src/effect/runtime.ts` | `makeRuntime`（共享 memoMap 去重 Layer） | L06, L08 |
 | `packages/core/src/agent.ts` | `Context.Service<Service,Interface>()("@opencode/v2/Agent")` + `Layer.effect(Service, …)` + `export * as AgentV2` | L06 |
 | 各 `packages/core/src/*.ts` | 普遍的 `Context.Service` / `Layer.effect` / `Effect.fn` 模式（277 处 Effect.fn） | L05, L06, L08 |
 | `packages/core/src/session/runner/llm.ts` | `FiberSet.make/run/join/awaitEmpty/clear`、`Semaphore.makeUnsafe(1).withPermit`、`Effect.uninterruptibleMask`、`Cause.hasInterrupts` | L07 |

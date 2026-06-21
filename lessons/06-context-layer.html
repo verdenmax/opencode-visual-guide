@@ -391,7 +391,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="layer l-main"><div class="lh"><span class="badge">Layer</span><span class="name">Database.layer · Config.layer</span></div><div class="ld">更基础的能力</div></div>
   <div class="layer l-core"><div class="lh"><span class="badge">运行时</span><span class="name">makeRuntime（memoMap 去重）</span></div><div class="ld">把组合好的 Layer 变成可运行的运行时</div></div>
 </div>
-<p>opencode 用一个 <span class="mono">makeRuntime</span>（在 <span class="mono">src/effect/run-service.ts</span>）把这堆 Layer 组装成运行时，它背后有个<strong>共享的 memoMap</strong>：同一个 Layer 被多处依赖时，<strong>只构造一次</strong>、大家共享，不会重复建十个 Database。这正是"声明式依赖"的红利——你只管说"我要谁"，至于"谁该先造、谁能共享"，框架替你算清楚。</p>
+<p>opencode 用一个 <span class="mono">makeRuntime</span>（在 <span class="mono">core/src/effect/runtime.ts</span>）把这堆 Layer 组装成运行时，它背后有个<strong>共享的 memoMap</strong>：同一个 Layer 被多处依赖时，<strong>只构造一次</strong>、大家共享，不会重复建十个 Database。这正是"声明式依赖"的红利——你只管说"我要谁"，至于"谁该先造、谁能共享"，框架替你算清楚。</p>
 <div class="vflow">
   <div class="step"><b>① 收集债务</b>　每个 yield* 的 Service 在 R 里记一笔"我需要它"</div>
   <div class="step"><b>② 提供 Layer</b>　把对应的 Layer 一个个交给运行时</div>
@@ -553,7 +553,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="layer l-main"><div class="lh"><span class="badge">Layer</span><span class="name">Database.layer · Config.layer</span></div><div class="ld">more basic capabilities</div></div>
   <div class="layer l-core"><div class="lh"><span class="badge">Runtime</span><span class="name">makeRuntime (memoMap dedups)</span></div><div class="ld">turn composed Layers into a runnable runtime</div></div>
 </div>
-<p>opencode uses a <span class="mono">makeRuntime</span> (in <span class="mono">src/effect/run-service.ts</span>) to assemble these Layers into a runtime, backed by a <strong>shared memoMap</strong>: when one Layer is depended on in many places, it's <strong>constructed once</strong> and shared, never ten Databases. That's the dividend of "declarative dependencies" — you just say "who I need," and "who builds first, who can be shared" the framework works out for you.</p>
+<p>opencode uses a <span class="mono">makeRuntime</span> (in <span class="mono">core/src/effect/runtime.ts</span>) to assemble these Layers into a runtime, backed by a <strong>shared memoMap</strong>: when one Layer is depended on in many places, it's <strong>constructed once</strong> and shared, never ten Databases. That's the dividend of "declarative dependencies" — you just say "who I need," and "who builds first, who can be shared" the framework works out for you.</p>
 <div class="vflow">
   <div class="step"><b>① Collect debts</b>　each yield*'d Service records an "I need it" in R</div>
   <div class="step"><b>② Provide Layers</b>　hand the matching Layers to the runtime</div>

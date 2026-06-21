@@ -421,6 +421,47 @@ QUIZZES = {
             {"zh": "课里说这些小工具是“护栏”，让“正确成为默认”。结合你自己的项目，举一个你也想为团队做成“现成件”的高频动作。", "en": "The lesson calls these tools “guardrails” that make “correct the default”. From your own project, name one high-frequency action you'd also want to turn into a “ready part” for your team."},
         ],
     },
+    "09-server-overview.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode 的 server 是用什么搭的？", "en": "What is opencode's server built on?"},
+                "opts": [
+                    {"zh": "Effect 的 HttpApi——先用类型声明整套 API 的形状，不是 Hono/Express", "en": "Effect's HttpApi — declare the whole API's shape in types first; not Hono/Express"},
+                    {"zh": "Hono", "en": "Hono"},
+                    {"zh": "Express", "en": "Express"},
+                    {"zh": "用原生 http 模块手写路由", "en": "Hand-rolled routes on the raw http module"},
+                ],
+                "answer": 0,
+                "why": {"zh": "server 架在 effect/unstable/httpapi 的 HttpApi 上：把每个端点的输入/输出/错误写进类型，编译器守契约，机器还能据此自动生成 SDK。", "en": "The server is built on HttpApi from effect/unstable/httpapi: each endpoint's input/output/error in the type, the compiler guards the contract, and a machine auto-generates the SDK from it."},
+            },
+            {
+                "q": {"zh": "为什么 server 对外只是一个 (request) =&gt; Response 的 webHandler 很重要？", "en": "Why does it matter that the server is outwardly just one (request) =&gt; Response webHandler?"},
+                "opts": [
+                    {"zh": "因为它如此标准纯粹，所以能既架在网络服务器上、又塞进进程内 worker 直接调——一个 handler、两种传输", "en": "Because it's so standard and pure, it runs on a network server and can also be called inside an in-process worker — one handler, two transports"},
+                    {"zh": "为了给请求加密", "en": "To encrypt requests"},
+                    {"zh": "为了限制请求速率", "en": "To rate-limit requests"},
+                    {"zh": "没有特别的原因", "en": "For no particular reason"},
+                ],
+                "answer": 0,
+                "why": {"zh": "正因为 handler 没有对真实网络的硬依赖，富 TUI 才能用进程内 RPC 直接调它（第 3、13 课），实现零网络通信。", "en": "Because the handler has no hard dependency on a real network, the rich TUI can call it via in-process RPC (Lessons 3, 13) for zero-network communication."},
+            },
+            {
+                "q": {"zh": "OpenApi.fromApi(PublicApi) 这一行带来的最大价值是什么？", "en": "What is the biggest value of the OpenApi.fromApi(PublicApi) line?"},
+                "opts": [
+                    {"zh": "API 自己描述自己→生成 OpenAPI 规范→自动生成各端 SDK，客户端类型永远和 server 对齐", "en": "The API describes itself → an OpenAPI spec → auto-generated SDKs, so client types always align with the server"},
+                    {"zh": "让请求跑得更快", "en": "Makes requests run faster"},
+                    {"zh": "自动压缩响应体", "en": "Auto-compresses responses"},
+                    {"zh": "记录访问日志", "en": "Writes access logs"},
+                ],
+                "answer": 0,
+                "why": {"zh": "因为 API 是结构化的类型，机器能读懂并生成规范与 SDK；API 一改、SDK 重生，所有客户端类型立刻同步，杜绝"前端拿过期接口"。", "en": "Because the API is a structured type, a machine reads it to generate the spec and SDK; change the API and the SDK regenerates, syncing all client types and killing stale-interface mismatches."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说 HttpApi 比 Hono 多了"先声明形状"的繁琐，却值得。结合 opencode 要同时喂养 TUI/网页/桌面/Slack 多个客户端，说说这点繁琐换来了什么。", "en": "The lesson says HttpApi's extra "declare the shape first" tedium is worth it. Given opencode feeds TUI/web/desktop/Slack at once, what does that tedium buy?"},
+            {"zh": "21 个路由组的名字本身就是一张 opencode 能力地图。挑其中 3 个组，猜一猜它们各自大概提供什么能力。", "en": "The 21 route-group names are themselves a map of opencode's abilities. Pick 3 groups and guess what each roughly provides."},
+        ],
+    },
 }
 
 def render(fname, lang):

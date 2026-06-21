@@ -427,7 +427,7 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
 
 <span class="cm">// 被中断时：整组召回，避免野任务</span>
 <span class="kw">if</span> (Cause.<span class="fn">hasInterrupts</span>(cause)) <span class="kw">yield</span>* FiberSet.<span class="fn">clear</span>(toolFibers)</pre>
-  这段 import 行就写着 <span class="mono">FiberSet, Semaphore, Cause, Stream</span>——一行并发原语清单。
+  这段 import 行里赫然列着 <span class="mono">FiberSet、Semaphore、Cause、Stream</span> 等——半行就是一张并发原语清单。
 </div>
 
 <div class="card key">
@@ -588,7 +588,7 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
 
 <span class="cm">// on interrupt: recall the whole group, avoid wild tasks</span>
 <span class="kw">if</span> (Cause.<span class="fn">hasInterrupts</span>(cause)) <span class="kw">yield</span>* FiberSet.<span class="fn">clear</span>(toolFibers)</pre>
-  Its import line literally reads <span class="mono">FiberSet, Semaphore, Cause, Stream</span> — a one-line concurrency-primitive inventory.
+  Its import line includes <span class="mono">FiberSet, Semaphore, Cause, Stream</span> among others — half a line is a concurrency-primitive inventory.
 </div>
 
 <div class="card key">
