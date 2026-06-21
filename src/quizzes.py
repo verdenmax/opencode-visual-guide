@@ -667,6 +667,47 @@ QUIZZES = {
             {"zh": "Session 只装元数据、不装对话内容（内容在 Message 那层）。结合 TUI 左边那列会话列表，说说这种「轻身份 / 重内容」分离带来的好处。", "en": "Session holds only metadata, not conversation content (that's at the Message layer). With the TUI's left-side session list in mind, what does this “light identity / heavy content” separation buy?"},
         ],
     },
+    "15-input-inbox.html": {
+        "mcq": [
+            {
+                "q": {"zh": "一个 prompt 飞到 server 后，opencode 第一件事做什么？", "en": "When a prompt reaches the server, what does opencode do first?"},
+                "opts": [
+                    {"zh": "admit：把它作为不可变事件持久入账、拿一个序号——不跑任何模型", "en": "admit: persist it as an immutable event and get a sequence number — running no model"},
+                    {"zh": "立刻 await 模型 run 这个 prompt", "en": "immediately await the model running the prompt"},
+                    {"zh": "丢进内存队列，处理完就忘", "en": "drop it into an in-memory queue, forgotten once processed"},
+                    {"zh": "直接改 Session 上的一个字段", "en": "directly edit a field on the Session"},
+                ],
+                "answer": 0,
+                "why": {"zh": "SessionInput.admit 把 prompt 发布成 PromptLifecycle.Admitted 事件、落进 session_input 收件箱、拿到单调 admitted_seq——又快又稳，一行模型代码都不跑。执行是后面的事。", "en": "SessionInput.admit publishes the prompt as a PromptLifecycle.Admitted event, lands it in the session_input inbox, gets a monotonic admitted_seq — fast and stable, running no model. Execution comes later."},
+            },
+            {
+                "q": {"zh": "「先入账、再执行」这一劈两半，消解了哪三个噩梦？", "en": "Splitting into \"admit first, run later\" dissolves which three nightmares?"},
+                "opts": [
+                    {"zh": "崩溃丢失、并发打架、重试翻倍", "en": "crash loss, concurrency clash, retry doubling"},
+                    {"zh": "内存泄漏、死锁、栈溢出", "en": "memory leaks, deadlocks, stack overflow"},
+                    {"zh": "类型错误、语法错误、拼写错误", "en": "type errors, syntax errors, typos"},
+                    {"zh": "延迟高、带宽小、丢包", "en": "high latency, low bandwidth, packet loss"},
+                ],
+                "answer": 0,
+                "why": {"zh": "崩溃：事件已落库，重启能从收件箱捞回。并发：所有输入先按 admitted_seq 排队、串行取，谁也别想插队抢状态。重试：admit 按 id 幂等，同一 prompt 只入账一次。", "en": "Crash: the event landed, restart fishes it from the inbox. Concurrency: all inputs queue by admitted_seq, pulled serially, none cutting in. Retry: admit is idempotent by id, the same prompt admitted once."},
+            },
+            {
+                "q": {"zh": "session_input 表里 promoted_seq 为 NULL 代表什么？", "en": "In the session_input table, what does promoted_seq being NULL mean?"},
+                "opts": [
+                    {"zh": "这条输入还在收件箱里待领、尚未被提单成可见消息", "en": "this input still waits in the inbox, not yet promoted into a visible message"},
+                    {"zh": "这条输入已经执行完了", "en": "this input has finished executing"},
+                    {"zh": "这条输入出错了", "en": "this input errored"},
+                    {"zh": "这条输入是空的", "en": "this input is empty"},
+                ],
+                "answer": 0,
+                "why": {"zh": "刚入账时 promoted_seq=NULL（待领）；串行执行者在安全间隙把它提出来、变成 User 消息时才填上。于是「收件箱里还有哪些没处理」=查 promoted_seq IS NULL 的行，极廉价。", "en": "Freshly admitted, promoted_seq=NULL (waiting); the serial executor fills it when promoting at a safe gap into a User message. So \"what's unprocessed in the inbox\" = query rows with promoted_seq IS NULL, dirt cheap."},
+            },
+        ],
+        "open": [
+            {"zh": "课里把 admit 比作数据库的预写日志（WAL）：先记录意图、再兑现意图。结合你用过的任何「崩溃后还能恢复」的系统，说说这种「先持久化意图」的模式还在哪里见过。", "en": "The lesson likens admit to a database's write-ahead log (WAL): record intent first, fulfil it later. From any “crash-recoverable” system you've used, where else have you seen this “persist the intent first” pattern?"},
+            {"zh": "为什么 opencode 用 admitted_seq / promoted_seq 两个序号，而不是一个布尔的「已处理/未处理」状态位？序号比状态位多给了什么？", "en": "Why does opencode use two numbers (admitted_seq / promoted_seq) rather than one boolean “processed/unprocessed” status bit? What does a sequence give that a status bit doesn't?"},
+        ],
+    },
 }
 
 def render(fname, lang):

@@ -229,7 +229,234 @@ LESSON_14 = {
 </div>
 """,
 }
-LESSON_15 = wip('事件溯源输入收件箱', 'The event-sourced inbox')
+LESSON_15 = {
+    "zh": r"""
+<p class="lead">上一课我们认识了 Session/Message/Part 这三个名词。这一课要回答一个看似简单、实则暗藏凶险的问题：当你按下回车、一个 prompt 飞向 server 时，opencode 是怎么<strong>把它「收下」</strong>的？最天真的答案是「马上拿去跑模型」——但这恰恰是 opencode <strong>坚决不做</strong>的。它先把你的 prompt <strong>当成一个不可变的事件，原原本本记进一个叫「收件箱」的地方</strong>，拿到一个序号，<strong>然后才</strong>不紧不慢地安排去执行。这一课就讲这个「先入账、再执行」的设计——它叫<strong>事件溯源的输入收件箱</strong>，是 opencode 会话引擎能做到「崩了不丢、重试不乱、并发不抢」的根。</p>
+<p>为什么「收 prompt」这件小事值得专讲？因为它是<strong>持久与执行的分水岭</strong>。设想反面：如果 prompt 一到就直接喂模型，那么——进程在「收到」和「开跑」之间崩了，prompt 就<strong>凭空蒸发</strong>；模型正说到一半，新 prompt 进来，两股逻辑<strong>当场打架</strong>；网络抖动重发了一次，同一句话被<strong>跑了两遍</strong>。opencode 用「先把输入落成持久事件」这一招，把这三个噩梦一次性消解。理解了这一课，你就理解了为什么 opencode 的会话<strong>经得起中断、重试和并发</strong>——而这正是一个严肃 agent 引擎和一个玩具脚本的分野。</p>
+
+<div class="card analogy">
+  <div class="tag">🍳 生活类比</div>
+  想象一家忙碌餐厅的<strong>厨房挂单轨</strong>。你点了菜，服务员<strong>不会</strong>冲进后厨、拽住正在颠勺的大厨让他立刻做你的菜——那只会让手上的菜糊掉。服务员做的是：把你的订单写成一张<strong>带编号的票</strong>，「啪」地挂上轨道（这就是<strong>admit，入账</strong>）。这张票从此<strong>实打实地存在了</strong>：有编号（先来后到一目了然）、可持久（厨房就算着了火重启，票还挂在轨上，一张不丢）。大厨则在<strong>每道菜的干净间隙</strong>，从轨上取票来做（这叫<strong>promote，提单</strong>）。而且票还分两种：「<strong>插话式</strong>」——冲着正在做的那道菜喊一句「这盘不要葱！」，当场并进去；「<strong>排队式</strong>」——一张独立的新订单，乖乖等前面做完再轮到。看懂这条挂单轨，你就看懂了 opencode 收 prompt 的全部门道。
+</div>
+
+<h2>天真的做法，与它的三个噩梦</h2>
+<p>先把「错误答案」摆出来，才显得正确答案珍贵。一个玩具版 agent 会这样写：<span class="mono">收到 prompt → 立刻 await 模型.run(prompt)</span>。简单直接，但它在三个地方会碎掉：</p>
+<div class="cols">
+  <div class="col"><h4>💥 崩溃丢失</h4><p>进程在「收到」与「开跑」之间挂了，prompt 没留下任何痕迹，凭空蒸发。</p></div>
+  <div class="col"><h4>💥 并发打架</h4><p>模型正输出到一半，新 prompt 闯进来，两段执行抢同一个会话状态。</p></div>
+  <div class="col"><h4>💥 重试翻倍</h4><p>网络抖动、客户端重发，同一句话被当成两次请求，跑两遍。</p></div>
+</div>
+<p>这三个噩梦的共同根源，是<strong>把「接收」和「执行」绑死成了一步</strong>。只要它们是同一个动作，接收的可靠性就被执行的脆弱性拖累——执行要调模型、要花几十秒、随时可能被打断，而接收本该是一瞬间、绝不该失败的事。opencode 的破局思路朴素而有力：<strong>把这一步劈成两步</strong>。先做那个又快又稳的「接收」，把它做成不可失败的持久记录；再把那个又慢又险的「执行」，交给后面从容调度。</p>
+<p>这个「劈成两步」的思路，其实和数据库里的<strong>预写日志（WAL）</strong>如出一辙。数据库改数据前，从不直接动真正的数据页，而是先把「我打算这么改」写进一条只追加的日志——日志落盘了，这笔操作就<strong>赖不掉、丢不了</strong>，哪怕下一秒断电，重启后照日志重放即可。opencode 收 prompt 用的是同一套智慧：<span class="mono">admit</span> 就是那条预写日志，把「用户提了这个 prompt」这件事先<strong>稳稳钉死在持久层</strong>，至于真正费劲的执行，反而是可以事后从容补做的。<strong>先记录意图、再兑现意图</strong>——这条朴素的原则，是几乎所有「经得起崩溃」的系统共同的脊梁。</p>
+
+<h2>admit：把 prompt 记成一个事件</h2>
+<p>opencode 收 prompt 的真正入口是 <span class="mono">SessionInput.admit</span>（<span class="mono">session/input.ts</span>）。它<strong>不跑任何模型</strong>，只做一件事：把这个 prompt <strong>作为一个不可变事件发布出去</strong>，落进持久存储，并拿回一个序号。看它的骨架：</p>
+<pre class="code"><span class="cm">// 简化自 session/input.ts</span>
+<span class="kw">export const</span> admit = Effect.<span class="fn">fn</span>(<span class="kw">function</span>* (db, events, input) {
+  <span class="kw">const</span> existing = <span class="kw">yield</span>* <span class="fn">find</span>(db, input.id)
+  <span class="kw">if</span> (existing !== <span class="kw">undefined</span>) <span class="kw">return</span> existing   <span class="cm">// ① 幂等：同 id 直接返回旧的</span>
+  <span class="kw">return</span> <span class="kw">yield</span>* events.<span class="fn">publish</span>(
+    SessionEvent.PromptLifecycle.Admitted, {       <span class="cm">// ② 发布"已入账"事件</span>
+      messageID: input.id, prompt: input.prompt, delivery: input.delivery, ...
+    }).<span class="fn">pipe</span>(Effect.<span class="fn">map</span>((event) =&gt;
+      <span class="kw">new</span> <span class="fn">Admitted</span>({ admittedSeq: event.seq, ... })))  <span class="cm">// ③ 序号=事件的 seq</span>
+})</pre>
+<p>三步，步步是关键。<strong>① 幂等</strong>：先按 <span class="mono">input.id</span> 查一遍，已经入过账就直接返回旧记录——于是<strong>重发同一个 prompt（同一个 id）只会入账一次</strong>，第三个噩梦当场消失。<strong>② 发布事件</strong>：admit 不是去改某个字段，而是 <span class="mono">publish</span> 一个 <span class="mono">PromptLifecycle.Admitted</span> 事件——这就是「<strong>事件溯源</strong>」四个字的含义：系统的真相是一连串<strong>只追加的事件</strong>，而不是一个被反复覆写的当前值。<strong>③ 拿序号</strong>：每个事件都被赋予一个单调递增的 <span class="mono">seq</span>，admit 把它记成 <span class="mono">admittedSeq</span>——这就是挂单轨上那张票的编号，先来后到从此有了铁证。</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">find(db, id)：这个 id 入过账没？入过 → 返回旧的（幂等）</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">events.publish(Admitted, {prompt, delivery…})：发一个不可变事件</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">事件被赋予单调 seq → 记为 admittedSeq（票号）</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">返回 Admitted —— prompt 已持久、已编号，但一行模型代码都没跑</span></div>
+</div>
+<p>请把第 4 步咂摸一下：<span class="mono">admit</span> 返回时，你的 prompt 已经<strong>板上钉钉地存在</strong>了——它在数据库里、有编号、崩了也还在——可此刻<strong>模型连热身都还没开始</strong>。「已收下」和「已执行」被干净地剥成了两件事。这就是为什么前两个噩梦也跟着消失：崩溃？事件早落库了，重启后照样能从收件箱里捞出来接着跑。并发？所有输入都先排进同一条带序号的轨道，由后面的串行执行者一张张取，谁也别想插队抢状态。</p>
+<div class="flow">
+  <div class="node">prompt 到达<span class="sub">你按下回车</span></div>
+  <div class="arrow">admit →</div>
+  <div class="node">持久事件<span class="sub">入库·拿 seq</span></div>
+  <div class="arrow">wake →</div>
+  <div class="node">建议排空<span class="sub">advisory·可合并</span></div>
+  <div class="arrow">promote →</div>
+  <div class="node">可见消息<span class="sub">安全间隙·喂模型</span></div>
+</div>
+<p>这里还藏着一个容易被滑过、却极能体现功力的细节：admit 末尾对「发布失败」的兜底。万一 <span class="mono">publish</span> 抛了 defect，代码不是直接报错，而是<strong>再查一次 find</strong>——因为那个失败有可能只是「事件其实写成功了、但返回路上出了岔子」。再查一次，如果记录其实已经在了，就把它当成功返回。这种「失败了先别急着喊崩，回头确认一下真实状态」的谨慎，正是持久层该有的素养：在「绝不丢」和「绝不重」这两条红线之间，它宁可多查一次，也不肯赌。</p>
+
+<h2>收件箱长什么样：session_input 表</h2>
+<p>这些入了账的 prompt，落在一张叫 <span class="mono">session_input</span> 的表里（<span class="mono">session/sql.ts</span>）。它的字段，就是那张「挂单票」的全部信息：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">id</div><div class="v">消息 ID（主键）—— 幂等就靠它</div></div>
+  <div class="cell"><div class="k">prompt</div><div class="v">prompt 内容本体（JSON）</div></div>
+  <div class="cell"><div class="k">delivery</div><div class="v">"steer"（插话）或 "queue"（排队）</div></div>
+  <div class="cell"><div class="k">admitted_seq</div><div class="v">入账序号（每会话唯一、单调）—— 票号</div></div>
+  <div class="cell"><div class="k">promoted_seq</div><div class="v">提单序号；为 NULL = 还在收件箱里待领</div></div>
+</div>
+<p>最值得玩味的是 <span class="mono">promoted_seq</span> 这个可空字段。它扮演着<strong>「这张票领了没」的标记</strong>：一条记录刚入账时，<span class="mono">promoted_seq</span> 是 <span class="mono">NULL</span>，意味着它<strong>还躺在收件箱里、等着被处理</strong>；等后面的串行执行者在某个安全的间隙把它「提」出来、变成一条用户能看见的真实消息时，才给它填上 <span class="mono">promoted_seq</span>。于是「收件箱里还有哪些没处理的输入」这个问题，简化成了一句极廉价的查询：<strong>找出这个会话里所有 <span class="mono">promoted_seq IS NULL</span> 的行</strong>。两个序号——一个记「何时入账」、一个记「何时提单」——把一个 prompt 从进门到落地的整段旅程，刻成了可查询的事实。</p>
+<p>为什么要用<strong>两个</strong>序号，而不是一个状态字段了事？因为序号不只标记「办没办」，它还<strong>定义了顺序</strong>。<span class="mono">admitted_seq</span> 在每个会话内单调递增、且建了唯一索引，这等于给同一会话的所有输入排了一条<strong>铁打的先后队</strong>——串行执行者照着 <span class="mono">admitted_seq</span> 从小到大取，先提的 prompt 永远先被处理，绝不会因为并发或重试而乱序。一个布尔的「已处理/未处理」给不了你这个：它只说得清「有没有」，说不清「谁先谁后」。opencode 选择用序号而非状态位，正是因为它在意的从来不只是「这条输入处理了吗」，更是「整个会话的输入，是按什么不可争辩的顺序流过的」。</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">① admit</span><span class="tl-desc">入账：写 admitted_seq，promoted_seq = NULL（待领）</span></div>
+  <div class="tl-item"><span class="tl-time">② 在收件箱</span><span class="tl-desc">持久躺着，等串行执行者来取；崩溃重启依然在</span></div>
+  <div class="tl-item"><span class="tl-time">③ promote</span><span class="tl-desc">安全间隙提单：填 promoted_seq，变成可见的 User 消息</span></div>
+  <div class="tl-item"><span class="tl-time">④ 执行</span><span class="tl-desc">这才轮到喂模型、跑 agent 循环（第 16、17 课）</span></div>
+</div>
+
+<h2>steer 还是 queue：两种投递方式</h2>
+<p>最后看那个 <span class="mono">delivery</span> 字段，它对应挂单票的「两种脾气」。当一个会话<strong>正在忙</strong>（模型正输出）时，新来的 prompt 该怎么办？opencode 给了你两个选择：</p>
+<div class="cols">
+  <div class="col"><h4>steer · 插话（默认）</h4><p>并入<strong>当前正在跑的活动</strong>，在下一个安全的「回合边界」生效。像冲着正在做的菜喊一句「不要葱」。你日常追加的指令，走的就是这条。</p></div>
+  <div class="col"><h4>queue · 排队</h4><p>开一个<strong>独立的未来活动</strong>，等当前这轮彻底结束后，再 FIFO 地一个个轮到。像一张全新的订单，乖乖排在后面。</p></div>
+</div>
+<p>这两个词之所以要<strong>显式</strong>地写进数据模型，是因为它们对应着两种截然不同的意图，而 opencode 不愿替你猜。「我想纠正/补充<strong>这一轮</strong>」和「我想等它忙完<strong>再说另一件事</strong>」，是完全不同的诉求；把它钉成 <span class="mono">delivery</span> 字段，就让这份意图<strong>一路可追、可调度</strong>，而不是糊成「反正有条新消息来了」。注意两者都尊重<strong>「安全边界」</strong>：steer 不会粗暴打断模型的当前句子，而是等一个回合的干净缝隙才并入——这又呼应了第 7 课结构化并发那套「该收的时候干净地收」的纪律。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这一课讲的是 prompt 进入 core 的<strong>第一道关</strong>，也是「持久」与「执行」的分界：</p>
+  <ul>
+    <li><strong>admit（入账）</strong>：把 prompt 发布成不可变事件，拿到单调 <span class="mono">admitted_seq</span>，落进 <span class="mono">session_input</span> 收件箱——又快又稳，绝不跑模型。</li>
+    <li><strong>事件溯源</strong>：真相是只追加的事件流（呼应第 14 课「换模型也是一条消息」）；幂等靠 id、排序靠 seq。</li>
+    <li><strong>promoted_seq</strong>：收件箱的「待领」标记；NULL = 还没处理。</li>
+    <li><strong>delivery</strong>：steer（插话进当前活动）/ queue（排队成未来活动），把用户意图显式化。</li>
+  </ul>
+  <p>那么，是谁在「安全的间隙」把这些入账的输入<strong>提单、变成可见消息、再真正喂给模型</strong>的？那个串行的调度者，就是下一课的主角——<strong>运行协调器（run coordinator，第 16 课）</strong>。收件箱负责「稳稳收下」，协调器负责「有序取出」，两者合起来，才是 opencode 会话引擎的下半身。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>「入账」与「执行」是<strong>两个独立的动作</strong>，这一点在接口签名上就划得清清楚楚：</p>
+  <pre class="code"><span class="cm">// admit 只管持久落账（session/input.ts）</span>
+SessionInput.<span class="fn">admit</span>(db, events, { id, sessionID, prompt, delivery })
+  <span class="cm">// → 返回 Admitted{ admittedSeq, … }，不跑模型</span>
+
+<span class="cm">// wake 只管"提醒去排空"（session/execution.ts）</span>
+<span class="cm">// "Schedule a drain after durable work is recorded. 重复 wake 会合并。"</span>
+SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
+  <span class="cm">// → 安排一次 drain；advisory（建议性），可被合并</span></pre>
+  <p>典型流程是：先 <span class="mono">admit</span>（持久、拿序号），<strong>再</strong> <span class="mono">wake</span>（建议性地叫一声「有活了，去排空」）。注意 wake 的注释——重复的叫醒会<strong>合并</strong>：哪怕你瞬间塞十个 prompt，也不会触发十次重复排空。<strong>持久的是 admit、建议的是 wake</strong>，一个负责「绝不丢」，一个负责「别空转」，职责泾渭分明。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li>opencode <strong>不把刚到的 prompt 直接喂模型</strong>，而是「先入账、再执行」——把<strong>接收</strong>（快、稳、不可失败）与<strong>执行</strong>（慢、险、可中断）劈成两步。</li>
+    <li><span class="mono">SessionInput.admit</span> 把 prompt <strong>发布成不可变事件</strong>（事件溯源），拿到单调 <span class="mono">admitted_seq</span>，落进 <span class="mono">session_input</span> 收件箱——一行模型代码都不跑。</li>
+    <li>这一招同时消解三个噩梦：<strong>崩溃丢失</strong>（事件已落库）、<strong>并发打架</strong>（统一排序、串行取）、<strong>重试翻倍</strong>（按 id 幂等）。</li>
+    <li><span class="mono">promoted_seq IS NULL</span> 标记一条输入「还在收件箱待领」；提单时填上它、变成可见的 User 消息。</li>
+    <li><span class="mono">delivery</span> 显式区分 <strong>steer</strong>（插话进当前活动，下个安全边界生效）与 <strong>queue</strong>（排队成未来活动），把用户意图刻进数据。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Last lesson we met the nouns Session/Message/Part. This lesson answers a question that looks simple but hides real danger: when you hit enter and a prompt flies to the server, how does opencode <strong>"receive" it</strong>? The naivest answer is "run the model right away" — and that's exactly what opencode <strong>refuses</strong> to do. It first records your prompt <strong>verbatim as an immutable event in a place called the "inbox,"</strong> gets it a sequence number, and <strong>only then</strong> calmly schedules execution. This lesson is about that "admit first, run later" design — the <strong>event-sourced input inbox</strong>, the root of how opencode's session engine can be "crash-safe, retry-safe, concurrency-safe."</p>
+<p>Why does "receiving a prompt" deserve its own lesson? Because it's the <strong>watershed between durability and execution</strong>. Picture the opposite: if a prompt is fed to the model the instant it arrives, then — the process crashes between "received" and "started" and the prompt <strong>vanishes into thin air</strong>; the model is mid-sentence when a new prompt arrives and the two logics <strong>fight on the spot</strong>; a network hiccup resends once and the same sentence <strong>runs twice</strong>. opencode's move of "land the input as a durable event first" dissolves all three nightmares at once. Understand this lesson and you understand why opencode's sessions <strong>withstand interruption, retry, and concurrency</strong> — which is precisely what separates a serious agent engine from a toy script.</p>
+
+<div class="card analogy">
+  <div class="tag">🍳 Analogy</div>
+  Picture a busy restaurant's <strong>kitchen ticket rail</strong>. You order, and the server <strong>doesn't</strong> charge into the kitchen and grab the chef mid-stir to make your dish now — that would only burn the dish in hand. What the server does is write your order on a <strong>numbered ticket</strong> and clip it onto the rail (this is <strong>admit</strong>). From then on that ticket <strong>solidly exists</strong>: it has a number (first-come order at a glance) and is durable (even if the kitchen catches fire and restarts, the ticket still hangs on the rail, not one lost). The chef pulls tickets off the rail at <strong>clean gaps between dishes</strong> (this is <strong>promote</strong>). And tickets come in two tempers: "<strong>steer</strong>" — shout "no onions on that!" at the dish being cooked right now, merged in on the spot; "<strong>queue</strong>" — a separate new order that waits its FIFO turn. See this ticket rail and you've seen all the craft in how opencode receives a prompt.
+</div>
+
+<h2>The naive way, and its three nightmares</h2>
+<p>Lay out the "wrong answer" first and the right one shines. A toy agent writes it thus: <span class="mono">receive prompt → immediately await model.run(prompt)</span>. Simple and direct, but it shatters in three places:</p>
+<div class="cols">
+  <div class="col"><h4>💥 crash loss</h4><p>the process dies between "received" and "started"; the prompt leaves no trace, vanished.</p></div>
+  <div class="col"><h4>💥 concurrency clash</h4><p>the model is mid-output when a new prompt barges in; two executions grab the same session state.</p></div>
+  <div class="col"><h4>💥 retry doubling</h4><p>a network hiccup, the client resends; the same sentence is taken as two requests and runs twice.</p></div>
+</div>
+<p>The common root of these three nightmares is <strong>welding "receive" and "execute" into one step</strong>. As long as they're one action, receiving's reliability is dragged down by execution's fragility — execution calls the model, takes tens of seconds, can be interrupted anytime, while receiving should be instant and must never fail. opencode's break is plain and forceful: <strong>split the step in two</strong>. Do the fast, stable "receive" first, made an unfailable durable record; then hand the slow, risky "execute" to unhurried later scheduling.</p>
+<p>This "split in two" idea is in fact the same as a database's <strong>write-ahead log (WAL)</strong>. Before changing data, a database never touches the real data pages directly; it first writes "here's what I intend to change" into an append-only log — once the log is on disk, the operation is <strong>undeniable, unlosable</strong>, and even if power dies the next second, a restart replays the log. opencode receives prompts with the same wisdom: <span class="mono">admit</span> is that write-ahead log, nailing "the user posed this prompt" firmly into the durable layer first, while the truly laborious execution can be made up calmly afterward. <strong>Record the intent first, fulfil it later</strong> — this plain principle is the shared backbone of nearly every "crash-proof" system.</p>
+
+<h2>admit: record the prompt as an event</h2>
+<p>opencode's real entry for receiving a prompt is <span class="mono">SessionInput.admit</span> (<span class="mono">session/input.ts</span>). It <strong>runs no model</strong>; it does one thing: <strong>publish this prompt as an immutable event</strong>, land it in durable storage, and get back a sequence number. See its skeleton:</p>
+<pre class="code"><span class="cm">// simplified from session/input.ts</span>
+<span class="kw">export const</span> admit = Effect.<span class="fn">fn</span>(<span class="kw">function</span>* (db, events, input) {
+  <span class="kw">const</span> existing = <span class="kw">yield</span>* <span class="fn">find</span>(db, input.id)
+  <span class="kw">if</span> (existing !== <span class="kw">undefined</span>) <span class="kw">return</span> existing   <span class="cm">// (1) idempotent: same id returns the old</span>
+  <span class="kw">return</span> <span class="kw">yield</span>* events.<span class="fn">publish</span>(
+    SessionEvent.PromptLifecycle.Admitted, {       <span class="cm">// (2) publish an "admitted" event</span>
+      messageID: input.id, prompt: input.prompt, delivery: input.delivery, ...
+    }).<span class="fn">pipe</span>(Effect.<span class="fn">map</span>((event) =&gt;
+      <span class="kw">new</span> <span class="fn">Admitted</span>({ admittedSeq: event.seq, ... })))  <span class="cm">// (3) the number = event's seq</span>
+})</pre>
+<p>Three steps, each crucial. <strong>(1) Idempotent</strong>: it first looks up by <span class="mono">input.id</span>, and if already admitted returns the old record — so <strong>resending the same prompt (same id) admits only once</strong>, and the third nightmare disappears on the spot. <strong>(2) Publish an event</strong>: admit doesn't edit some field; it <span class="mono">publish</span>es a <span class="mono">PromptLifecycle.Admitted</span> event — and that's the meaning of "<strong>event sourcing</strong>": the system's truth is a string of <strong>append-only events</strong>, not one current value overwritten again and again. <strong>(3) Get a number</strong>: every event is given a monotonically increasing <span class="mono">seq</span>, which admit records as <span class="mono">admittedSeq</span> — the number on that ticket on the rail, an ironclad record of first-come order.</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">find(db, id): has this id been admitted? yes → return the old (idempotent)</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">events.publish(Admitted, {prompt, delivery…}): emit an immutable event</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">the event is given a monotonic seq → recorded as admittedSeq (ticket number)</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">return Admitted — prompt is durable, numbered, yet not one line of model ran</span></div>
+</div>
+<p>Savor step 4: when <span class="mono">admit</span> returns, your prompt <strong>definitively exists</strong> — it's in the database, numbered, survives a crash — yet at this moment <strong>the model hasn't even warmed up</strong>. "Received" and "executed" are cleanly peeled into two things. That's why the first two nightmares also vanish: crash? the event landed long ago, and after restart it can be fished out of the inbox and resumed. concurrency? all inputs first line up on one numbered track, pulled one ticket at a time by the later serial executor, with no one cutting in to grab state.</p>
+<div class="flow">
+  <div class="node">prompt arrives<span class="sub">you hit enter</span></div>
+  <div class="arrow">admit →</div>
+  <div class="node">durable event<span class="sub">stored · gets seq</span></div>
+  <div class="arrow">wake →</div>
+  <div class="node">advisory drain<span class="sub">advisory · coalescable</span></div>
+  <div class="arrow">promote →</div>
+  <div class="node">visible message<span class="sub">safe gap · feed model</span></div>
+</div>
+<p>One more easily-skipped detail that really shows craft: admit's fallback for "publish failed" at the end. Should <span class="mono">publish</span> throw a defect, the code doesn't just error out but <strong>looks up find once more</strong> — because that failure might only be "the event actually wrote successfully, but something went wrong on the return path." Look again, and if the record is in fact already there, return it as success. This caution of "don't cry crash on failure; go confirm the real state first" is exactly the maturity a durable layer needs: between the two red lines of "never lose" and "never duplicate," it would rather query once more than gamble.</p>
+
+<h2>What the inbox looks like: the session_input table</h2>
+<p>These admitted prompts land in a table called <span class="mono">session_input</span> (<span class="mono">session/sql.ts</span>). Its fields are all the information on that "rail ticket":</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">id</div><div class="v">message ID (primary key) — idempotency rests on it</div></div>
+  <div class="cell"><div class="k">prompt</div><div class="v">the prompt content itself (JSON)</div></div>
+  <div class="cell"><div class="k">delivery</div><div class="v">"steer" (cut in) or "queue" (line up)</div></div>
+  <div class="cell"><div class="k">admitted_seq</div><div class="v">admission number (per-session unique, monotonic) — the ticket number</div></div>
+  <div class="cell"><div class="k">promoted_seq</div><div class="v">promotion number; NULL = still waiting in the inbox</div></div>
+</div>
+<p>The most intriguing is the nullable <span class="mono">promoted_seq</span> field. It plays the <strong>marker of "has this ticket been pulled"</strong>: when a record is freshly admitted, <span class="mono">promoted_seq</span> is <span class="mono">NULL</span>, meaning it <strong>still lies in the inbox, waiting to be processed</strong>; only when the later serial executor "pulls" it out at some safe gap and turns it into a real user-visible message does it get a <span class="mono">promoted_seq</span>. So "which unprocessed inputs remain in the inbox" reduces to one dirt-cheap query: <strong>find all rows in this session with <span class="mono">promoted_seq IS NULL</span></strong>. Two numbers — one recording "when admitted," one "when promoted" — carve a prompt's whole journey from arrival to landing into a queryable fact.</p>
+<p>Why <strong>two</strong> numbers, not one status field? Because a number marks not just "done or not" but also <strong>defines order</strong>. <span class="mono">admitted_seq</span> increases monotonically within each session and has a unique index, so it lines up all of a session's inputs into an <strong>ironclad order</strong> — the serial executor pulls them by <span class="mono">admitted_seq</span> ascending, the earlier-admitted prompt always processed first, never reordered by concurrency or retry. A boolean "processed/unprocessed" can't give you this: it states "whether," not "who first." opencode chose a sequence number over a status bit precisely because what it cares about was never just "was this input processed" but "in what indisputable order did the whole session's inputs flow through."</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">① admit</span><span class="tl-desc">admitted: write admitted_seq, promoted_seq = NULL (waiting)</span></div>
+  <div class="tl-item"><span class="tl-time">② in inbox</span><span class="tl-desc">lies durable, awaiting the serial executor; survives a restart</span></div>
+  <div class="tl-item"><span class="tl-time">③ promote</span><span class="tl-desc">pulled at a safe gap: fill promoted_seq, become a visible User message</span></div>
+  <div class="tl-item"><span class="tl-time">④ execute</span><span class="tl-desc">only now feed the model, run the agent loop (Lessons 16, 17)</span></div>
+</div>
+
+<h2>steer or queue: two ways of delivery</h2>
+<p>Finally the <span class="mono">delivery</span> field, matching the ticket's "two tempers." When a session is <strong>busy</strong> (the model outputting), what to do with a newly-arrived prompt? opencode gives you two choices:</p>
+<div class="cols">
+  <div class="col"><h4>steer · cut in (default)</h4><p>merge into the <strong>currently running activity</strong>, taking effect at the next safe "turn boundary." Like shouting "no onions" at the dish being made. Your everyday follow-up instructions take this road.</p></div>
+  <div class="col"><h4>queue · line up</h4><p>open a <strong>separate future activity</strong>, taking its FIFO turn only after the current one fully ends. Like a brand-new order, waiting patiently behind.</p></div>
+</div>
+<p>These two words are written <strong>explicitly</strong> into the data model because they correspond to two utterly different intents, and opencode won't guess for you. "I want to correct/add to <strong>this turn</strong>" and "I want to wait till it's done <strong>then say another thing</strong>" are entirely different needs; nailing it as a <span class="mono">delivery</span> field makes that intent <strong>traceable and schedulable all the way</strong>, not mashed into "anyway a new message arrived." Note both respect the <strong>"safe boundary"</strong>: steer won't rudely interrupt the model's current sentence but waits for a turn's clean gap to merge in — echoing Lesson 7's structured-concurrency discipline of "collect cleanly when it's time to collect."</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture</div>
+  <p>This lesson is about the <strong>first gate</strong> a prompt passes into core, and the boundary between "durable" and "execute":</p>
+  <ul>
+    <li><strong>admit</strong>: publish the prompt as an immutable event, get a monotonic <span class="mono">admitted_seq</span>, land it in the <span class="mono">session_input</span> inbox — fast and stable, runs no model.</li>
+    <li><strong>event sourcing</strong>: the truth is an append-only event stream (echoing Lesson 14's "switch model is a message"); idempotency by id, ordering by seq.</li>
+    <li><strong>promoted_seq</strong>: the inbox's "waiting" marker; NULL = not yet processed.</li>
+    <li><strong>delivery</strong>: steer (cut into the current activity) / queue (line up as a future activity), making user intent explicit.</li>
+  </ul>
+  <p>So who, "at the safe gap," <strong>promotes these admitted inputs, turns them into visible messages, and actually feeds the model</strong>? That serial scheduler is next lesson's star — the <strong>run coordinator (Lesson 16)</strong>. The inbox handles "receive steadily," the coordinator handles "pull in order," and together they form the lower half of opencode's session engine.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p>"Admit" and "execute" are <strong>two independent actions</strong>, and the interface signatures draw it cleanly:</p>
+  <pre class="code"><span class="cm">// admit only does durable landing (session/input.ts)</span>
+SessionInput.<span class="fn">admit</span>(db, events, { id, sessionID, prompt, delivery })
+  <span class="cm">// → returns Admitted{ admittedSeq, … }, runs no model</span>
+
+<span class="cm">// wake only "nudges to drain" (session/execution.ts)</span>
+<span class="cm">// "Schedule a drain after durable work is recorded. Repeated wakeups may coalesce."</span>
+SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
+  <span class="cm">// → schedule a drain; advisory, coalescable</span></pre>
+  <p>The typical flow: <span class="mono">admit</span> first (durable, get the number), <strong>then</strong> <span class="mono">wake</span> (advisorily call out "there's work, go drain"). Note wake's comment — repeated wakeups <strong>coalesce</strong>: even if you stuff in ten prompts in an instant, it won't trigger ten redundant drains. <strong>admit is durable, wake is advisory</strong>, one for "never lose," one for "don't spin idle," with cleanly separated duties.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li>opencode <strong>doesn't feed a just-arrived prompt to the model</strong>; it "admits first, runs later" — splitting <strong>receive</strong> (fast, stable, unfailable) from <strong>execute</strong> (slow, risky, interruptible).</li>
+    <li><span class="mono">SessionInput.admit</span> <strong>publishes the prompt as an immutable event</strong> (event sourcing), gets a monotonic <span class="mono">admitted_seq</span>, lands it in the <span class="mono">session_input</span> inbox — running no model code at all.</li>
+    <li>This one move dissolves three nightmares: <strong>crash loss</strong> (event already landed), <strong>concurrency clash</strong> (unified ordering, pulled serially), <strong>retry doubling</strong> (idempotent by id).</li>
+    <li><span class="mono">promoted_seq IS NULL</span> marks an input as "still waiting in the inbox"; promotion fills it and turns it into a visible User message.</li>
+    <li><span class="mono">delivery</span> explicitly distinguishes <strong>steer</strong> (cut into the current activity, effective at the next safe boundary) from <strong>queue</strong> (line up as a future activity), carving user intent into the data.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_16 = wip('运行协调器', 'The run coordinator')
 LESSON_17 = wip('V2 agent 循环', 'The V2 agent loop')
 LESSON_18 = wip('工具调用与 FiberSet', 'Tool calls & FiberSet')

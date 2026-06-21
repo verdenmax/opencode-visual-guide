@@ -329,7 +329,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <h1><span class="lang-zh">路由组与 handler</span><span class="lang-en">Route groups &amp; handlers</span></h1>
   </div>
   <div class="lang-zh">
-<p class="lead">上一课我们站在门口，看清了 server 这扇门的整体长相：一个 <span class="mono">webHandler</span>、背后挂着 <strong>21 个路由组</strong>。这一课我们<strong>推门进去</strong>，把镜头怼到<strong>其中一个组</strong>身上，看它到底由什么拼成。你会发现 opencode 的每个 API 端点都分成两半：<strong>「组」负责声明契约</strong>（这个端点叫什么、要什么、给什么、可能怎么错），<strong>「handler」负责照约办事</strong>（把校验过的输入翻译成对 core 的调用）。再加上裹在外面的一圈<strong>中间件</strong>，三者合起来，才是一个请求从进门到出门的完整旅程。读懂这一课，你就能拿着任何一个 API 路径，自己摸到它的声明在哪、实现在哪。</p>
+<p class="lead">上一课我们站在门口，看清了 server 这扇门的整体长相：一个 <span class="mono">webHandler</span>、背后挂着 <strong>20 个路由组</strong>。这一课我们<strong>推门进去</strong>，把镜头怼到<strong>其中一个组</strong>身上，看它到底由什么拼成。你会发现 opencode 的每个 API 端点都分成两半：<strong>「组」负责声明契约</strong>（这个端点叫什么、要什么、给什么、可能怎么错），<strong>「handler」负责照约办事</strong>（把校验过的输入翻译成对 core 的调用）。再加上裹在外面的一圈<strong>中间件</strong>，三者合起来，才是一个请求从进门到出门的完整旅程。读懂这一课，你就能拿着任何一个 API 路径，自己摸到它的声明在哪、实现在哪。</p>
 <p>为什么要把「声明」和「实现」拆成两半？这其实是第 5、6 课那套世界观的又一次兑现：<strong>把契约抬到显眼、机器可读的地方，把杂活留在实现里</strong>。组里全是类型，没有一行业务逻辑——正因为它「纯」，机器才能读它、据它生成 SDK（第 12 课）。handler 里全是干活的调用，但它<strong>不必再操心校验</strong>——输入合不合法，组的类型在它跑之前就替它把过关了。两边各司其职，这就是 opencode 路由层的基本骨法。</p>
 
 <div class="card analogy">
@@ -354,11 +354,11 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="arrow">.add →</div>
   <div class="node">HttpApiGroup<span class="sub">一个领域·如 session</span></div>
   <div class="arrow">.add →</div>
-  <div class="node">HttpApi<span class="sub">整张 API·21 组汇总</span></div>
+  <div class="node">HttpApi<span class="sub">整张 API·20 组汇总</span></div>
 </div>
 
-<h2>21 个组，就是一张能力地图</h2>
-<p>这 21 个组的<strong>名字本身</strong>，几乎就是 opencode 全部对外能力的目录。你不用读实现，光看组名就能猜个八九不离十：</p>
+<h2>20 个组，就是一张能力地图</h2>
+<p>这 20 个组的<strong>名字本身</strong>，几乎就是 opencode 全部对外能力的目录。你不用读实现，光看组名就能猜个八九不离十：</p>
 <div class="cellgroup">
   <div class="cell"><div class="k">session</div><div class="v">会话：列表/创建/发消息/中止/分享</div></div>
   <div class="cell"><div class="k">event</div><div class="v">事件流：SSE 实时推送（第 11 课）</div></div>
@@ -369,9 +369,9 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="cell"><div class="k">mcp</div><div class="v">MCP 外部工具服务器</div></div>
   <div class="cell"><div class="k">tui</div><div class="v">给富 TUI 的专用端点</div></div>
 </div>
-<p>（上面只列了 8 个，其余还有 instance、workspace、project、question、pty、sync、control、global 等，凑满 21 个。）这件事很值得停下来体会：<strong>当 API 是结构化声明时，它的「目录」是天然存在、可枚举的</strong>。你想知道 opencode 能干什么？不用读文档、不用问人，把 <span class="mono">groups/</span> 目录 <span class="mono">ls</span> 一遍，能力清单就在眼前。这是 Hono 那种「路由散落各处」的写法给不了的——在那里，没有人能一眼说清「这个服务总共开了哪些口」。声明式的代价是前期啰嗦，红利是<strong>系统永远能自己回答「我有哪些能力」</strong>。这种「可枚举性」还会一路传导：能力可枚举，文档就能自动生成、SDK 就能自动产出，连测试都能照着清单逐个覆盖——一份结构化的契约，喂饱了下游一整条工具链。</p>
+<p>（上面只列了 8 个，其余还有 instance、workspace、project、question、pty、sync、control、global 等，凑满 20 个组——groups/ 目录里其实有 21 个 .ts 文件，但 metadata.ts、query.ts 只是辅助模块，而 pty.ts 拆出 pty 与 pty-connect 两个组。）这件事很值得停下来体会：<strong>当 API 是结构化声明时，它的「目录」是天然存在、可枚举的</strong>。你想知道 opencode 能干什么？不用读文档、不用问人，把 <span class="mono">groups/</span> 目录 <span class="mono">ls</span> 一遍，能力清单就在眼前。这是 Hono 那种「路由散落各处」的写法给不了的——在那里，没有人能一眼说清「这个服务总共开了哪些口」。声明式的代价是前期啰嗦，红利是<strong>系统永远能自己回答「我有哪些能力」</strong>。这种「可枚举性」还会一路传导：能力可枚举，文档就能自动生成、SDK 就能自动产出，连测试都能照着清单逐个覆盖——一份结构化的契约，喂饱了下游一整条工具链。</p>
 <div class="cols">
-  <div class="col"><h4>组 = 契约（声明）</h4><p>groups/*.ts，21 个文件，全是类型。回答「有什么端点、各要什么」。机器可读 → 生成 SDK。</p></div>
+  <div class="col"><h4>组 = 契约（声明）</h4><p>groups/*.ts，20 个组，全是类型。回答「有什么端点、各要什么」。机器可读 → 生成 SDK。</p></div>
   <div class="col"><h4>handler = 实现（干活）</h4><p>handlers/*.ts，20 个文件。回答「这个端点具体怎么办」。调用 core 服务，把活真正干掉。</p></div>
 </div>
 
@@ -419,7 +419,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="tag">🗺️ 宏观图景</div>
   <p>把这一课拼回上一课：上一课的 <span class="mono">webHandler</span> 是「总台」，这一课拆开了总台背后的<strong>三件套</strong>——</p>
   <ul>
-    <li><strong>组（21 个，groups/）</strong>：声明契约，纯类型，喂养 SDK 生成。</li>
+    <li><strong>组（20 个，groups/）</strong>：声明契约，纯类型，喂养 SDK 生成。</li>
     <li><strong>handler（20 个，handlers/）</strong>：薄薄一层，把校验过的输入接到 core 服务。</li>
     <li><strong>中间件（9 个，middleware/）</strong>：套在外圈的横切关卡，鉴权/路由/压缩/错误兜底。</li>
   </ul>
@@ -447,7 +447,7 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
   <ul>
     <li>opencode 的每个 API 端点分两半：<strong>组声明契约</strong>（名字/参数/返回/错误，纯类型），<strong>handler 实现</strong>（调 core 干活）。</li>
     <li>端点的<strong>错误也是契约</strong>：可能返回什么错，写进类型，客户端的 SDK 据此都是类型已知的。</li>
-    <li><strong>21 个组的名字就是 opencode 的能力地图</strong>——结构化声明让系统永远能自己回答「我有哪些能力」。</li>
+    <li><strong>20 个组的名字就是 opencode 的能力地图</strong>——结构化声明让系统永远能自己回答「我有哪些能力」。</li>
     <li>handler 应当<strong>很薄</strong>：输入已被组的类型校验，它只负责「取干净输入 → 调 core → 返回」。<span class="mono">handleRaw</span> 用于需要手控 Response 的少数端点。</li>
     <li><strong>中间件</strong>是套在外圈的横切关卡；错误中间件「真相进日志、编号给客户端」，有类型的失败照常走正路。</li>
   </ul>
@@ -502,7 +502,7 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
 </div>
 </div></div>
   <div class="lang-en">
-<p class="lead">Last lesson we stood at the door and saw the server's overall shape: one <span class="mono">webHandler</span>, with <strong>21 route groups</strong> behind it. This lesson we <strong>push the door open</strong> and zoom in on <strong>one group</strong> to see what it's made of. You'll find every opencode API endpoint splits in two: <strong>the "group" declares the contract</strong> (what this endpoint is called, what it wants, what it gives back, how it might fail), and <strong>the "handler" fulfils it</strong> (translating validated input into a call on core). Wrap a ring of <strong>middleware</strong> around them, and the three together make a request's full journey in and out. Grasp this lesson and you can take any API path and find, on your own, where it's declared and where it's implemented.</p>
+<p class="lead">Last lesson we stood at the door and saw the server's overall shape: one <span class="mono">webHandler</span>, with <strong>20 route groups</strong> behind it. This lesson we <strong>push the door open</strong> and zoom in on <strong>one group</strong> to see what it's made of. You'll find every opencode API endpoint splits in two: <strong>the "group" declares the contract</strong> (what this endpoint is called, what it wants, what it gives back, how it might fail), and <strong>the "handler" fulfils it</strong> (translating validated input into a call on core). Wrap a ring of <strong>middleware</strong> around them, and the three together make a request's full journey in and out. Grasp this lesson and you can take any API path and find, on your own, where it's declared and where it's implemented.</p>
 <p>Why split "declaration" from "implementation"? It's Lessons 5 and 6's worldview cashing out again: <strong>lift the contract to a visible, machine-readable place, and leave the chores in the implementation</strong>. The group is all types, not one line of business logic — because it's "pure," a machine can read it and generate the SDK from it (Lesson 12). The handler is all real calls, but it <strong>needn't worry about validation</strong> — whether input is legal, the group's types settle before the handler ever runs. Each side to its own job — that's the basic skeleton of opencode's routing layer.</p>
 
 <div class="card analogy">
@@ -527,11 +527,11 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
   <div class="arrow">.add →</div>
   <div class="node">HttpApiGroup<span class="sub">one domain · e.g. session</span></div>
   <div class="arrow">.add →</div>
-  <div class="node">HttpApi<span class="sub">whole API · 21 groups merged</span></div>
+  <div class="node">HttpApi<span class="sub">whole API · 20 groups merged</span></div>
 </div>
 
-<h2>21 groups are a map of capabilities</h2>
-<p>The <strong>names themselves</strong> of these 21 groups are almost a complete table of contents for everything opencode exposes. You needn't read the implementation; the group names alone tell you most of it:</p>
+<h2>20 groups are a map of capabilities</h2>
+<p>The <strong>names themselves</strong> of these 20 groups are almost a complete table of contents for everything opencode exposes. You needn't read the implementation; the group names alone tell you most of it:</p>
 <div class="cellgroup">
   <div class="cell"><div class="k">session</div><div class="v">sessions: list/create/prompt/abort/share</div></div>
   <div class="cell"><div class="k">event</div><div class="v">event stream: real-time SSE push (Lesson 11)</div></div>
@@ -542,9 +542,9 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
   <div class="cell"><div class="k">mcp</div><div class="v">MCP external tool servers</div></div>
   <div class="cell"><div class="k">tui</div><div class="v">endpoints dedicated to the rich TUI</div></div>
 </div>
-<p>(That lists only 8; the rest include instance, workspace, project, question, pty, sync, control, global and more, making 21.) This is worth pausing on: <strong>when the API is a structured declaration, its "directory" naturally exists and is enumerable</strong>. Want to know what opencode can do? No docs to read, no one to ask — <span class="mono">ls</span> the <span class="mono">groups/</span> directory and the capability list is right there. The Hono style of "routes scattered everywhere" can't give you this — there, no one can say at a glance "what ports does this service open in total." The declarative cost is up-front verbosity; the dividend is that <strong>the system can always answer "what capabilities do I have"</strong> by itself. This "enumerability" propagates downstream too: capabilities enumerable, docs auto-generate, SDKs auto-emit, even tests can cover the list one by one — one structured contract feeds a whole downstream toolchain.</p>
+<p>(That lists only 8; the rest include instance, workspace, project, question, pty, sync, control, global and more, making 20 groups — the groups/ dir actually has 21 .ts files, but metadata.ts and query.ts are just helpers, while pty.ts splits into pty and pty-connect.) This is worth pausing on: <strong>when the API is a structured declaration, its "directory" naturally exists and is enumerable</strong>. Want to know what opencode can do? No docs to read, no one to ask — <span class="mono">ls</span> the <span class="mono">groups/</span> directory and the capability list is right there. The Hono style of "routes scattered everywhere" can't give you this — there, no one can say at a glance "what ports does this service open in total." The declarative cost is up-front verbosity; the dividend is that <strong>the system can always answer "what capabilities do I have"</strong> by itself. This "enumerability" propagates downstream too: capabilities enumerable, docs auto-generate, SDKs auto-emit, even tests can cover the list one by one — one structured contract feeds a whole downstream toolchain.</p>
 <div class="cols">
-  <div class="col"><h4>group = contract (declaration)</h4><p>groups/*.ts, 21 files, all types. Answers "what endpoints exist, what each wants." Machine-readable → generates SDK.</p></div>
+  <div class="col"><h4>group = contract (declaration)</h4><p>groups/*.ts, 20 groups, all types. Answers "what endpoints exist, what each wants." Machine-readable → generates SDK.</p></div>
   <div class="col"><h4>handler = implementation (the work)</h4><p>handlers/*.ts, 20 files. Answers "how this endpoint actually does it." Calls core services, gets the work done.</p></div>
 </div>
 
@@ -592,7 +592,7 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
   <div class="tag">🗺️ The big picture</div>
   <p>Stitch this lesson back to the last: last lesson's <span class="mono">webHandler</span> is the "front desk," and this lesson opened the <strong>three-piece set</strong> behind it —</p>
   <ul>
-    <li><strong>groups (21, groups/)</strong>: declare contracts, pure types, feed SDK generation.</li>
+    <li><strong>groups (20, groups/)</strong>: declare contracts, pure types, feed SDK generation.</li>
     <li><strong>handlers (20, handlers/)</strong>: a thin layer wiring validated input to core services.</li>
     <li><strong>middleware (9, middleware/)</strong>: the cross-cutting checkpoints in the outer ring — auth/routing/compression/error catch-all.</li>
   </ul>
@@ -620,7 +620,7 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
   <ul>
     <li>Every opencode API endpoint splits in two: <strong>the group declares the contract</strong> (name/params/return/error, pure types), <strong>the handler implements</strong> (calls core for the work).</li>
     <li>An endpoint's <strong>errors are part of the contract</strong> too: what it might return is in the type, so the client's SDK knows it all by type.</li>
-    <li><strong>The 21 group names are opencode's capability map</strong> — structured declaration lets the system always answer "what capabilities do I have."</li>
+    <li><strong>The 20 group names are opencode's capability map</strong> — structured declaration lets the system always answer "what capabilities do I have."</li>
     <li>Handlers should be <strong>thin</strong>: input already validated by the group's types, it only "take clean input → call core → return." <span class="mono">handleRaw</span> is for the few endpoints needing manual Response control.</li>
     <li><strong>Middleware</strong> is the cross-cutting checkpoint ring; the error middleware does "truth into the log, an id to the client," while typed failures still take the main road.</li>
   </ul>

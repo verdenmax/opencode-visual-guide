@@ -329,7 +329,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <h1><span class="lang-zh">SSE 事件总线</span><span class="lang-en">The SSE event bus</span></h1>
   </div>
   <div class="lang-zh">
-<p class="lead">上一课的 21 个组里，大多数都是「你问一句、我答一句」的一次性买卖：GET 一下拿到会话列表，POST 一下创建会话。但有一个组特别不一样——<span class="mono">event</span>。它只有<strong>一个端点</strong>，可这个端点一旦连上就<strong>不挂断</strong>，而是变成一条<strong>持续往客户端推送</strong>的长河。这一课我们就解剖这条河：服务器内部状态一变（来了新消息、工具开始跑、会话状态变了），怎么<strong>实时</strong>告诉每一个正在看的客户端？答案是 <strong>SSE（Server-Sent Events，服务器推送事件）</strong>，而它的源头，是一条贯穿 core 的<strong>事件总线</strong>。</p>
+<p class="lead">上一课的 20 个组里，大多数都是「你问一句、我答一句」的一次性买卖：GET 一下拿到会话列表，POST 一下创建会话。但有一个组特别不一样——<span class="mono">event</span>。它只有<strong>一个端点</strong>，可这个端点一旦连上就<strong>不挂断</strong>，而是变成一条<strong>持续往客户端推送</strong>的长河。这一课我们就解剖这条河：服务器内部状态一变（来了新消息、工具开始跑、会话状态变了），怎么<strong>实时</strong>告诉每一个正在看的客户端？答案是 <strong>SSE（Server-Sent Events，服务器推送事件）</strong>，而它的源头，是一条贯穿 core 的<strong>事件总线</strong>。</p>
 <p>为什么这条河值得单独讲一课？因为它是 opencode「<strong>多端实时一致</strong>」的命脉。你在 TUI 里看到 AI 一个字一个字往外蹦、工具调用的状态实时翻牌——这些<strong>不是 TUI 自己算出来的</strong>，而是 server 通过这条 SSE 河推过来的。网页端、桌面端连的是<strong>同一条河</strong>，所以它们看到的画面天然同步。读懂这一课，你就明白了 opencode 那种「换个客户端、进度一模一样」的魔法，根在哪里。</p>
 
 <div class="card analogy">
@@ -491,7 +491,7 @@ HttpServerResponse.<span class="fn">stream</span>(
 </div>
 </div></div>
   <div class="lang-en">
-<p class="lead">Of the last lesson's 21 groups, most are one-shot "you ask, I answer" deals: GET the session list, POST to create a session. But one group is special — <span class="mono">event</span>. It has <strong>a single endpoint</strong>, yet once that endpoint connects it <strong>never hangs up</strong>, instead becoming a long river that <strong>continuously pushes to the client</strong>. This lesson dissects that river: when the server's internal state changes (a new message arrives, a tool starts running, a session's status flips), how does it tell every watching client <strong>in real time</strong>? The answer is <strong>SSE (Server-Sent Events)</strong>, and its headwater is an <strong>event bus</strong> running through core.</p>
+<p class="lead">Of the last lesson's 20 groups, most are one-shot "you ask, I answer" deals: GET the session list, POST to create a session. But one group is special — <span class="mono">event</span>. It has <strong>a single endpoint</strong>, yet once that endpoint connects it <strong>never hangs up</strong>, instead becoming a long river that <strong>continuously pushes to the client</strong>. This lesson dissects that river: when the server's internal state changes (a new message arrives, a tool starts running, a session's status flips), how does it tell every watching client <strong>in real time</strong>? The answer is <strong>SSE (Server-Sent Events)</strong>, and its headwater is an <strong>event bus</strong> running through core.</p>
 <p>Why does this river deserve its own lesson? Because it's the lifeline of opencode's <strong>multi-client real-time consistency</strong>. The AI spitting out one character at a time in your TUI, tool-call statuses flipping live — these <strong>aren't computed by the TUI itself</strong>; the server pushes them down this SSE river. The web and desktop clients connect to the <strong>same river</strong>, so what they see is naturally in sync. Grasp this lesson and you'll know where opencode's "switch clients, identical progress" magic is rooted.</p>
 
 <div class="card analogy">

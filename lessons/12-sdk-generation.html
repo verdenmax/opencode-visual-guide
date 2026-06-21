@@ -329,12 +329,12 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <h1><span class="lang-zh">SDK 生成</span><span class="lang-en">Generating the SDK</span></h1>
   </div>
   <div class="lang-zh">
-<p class="lead">第 9 课我们立了一个 flag：opencode 的 API「<strong>自己描述自己，进而自动生成 SDK</strong>」。第 10 课我们看清了这个「自己」是什么——21 个组、每个端点都是一份类型化的契约。这一课，我们终于<strong>兑现那个承诺</strong>：把「类型化的契约」真正变成「能 <span class="mono">import</span> 就用的客户端 SDK」，中间那台机器到底是怎么运转的。一句话剧透：核心只有一个函数 <span class="mono">OpenApi.fromApi(PublicApi)</span>——它读一遍整套 API 的类型，吐出一份标准 OpenAPI 规范；剩下的，就是让一台现成的代码生成器照着规范，把各端 SDK 一行行打印出来。</p>
+<p class="lead">第 9 课我们立了一个 flag：opencode 的 API「<strong>自己描述自己，进而自动生成 SDK</strong>」。第 10 课我们看清了这个「自己」是什么——20 个组、每个端点都是一份类型化的契约。这一课，我们终于<strong>兑现那个承诺</strong>：把「类型化的契约」真正变成「能 <span class="mono">import</span> 就用的客户端 SDK」，中间那台机器到底是怎么运转的。一句话剧透：核心只有一个函数 <span class="mono">OpenApi.fromApi(PublicApi)</span>——它读一遍整套 API 的类型，吐出一份标准 OpenAPI 规范；剩下的，就是让一台现成的代码生成器照着规范，把各端 SDK 一行行打印出来。</p>
 <p>为什么这件事值得专门花一课？因为它是 opencode「<strong>多端永不漂移</strong>」的终极保证。手写 SDK 的项目，永远在和一个幽灵搏斗：后端改了个字段，前端的类型忘了跟着改，于是某天线上突然 <span class="mono">undefined is not a function</span>。opencode 把这条搏斗线<strong>彻底删除了</strong>——SDK 不是人写的，是从 server 的类型机器生成的。server 一改、SDK 重新生成，类型对不上的地方<strong>编译期当场报错</strong>，根本活不到上线。读懂这一课，你就理解了为什么「契约先行」那点前期繁琐，最后变成了压倒性的工程红利。</p>
 
 <div class="card analogy">
   <div class="tag">🏭 生活类比</div>
-  把这套机制想成一座<strong>工厂的「蓝图→说明书」流水线</strong>。工程师手里有一张<strong>主蓝图</strong>（21 个组的类型化 API）——它精确、严谨，但满是只有内部人看得懂的专业符号。第一步，一台<strong>制版机</strong>（<span class="mono">OpenApi.fromApi</span>）扫描整张蓝图，把它翻译成一份<strong>行业标准规格书</strong>（OpenAPI JSON）——从此任何懂这套标准的下游机器都能读它。第二步，一条<strong>装订流水线</strong>（@hey-api 生成器）照着规格书，自动印出一本本<strong>即拿即用的工具手册</strong>（各端 SDK），手册里每个零件的名字、要填的参数、会得到的回执，全和主蓝图一字不差。最妙的是：<strong>改了主蓝图，重跑一遍流水线，所有手册自动更新</strong>。没人需要手抄、没人会抄错。流水线上甚至还有道<strong>质检工序</strong>，专门修掉一个已知的印刷瑕疵——因为再好的机器，也总有那么一两个需要人盯着的角落。
+  把这套机制想成一座<strong>工厂的「蓝图→说明书」流水线</strong>。工程师手里有一张<strong>主蓝图</strong>（20 个组的类型化 API）——它精确、严谨，但满是只有内部人看得懂的专业符号。第一步，一台<strong>制版机</strong>（<span class="mono">OpenApi.fromApi</span>）扫描整张蓝图，把它翻译成一份<strong>行业标准规格书</strong>（OpenAPI JSON）——从此任何懂这套标准的下游机器都能读它。第二步，一条<strong>装订流水线</strong>（@hey-api 生成器）照着规格书，自动印出一本本<strong>即拿即用的工具手册</strong>（各端 SDK），手册里每个零件的名字、要填的参数、会得到的回执，全和主蓝图一字不差。最妙的是：<strong>改了主蓝图，重跑一遍流水线，所有手册自动更新</strong>。没人需要手抄、没人会抄错。流水线上甚至还有道<strong>质检工序</strong>，专门修掉一个已知的印刷瑕疵——因为再好的机器，也总有那么一两个需要人盯着的角落。
 </div>
 
 <h2>第一步：fromApi，把类型读成规范</h2>
@@ -343,10 +343,10 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <span class="kw">export async function</span> <span class="fn">openapi</span>() {
   <span class="kw">return</span> OpenApi.<span class="fn">fromApi</span>(PublicApi)
 }</pre>
-<p>就这么一行。<span class="mono">PublicApi</span> 是把 21 个组汇总后、再贴上标题/版本/描述注解的那个完整 API 对象（第 10 课的终点）。<span class="mono">OpenApi.fromApi</span> 把它<strong>当数据来读</strong>：遍历每个组、每个端点，把声明里的 params/query/payload/success/error 一一翻译成 OpenAPI 规范里的 paths、schemas、responses。这一步之所以可能，<strong>完全仰仗</strong>前几课那个反复强调的事实——API 是<strong>结构化的类型，而非散落各处的字符串</strong>。机器能遍历类型，却没法遍历你写在 Hono 里的一行行 <span class="mono">app.get("/x", fn)</span>。声明式那点前期繁琐，到这一步连本带利全赚了回来。</p>
+<p>就这么一行。<span class="mono">PublicApi</span> 是把 20 个组汇总后、再贴上标题/版本/描述注解的那个完整 API 对象（第 10 课的终点）。<span class="mono">OpenApi.fromApi</span> 把它<strong>当数据来读</strong>：遍历每个组、每个端点，把声明里的 params/query/payload/success/error 一一翻译成 OpenAPI 规范里的 paths、schemas、responses。这一步之所以可能，<strong>完全仰仗</strong>前几课那个反复强调的事实——API 是<strong>结构化的类型，而非散落各处的字符串</strong>。机器能遍历类型，却没法遍历你写在 Hono 里的一行行 <span class="mono">app.get("/x", fn)</span>。声明式那点前期繁琐，到这一步连本带利全赚了回来。</p>
 <p>停下来体会一下这件事有多不寻常：<strong>你写的类型，被当成可以遍历、可以转换的「数据」用了</strong>。在很多语言里，类型是编译期一写完就蒸发的影子，运行时啥也不剩。而在这里，整套 API 的类型不仅活到了运行时，还被一个函数<strong>逐字读出来、翻译成另一种格式</strong>。这正是 opencode 选择「声明式 HttpApi」最深的回报：当契约是数据，它就能被无限次地<strong>投影</strong>成别的东西——今天投影成 OpenAPI 规范喂 SDK，明天可以投影成校验器、投影成 mock server、投影成测试桩。一次声明，处处复用，靠的就是「类型即数据」这个支点。</p>
 <div class="flow">
-  <div class="node">PublicApi<span class="sub">21 组·类型化契约</span></div>
+  <div class="node">PublicApi<span class="sub">20 组·类型化契约</span></div>
   <div class="arrow">fromApi →</div>
   <div class="node">OpenAPI 规范<span class="sub">标准 JSON·机器可读</span></div>
   <div class="arrow">@hey-api →</div>
@@ -407,7 +407,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   <div class="tag">🗺️ 宏观图景</div>
   <p>这一课把第 9–12 课串成了一个<strong>闭环</strong>，也是整个第三部分的高潮：</p>
   <ul>
-    <li><strong>第 10 课</strong>：用类型把 21 个组的契约声明出来（结构化、机器可读）。</li>
+    <li><strong>第 10 课</strong>：用类型把 20 个组的契约声明出来（结构化、机器可读）。</li>
     <li><strong>第 12 课·这一课</strong>：<span class="mono">fromApi</span> 把类型读成 OpenAPI 规范 → generate 加料/格式化 → @hey-api 印成 SDK → 提交入库。</li>
     <li><strong>结果</strong>：客户端 <span class="mono">import</span> 即用，类型从 server 到调用点全程对齐，<strong>永不漂移</strong>。</li>
   </ul>
@@ -435,7 +435,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
 <div class="card key">
   <div class="tag">🎯 本课要点</div>
   <ul>
-    <li>SDK 生成的核心是 <span class="mono">OpenApi.fromApi(PublicApi)</span>：把 21 个组的<strong>类型</strong>读成一份标准 OpenAPI 规范——这一步只因 API 是结构化类型才可能。</li>
+    <li>SDK 生成的核心是 <span class="mono">OpenApi.fromApi(PublicApi)</span>：把 20 个组的<strong>类型</strong>读成一份标准 OpenAPI 规范——这一步只因 API 是结构化类型才可能。</li>
     <li><span class="mono">opencode generate</span> 给规范<strong>注入示例代码</strong>（x-codeSamples）并 <strong>prettier 格式化</strong>，保证产出逐字节可复现、可入库。</li>
     <li><span class="mono">@hey-api/openapi-ts</span> 按三个插件把规范印成 <strong>types.gen / sdk.gen / client.gen</strong>：类型、OpencodeClient 方法、fetch 客户端。</li>
     <li>端点名 → SDK 方法名，契约从 server <strong>类型安全地</strong>贯通到客户端每次调用；<strong>永不漂移</strong>，对不上当场编译报错。</li>
@@ -450,7 +450,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
     <li>由维护者手写并手动维护</li>
     <li>运行时反射动态构造</li>
     <li>从数据库 schema 推导</li>
-    <li>OpenApi.fromApi(PublicApi) 把 21 个组的类型读成 OpenAPI 规范，再由 @hey-api 自动生成</li>
+    <li>OpenApi.fromApi(PublicApi) 把 20 个组的类型读成 OpenAPI 规范，再由 @hey-api 自动生成</li>
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
@@ -492,12 +492,12 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
 </div>
 </div></div>
   <div class="lang-en">
-<p class="lead">In Lesson 9 we planted a flag: opencode's API "<strong>describes itself, and so auto-generates an SDK</strong>." In Lesson 10 we saw what that "itself" is — 21 groups, each endpoint a typed contract. This lesson finally <strong>cashes that promise</strong>: how the machine that turns "typed contracts" into "an importable client SDK" actually runs. One-line spoiler: the core is a single function <span class="mono">OpenApi.fromApi(PublicApi)</span> — it reads the whole API's types once and emits a standard OpenAPI spec; the rest is letting an off-the-shelf code generator print each client's SDK line by line from that spec.</p>
+<p class="lead">In Lesson 9 we planted a flag: opencode's API "<strong>describes itself, and so auto-generates an SDK</strong>." In Lesson 10 we saw what that "itself" is — 20 groups, each endpoint a typed contract. This lesson finally <strong>cashes that promise</strong>: how the machine that turns "typed contracts" into "an importable client SDK" actually runs. One-line spoiler: the core is a single function <span class="mono">OpenApi.fromApi(PublicApi)</span> — it reads the whole API's types once and emits a standard OpenAPI spec; the rest is letting an off-the-shelf code generator print each client's SDK line by line from that spec.</p>
 <p>Why does this deserve a whole lesson? Because it's the ultimate guarantee of opencode's <strong>never-drifting multi-client consistency</strong>. Projects with a hand-written SDK forever fight a ghost: the backend changes a field, the frontend's type forgets to follow, and one day production throws <span class="mono">undefined is not a function</span>. opencode <strong>deletes this fight entirely</strong> — the SDK isn't written by a person, it's generated from the server's types. Change the server, regenerate the SDK, and any mismatch <strong>fails at compile time on the spot</strong>, never living to reach production. Grasp this lesson and you understand why that bit of "contract-first" up-front tedium turns into an overwhelming engineering dividend.</p>
 
 <div class="card analogy">
   <div class="tag">🏭 Analogy</div>
-  Think of this as a factory's <strong>"blueprint → manual" assembly line</strong>. The engineer holds a <strong>master blueprint</strong> (the typed API of 21 groups) — precise and rigorous, but full of professional symbols only insiders read. Step one, a <strong>platemaker</strong> (<span class="mono">OpenApi.fromApi</span>) scans the whole blueprint and translates it into an <strong>industry-standard spec sheet</strong> (OpenAPI JSON) — now any downstream machine that knows the standard can read it. Step two, a <strong>binding line</strong> (the @hey-api generator) follows the spec sheet and auto-prints <strong>ready-to-use toolkit manuals</strong> (each client's SDK), where every part's name, the params to fill, the receipt you'll get, all match the master blueprint to the letter. Best of all: <strong>change the master blueprint, rerun the line, and every manual updates automatically</strong>. No one transcribes, no one mistranscribes. The line even has a <strong>QA station</strong> that fixes one known misprint — because even the best machine always has a corner or two needing a human's eye.
+  Think of this as a factory's <strong>"blueprint → manual" assembly line</strong>. The engineer holds a <strong>master blueprint</strong> (the typed API of 20 groups) — precise and rigorous, but full of professional symbols only insiders read. Step one, a <strong>platemaker</strong> (<span class="mono">OpenApi.fromApi</span>) scans the whole blueprint and translates it into an <strong>industry-standard spec sheet</strong> (OpenAPI JSON) — now any downstream machine that knows the standard can read it. Step two, a <strong>binding line</strong> (the @hey-api generator) follows the spec sheet and auto-prints <strong>ready-to-use toolkit manuals</strong> (each client's SDK), where every part's name, the params to fill, the receipt you'll get, all match the master blueprint to the letter. Best of all: <strong>change the master blueprint, rerun the line, and every manual updates automatically</strong>. No one transcribes, no one mistranscribes. The line even has a <strong>QA station</strong> that fixes one known misprint — because even the best machine always has a corner or two needing a human's eye.
 </div>
 
 <h2>Step 1: fromApi, reading types into a spec</h2>
@@ -506,9 +506,9 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
 <span class="kw">export async function</span> <span class="fn">openapi</span>() {
   <span class="kw">return</span> OpenApi.<span class="fn">fromApi</span>(PublicApi)
 }</pre>
-<p>Just that one line. <span class="mono">PublicApi</span> is the complete API object after merging the 21 groups and tagging on title/version/description annotations (Lesson 10's endpoint). <span class="mono">OpenApi.fromApi</span> <strong>reads it as data</strong>: it walks each group and endpoint, translating the declared params/query/payload/success/error into the spec's paths, schemas, responses. This step is possible <strong>entirely thanks to</strong> the fact the past lessons kept stressing — the API is <strong>structured types, not strings scattered everywhere</strong>. A machine can walk types; it cannot walk your line-by-line <span class="mono">app.get("/x", fn)</span> in Hono. The declarative style's up-front tedium is repaid here with interest.</p>
+<p>Just that one line. <span class="mono">PublicApi</span> is the complete API object after merging the 20 groups and tagging on title/version/description annotations (Lesson 10's endpoint). <span class="mono">OpenApi.fromApi</span> <strong>reads it as data</strong>: it walks each group and endpoint, translating the declared params/query/payload/success/error into the spec's paths, schemas, responses. This step is possible <strong>entirely thanks to</strong> the fact the past lessons kept stressing — the API is <strong>structured types, not strings scattered everywhere</strong>. A machine can walk types; it cannot walk your line-by-line <span class="mono">app.get("/x", fn)</span> in Hono. The declarative style's up-front tedium is repaid here with interest.</p>
 <div class="flow">
-  <div class="node">PublicApi<span class="sub">21 groups · typed contracts</span></div>
+  <div class="node">PublicApi<span class="sub">20 groups · typed contracts</span></div>
   <div class="arrow">fromApi →</div>
   <div class="node">OpenAPI spec<span class="sub">standard JSON · machine-readable</span></div>
   <div class="arrow">@hey-api →</div>
@@ -570,7 +570,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   <div class="tag">🗺️ The big picture</div>
   <p>This lesson ties Lessons 9–12 into a <strong>closed loop</strong>, the climax of all of Part 3:</p>
   <ul>
-    <li><strong>Lesson 10</strong>: declare the 21 groups' contracts in types (structured, machine-readable).</li>
+    <li><strong>Lesson 10</strong>: declare the 20 groups' contracts in types (structured, machine-readable).</li>
     <li><strong>Lesson 12 · this one</strong>: <span class="mono">fromApi</span> reads the types into an OpenAPI spec → generate seasons/formats → @hey-api prints the SDK → committed to the repo.</li>
     <li><strong>Result</strong>: clients <span class="mono">import</span> and use it, types aligned from server to call site, <strong>never drifting</strong>.</li>
   </ul>
@@ -598,7 +598,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
 <div class="card key">
   <div class="tag">🎯 Key points</div>
   <ul>
-    <li>The core of SDK generation is <span class="mono">OpenApi.fromApi(PublicApi)</span>: it reads the 21 groups' <strong>types</strong> into a standard OpenAPI spec — possible only because the API is structured types.</li>
+    <li>The core of SDK generation is <span class="mono">OpenApi.fromApi(PublicApi)</span>: it reads the 20 groups' <strong>types</strong> into a standard OpenAPI spec — possible only because the API is structured types.</li>
     <li><span class="mono">opencode generate</span> <strong>injects code samples</strong> (x-codeSamples) into the spec and <strong>prettier-formats</strong> it, ensuring byte-reproducible, committable output.</li>
     <li><span class="mono">@hey-api/openapi-ts</span> prints the spec into <strong>types.gen / sdk.gen / client.gen</strong> via three plugins: types, OpencodeClient methods, fetch client.</li>
     <li>Endpoint name → SDK method name; the contract runs <strong>type-safely</strong> from server to every client call; <strong>never drifts</strong>, mismatch fails compile on the spot.</li>
@@ -613,7 +613,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
     <li>Hand-written and manually maintained by maintainers</li>
     <li>Built dynamically via runtime reflection</li>
     <li>Derived from the database schema</li>
-    <li>OpenApi.fromApi(PublicApi) reads the 21 groups' types into an OpenAPI spec, then @hey-api auto-generates it</li>
+    <li>OpenApi.fromApi(PublicApi) reads the 20 groups' types into an OpenAPI spec, then @hey-api auto-generates it</li>
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>

@@ -424,7 +424,7 @@ GlobalBus.<span class="fn">on</span>(<span class="st">"event"</span>, (event) =&
   <p>这一课让整个「客户端/服务器」部分（第 9–13 课）<strong>合龙</strong>了。回望这条主线：</p>
   <ul>
     <li><strong>第 9 课</strong>：server = 一个 <span class="mono">(request)=&gt;Response</span> 的纯函数，建在类型化的 HttpApi 上。</li>
-    <li><strong>第 10 课</strong>：21 个组声明契约，handler 接到 core，中间件成环。</li>
+    <li><strong>第 10 课</strong>：20 个组声明契约，handler 接到 core，中间件成环。</li>
     <li><strong>第 11 课</strong>：event 组用 SSE 把事件总线推成实时流。</li>
     <li><strong>第 12 课</strong>：fromApi 把类型读成规范，自动生成吃 <span class="mono">fetch</span> 的 SDK。</li>
     <li><strong>第 13 课·本课</strong>：换掉那个 <span class="mono">fetch</span>，同一套 server + SDK 就在「网络」与「进程内」两种传输间自由切换。</li>
@@ -599,7 +599,7 @@ GlobalBus.<span class="fn">on</span>(<span class="st">"event"</span>, (event) =&
   <p>This lesson makes the whole "client/server" part (Lessons 9–13) <strong>close up</strong>. Look back along the main line:</p>
   <ul>
     <li><strong>Lesson 9</strong>: server = a <span class="mono">(request)=&gt;Response</span> pure function, built on the typed HttpApi.</li>
-    <li><strong>Lesson 10</strong>: 21 groups declare contracts, handlers wire to core, middleware forms a ring.</li>
+    <li><strong>Lesson 10</strong>: 20 groups declare contracts, handlers wire to core, middleware forms a ring.</li>
     <li><strong>Lesson 11</strong>: the event group pushes the event bus into a real-time stream via SSE.</li>
     <li><strong>Lesson 12</strong>: fromApi reads types into a spec, auto-generating an SDK that eats a <span class="mono">fetch</span>.</li>
     <li><strong>Lesson 13 · this one</strong>: swap that <span class="mono">fetch</span> and the same server + SDK move freely between "network" and "in-process" transports.</li>
