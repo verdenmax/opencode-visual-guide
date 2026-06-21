@@ -628,7 +628,8 @@ LESSON_03 = {
   <div class="col"><h4>↓ 下行（请求）</h4><p>按键 → 序列化成 HTTP 请求 → session handler → 投影历史 + System Context → LLM 请求 → provider。一路<strong>把意图收拢</strong>。</p></div>
   <div class="col"><h4>↑ 上行（结果 / 事件）</h4><p>流式 token、工具结果、持久化产生的事件 → GlobalBus → SSE → TUI 批量渲染。一路<strong>把进展广播</strong>。</p></div>
 </div>
-<p>这张"下行 / 上行"图，是读懂 opencode 最省力的心智模型。<strong>下行是一个收敛的过程</strong>：你模糊的一句"帮我修个 bug"，经过会话登记、历史投影、上下文渲染，被一步步<strong>翻译成模型能吃的精确请求</strong>；每往下一层，信息就更结构化一分，最终收拢成一次干净的模型调用。<strong>上行则是一个发散的过程</strong>：模型吐出的文本碎片、工具跑出的结果、持久化顺手产生的记录，被打散成一个个<strong>事件</strong>向上广播，谁订阅谁就看得到。两股流方向相反、却同时进行——下行在"问"，上行在"答与报告"。后面每讲一个模块，你都可以先问自己：它在下行还是上行？属于哪一层？理解立刻就有了坐标。这也是为什么这趟旅程值得在第一部分就走一遍：它是整本书的<strong>地图坐标系</strong>。</p>
+<p>这张"下行 / 上行"图，是读懂 opencode 最省力的心智模型。<strong>下行是一个收敛的过程</strong>：你模糊的一句"帮我修个 bug"，经过会话登记、历史投影、上下文渲染，被一步步<strong>翻译成模型能吃的精确请求</strong>；每往下一层，信息就更结构化一分，最终收拢成一次干净的模型调用。</p>
+<p><strong>上行则是一个发散的过程</strong>：模型吐出的文本碎片、工具跑出的结果、持久化顺手产生的记录，被打散成一个个<strong>事件</strong>向上广播，谁订阅谁就看得到。两股流方向相反、却同时进行——下行在"问"，上行在"答与报告"。后面每讲一个模块，你都可以先问自己：它在下行还是上行？属于哪一层？理解立刻就有了坐标。这也是为什么这趟旅程值得在第一部分就走一遍：它是整本书的<strong>地图坐标系</strong>。</p>
 
 <h2>第 1–3 跳：从按键到 server</h2>
 <p>你敲下的字符先落进 TUI 的 prompt 组件（<span class="mono">packages/tui/src/component/prompt</span>）。回车后，TUI 不是发网络请求——富终端有个巧妙设计：<strong>server 就跑在同一进程的一个 Worker 里</strong>。<span class="mono">cli/cmd/tui.ts</span> 用 <span class="mono">createWorkerFetch</span> 把 SDK 的 <span class="mono">fetch</span> 偷偷换成"对 Worker 发 RPC"，于是前端代码照常调 SDK，底层却<strong>零网络开销</strong>（第 13 课细讲）。</p>
@@ -642,7 +643,8 @@ LESSON_03 = {
   <div class="node hl"><div class="nt">HttpApi</div><div class="nd">session 路由组</div></div>
 </div>
 <p>worker（<span class="mono">cli/tui/worker.ts</span>）里跑着真正的 <span class="mono">Server.listen</span>，还顺手架了条回程：<span class="mono">GlobalBus.on("event", e =&gt; Rpc.emit("global.event", e))</span>——server 内部每冒一个事件，就经 RPC 推回前端。server 本身（<span class="mono">server/server.ts</span>）<strong>不是 Hono</strong>，而是 Effect 的 <span class="mono">HttpApi + OpenApi</span> 架在 <span class="mono">NodeHttpServer</span> 上（第 9 课）。</p>
-<p>为什么富 TUI 要这么绕——明明可以起个本地 HTTP server、前端用 fetch 连过去？因为那样要占端口、要处理网络错误、还多一层序列化开销。opencode 的取巧之处在于：让 server 跑在<strong>同进程的一个 Worker 线程</strong>里，再把 SDK 底层的 <span class="mono">fetch</span> 偷换成"对 Worker 发一条 RPC 消息"。这样前端代码<strong>一行都不用改</strong>——它以为自己在调一个普通的 HTTP SDK，底层却是进程内通信：零网络、零端口、还自动复用 server 那套完整的类型化接口。妙就妙在它<strong>可逆</strong>：当你用 <span class="mono">opencode serve</span> 把 server 起成真正的网络服务时，同一套 SDK 又能无缝改走真 HTTP，前端依旧无感。<strong>同一接口、两种传输</strong>——这是 opencode "一个内核多张脸"在传输层的精确落地，第 13 课会把这套 worker 机制整段拆开。</p>
+<p>为什么富 TUI 要这么绕——明明可以起个本地 HTTP server、前端用 fetch 连过去？因为那样要占端口、要处理网络错误、还多一层序列化开销。</p>
+<p>opencode 的取巧之处在于：让 server 跑在<strong>同进程的一个 Worker 线程</strong>里，再把 SDK 底层的 <span class="mono">fetch</span> 偷换成"对 Worker 发一条 RPC 消息"。这样前端代码<strong>一行都不用改</strong>——它以为自己在调一个普通的 HTTP SDK，底层却是进程内通信：零网络、零端口、还自动复用 server 那套完整的类型化接口。妙就妙在它<strong>可逆</strong>：当你用 <span class="mono">opencode serve</span> 把 server 起成真正的网络服务时，同一套 SDK 又能无缝改走真 HTTP，前端依旧无感。<strong>同一接口、两种传输</strong>——这是 opencode "一个内核多张脸"在传输层的精确落地，第 13 课会把这套 worker 机制整段拆开。</p>
 
 <h2>第 4–7 跳：组装上下文，开口问模型</h2>
 <p>请求进了 session handler，就交给 V2 会话引擎。它不直接"调模型"，而是先走三步准备：</p>
@@ -667,7 +669,8 @@ LESSON_03 = {
   <div class="step"><b>护栏</b>　步数 &lt; <span class="mono">MAX_STEPS = 25</span>，否则 StepLimitExceeded</div>
 </div>
 <p>这条"<strong>问一轮 → 干一轮 → 再问</strong>"的循环，正是第 1 课说的 agent 循环。它最多转 25 圈（一个硬护栏，防止模型无限调工具打转），第 17 课会把 <span class="mono">runner/llm.ts</span> 一行行拆开。</p>
-<p>两个设计选择特别能体现 V2 的考量。其一，工具用 <span class="mono">FiberSet</span> <strong>并发</strong>执行而非排队：模型一步里要"读 a、读 b、读 c"时，三个读操作同时跑、一起回来，既更快，也让模型一次看到更完整的上下文。其二，每轮结束要<strong>重新加载投影历史</strong>再续问，而不是把工具结果直接拼到内存里的消息数组上——因为历史才是<strong>持久化的事实来源</strong>，重新投影能保证：即使进程崩了重启、或有别的输入半路插进来，模型下一轮看到的永远是"当前最准的会话状态"。这两点都指向同一种克制：<strong>不依赖内存里的临时状态，一切以持久化为准</strong>。这种"以事实为准、可随时重建"的思路，是 V2 相对 V1 最大的气质差别，第四部分会反复印证。</p>
+<p>两个设计选择特别能体现 V2 的考量。其一，工具用 <span class="mono">FiberSet</span> <strong>并发</strong>执行而非排队：模型一步里要"读 a、读 b、读 c"时，三个读操作同时跑、一起回来，既更快，也让模型一次看到更完整的上下文。</p>
+<p>其二，每轮结束要<strong>重新加载投影历史</strong>再续问，而不是把工具结果直接拼到内存里的消息数组上——因为历史才是<strong>持久化的事实来源</strong>，重新投影能保证：即使进程崩了重启、或有别的输入半路插进来，模型下一轮看到的永远是"当前最准的会话状态"。这两点都指向同一种克制：<strong>不依赖内存里的临时状态，一切以持久化为准</strong>。这种"以事实为准、可随时重建"的思路，是 V2 相对 V1 最大的气质差别，第四部分会反复印证。</p>
 <p>循环转起来之后，你并不是只能干等。opencode 允许你<strong>中途插话</strong>——模型还在干活时，你再敲一句"等等，先别动那个文件"，这条新输入会作为一条新的收件箱记录被接住，在下一个<strong>安全边界</strong>融入当前活动，悄悄改变接下来的走向。这正是为什么第 ④ 跳要把输入做成<strong>事件溯源的收件箱</strong>，而不是一个普通的函数参数：因为"对话"本质上是<strong>可以随时被你插队、纠偏的活物</strong>，而不是一道发出去就只能等结果的命令。这种"随时可被引导"的手感，是 agent 好不好用的关键，也是 V2 在并发模型上反复打磨的原因。</p>
 
 <h2>第 11 跳：事件流回，画到屏上</h2>
@@ -743,7 +746,8 @@ LESSON_03 = {
   <div class="col"><h4>↓ Down (request)</h4><p>keystroke → serialize into an HTTP request → session handler → projected history + System Context → LLM request → provider. All the way, <strong>converging your intent</strong>.</p></div>
   <div class="col"><h4>↑ Up (results / events)</h4><p>streamed tokens, tool results, events from persistence → GlobalBus → SSE → TUI batched render. All the way, <strong>broadcasting progress</strong>.</p></div>
 </div>
-<p>This "down / up" picture is the cheapest mental model for reading opencode. <strong>Down is a converging process</strong>: your vague sentence, through session logging, history projection, and context rendering, is step by step <strong>translated into a precise request the model can eat</strong>; each layer down, the information gets more structured, finally converging into one clean model call. <strong>Up is a diverging process</strong>: the model's text fragments, the tool results, the records persistence produces — all shattered into individual <strong>events</strong> broadcast upward, visible to whoever subscribes. Two streams, opposite directions, running at once — down is "asking," up is "answering and reporting." For every module later, ask yourself first: is it on the way down or up? Which layer? Understanding instantly gets a coordinate. That's why this journey is worth walking in Part 1: it's the whole book's <strong>map coordinate system</strong>.</p>
+<p>This "down / up" picture is the cheapest mental model for reading opencode. <strong>Down is a converging process</strong>: your vague sentence, through session logging, history projection, and context rendering, is step by step <strong>translated into a precise request the model can eat</strong>; each layer down, the information gets more structured, finally converging into one clean model call.</p>
+<p><strong>Up is a diverging process</strong>: the model's text fragments, the tool results, the records persistence produces — all shattered into individual <strong>events</strong> broadcast upward, visible to whoever subscribes. Two streams, opposite directions, running at once — down is "asking," up is "answering and reporting." For every module later, ask yourself first: is it on the way down or up? Which layer? Understanding instantly gets a coordinate. That's why this journey is worth walking in Part 1: it's the whole book's <strong>map coordinate system</strong>.</p>
 
 <h2>Hops 1–3: from keystroke to server</h2>
 <p>The characters you type land first in the TUI's prompt component (<span class="mono">packages/tui/src/component/prompt</span>). On enter, the TUI doesn't send a network request — the rich terminal has a clever design: <strong>the server runs in a Worker inside the same process</strong>. <span class="mono">cli/cmd/tui.ts</span> uses <span class="mono">createWorkerFetch</span> to quietly swap the SDK's <span class="mono">fetch</span> for "send an RPC to the Worker," so the front-end code calls the SDK as usual while underneath there is <strong>zero network overhead</strong> (Lesson 13).</p>
@@ -757,7 +761,8 @@ LESSON_03 = {
   <div class="node hl"><div class="nt">HttpApi</div><div class="nd">session route group</div></div>
 </div>
 <p>The worker (<span class="mono">cli/tui/worker.ts</span>) runs the real <span class="mono">Server.listen</span> and also wires a return path: <span class="mono">GlobalBus.on("event", e =&gt; Rpc.emit("global.event", e))</span> — every event the server emits is pushed back to the front-end over RPC. The server itself (<span class="mono">server/server.ts</span>) is <strong>not Hono</strong>, but Effect's <span class="mono">HttpApi + OpenApi</span> on <span class="mono">NodeHttpServer</span> (Lesson 9).</p>
-<p>Why does the rich TUI bother with this detour — couldn't it just start a local HTTP server and connect with fetch? Because that would occupy a port, force network-error handling, and add a serialization layer. opencode's trick: run the server in a <strong>Worker thread in the same process</strong>, then swap the SDK's underlying <span class="mono">fetch</span> for "send one RPC message to the Worker." The front-end code <strong>doesn't change a single line</strong> — it thinks it's calling an ordinary HTTP SDK, but underneath it's in-process: zero network, zero ports, reusing the server's full typed interface. The beauty is it's <strong>reversible</strong>: when you start the server as a real network service with <span class="mono">opencode serve</span>, the same SDK seamlessly switches to real HTTP, front-end none the wiser. <strong>One interface, two transports</strong> — opencode's "one core, many faces" landing precisely at the transport layer; Lesson 13 unpacks this worker mechanism in full.</p>
+<p>Why does the rich TUI bother with this detour — couldn't it just start a local HTTP server and connect with fetch? Because that would occupy a port, force network-error handling, and add a serialization layer.</p>
+<p>opencode's trick: run the server in a <strong>Worker thread in the same process</strong>, then swap the SDK's underlying <span class="mono">fetch</span> for "send one RPC message to the Worker." The front-end code <strong>doesn't change a single line</strong> — it thinks it's calling an ordinary HTTP SDK, but underneath it's in-process: zero network, zero ports, reusing the server's full typed interface. The beauty is it's <strong>reversible</strong>: when you start the server as a real network service with <span class="mono">opencode serve</span>, the same SDK seamlessly switches to real HTTP, front-end none the wiser. <strong>One interface, two transports</strong> — opencode's "one core, many faces" landing precisely at the transport layer; Lesson 13 unpacks this worker mechanism in full.</p>
 
 <h2>Hops 4–7: assemble context, ask the model</h2>
 <p>Once the request hits the session handler, it's handed to the V2 session engine. It doesn't "call the model" directly; it first takes three prep steps:</p>
@@ -781,7 +786,8 @@ LESSON_03 = {
   <div class="step"><b>Guardrail</b>　steps &lt; <span class="mono">MAX_STEPS = 25</span>, else StepLimitExceeded</div>
 </div>
 <p>This "<strong>ask a round → do a round → ask again</strong>" loop is exactly the agent loop from Lesson 1. It turns at most 25 times (a hard guardrail against the model spinning on tool calls forever); Lesson 17 takes <span class="mono">runner/llm.ts</span> apart line by line.</p>
-<p>Two design choices really show V2's thinking. First, tools run <strong>concurrently</strong> via <span class="mono">FiberSet</span> rather than queued: when the model asks in one step to "read a, read b, read c," the three reads run together and return together — faster, and letting the model see fuller context at once. Second, each round ends by <strong>reloading projected history</strong> before continuing, rather than splicing tool results onto an in-memory message array — because history is the <strong>persisted source of truth</strong>, and re-projecting guarantees that even if the process crashed and restarted, or another input cut in midway, the model's next round always sees "the most accurate current session state." Both point to the same restraint: <strong>don't rely on temporary in-memory state; everything defers to persistence</strong>. This "truth-first, rebuildable-anytime" mindset is V2's biggest temperamental difference from V1, confirmed again and again in Part 4.</p>
+<p>Two design choices really show V2's thinking. First, tools run <strong>concurrently</strong> via <span class="mono">FiberSet</span> rather than queued: when the model asks in one step to "read a, read b, read c," the three reads run together and return together — faster, and letting the model see fuller context at once.</p>
+<p>Second, each round ends by <strong>reloading projected history</strong> before continuing, rather than splicing tool results onto an in-memory message array — because history is the <strong>persisted source of truth</strong>, and re-projecting guarantees that even if the process crashed and restarted, or another input cut in midway, the model's next round always sees "the most accurate current session state." Both point to the same restraint: <strong>don't rely on temporary in-memory state; everything defers to persistence</strong>. This "truth-first, rebuildable-anytime" mindset is V2's biggest temperamental difference from V1, confirmed again and again in Part 4.</p>
 <p>Once the loop is spinning, you're not stuck just waiting. opencode lets you <strong>cut in midway</strong> — while the model is working, type "wait, don't touch that file yet," and this new input is caught as a new inbox record and, at the next <strong>safe boundary</strong>, folds into the active activity, quietly bending what happens next. That's exactly why hop ④ makes input an <strong>event-sourced inbox</strong> rather than a plain function argument: because a "conversation" is fundamentally <strong>a living thing you can interrupt and correct anytime</strong>, not a command that, once issued, only waits for a result. This "steerable anytime" quality is key to whether an agent feels good to use, and the reason V2 polishes its concurrency model so hard.</p>
 
 <h2>Hop 11: events flow back, painted to screen</h2>
@@ -917,7 +923,7 @@ LESSON_04 = {
 <div class="card detail">
   <div class="tag">🔬 细节 / 源码对应</div>
   把"AI-SDK vs 自研 Effect"这条最大的分界，落到两段对照代码上（都大幅简化）：
-<pre class="code"><span class="cm">// V1：packages/opencode/src/session/prompt.ts —— 用 Vercel AI-SDK</span>
+<pre class="code"><span class="cm">// V1：packages/opencode/src/session（prompt.ts 定义 tool、llm.ts 调 streamText）—— 用 Vercel AI-SDK</span>
 <span class="kw">import</span> { tool, streamText } <span class="kw">from</span> <span class="st">"ai"</span>
 <span class="kw">const</span> result = <span class="fn">streamText</span>({ model, messages, tools: { edit: <span class="fn">tool</span>({ <span class="cm">/* … */</span> }) } })
 
@@ -1023,7 +1029,7 @@ Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
 <div class="card detail">
   <div class="tag">🔬 Source detail</div>
   Drop the biggest dividing line — "AI-SDK vs in-house Effect" — onto two contrasting snippets (both heavily simplified):
-<pre class="code"><span class="cm">// V1: packages/opencode/src/session/prompt.ts — uses Vercel AI-SDK</span>
+<pre class="code"><span class="cm">// V1: packages/opencode/src/session (tool in prompt.ts, streamText in llm.ts) — Vercel AI-SDK</span>
 <span class="kw">import</span> { tool, streamText } <span class="kw">from</span> <span class="st">"ai"</span>
 <span class="kw">const</span> result = <span class="fn">streamText</span>({ model, messages, tools: { edit: <span class="fn">tool</span>({ <span class="cm">/* … */</span> }) } })
 

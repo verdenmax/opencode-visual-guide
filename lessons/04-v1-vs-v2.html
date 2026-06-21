@@ -411,7 +411,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="card detail">
   <div class="tag">🔬 细节 / 源码对应</div>
   把"AI-SDK vs 自研 Effect"这条最大的分界，落到两段对照代码上（都大幅简化）：
-<pre class="code"><span class="cm">// V1：packages/opencode/src/session/prompt.ts —— 用 Vercel AI-SDK</span>
+<pre class="code"><span class="cm">// V1：packages/opencode/src/session（prompt.ts 定义 tool、llm.ts 调 streamText）—— 用 Vercel AI-SDK</span>
 <span class="kw">import</span> { tool, streamText } <span class="kw">from</span> <span class="st">"ai"</span>
 <span class="kw">const</span> result = <span class="fn">streamText</span>({ model, messages, tools: { edit: <span class="fn">tool</span>({ <span class="cm">/* … */</span> }) } })
 
@@ -565,7 +565,7 @@ Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
 <div class="card detail">
   <div class="tag">🔬 Source detail</div>
   Drop the biggest dividing line — "AI-SDK vs in-house Effect" — onto two contrasting snippets (both heavily simplified):
-<pre class="code"><span class="cm">// V1: packages/opencode/src/session/prompt.ts — uses Vercel AI-SDK</span>
+<pre class="code"><span class="cm">// V1: packages/opencode/src/session (tool in prompt.ts, streamText in llm.ts) — Vercel AI-SDK</span>
 <span class="kw">import</span> { tool, streamText } <span class="kw">from</span> <span class="st">"ai"</span>
 <span class="kw">const</span> result = <span class="fn">streamText</span>({ model, messages, tools: { edit: <span class="fn">tool</span>({ <span class="cm">/* … */</span> }) } })
 
