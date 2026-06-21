@@ -328,8 +328,324 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第二部分 · Effect 地基</span><span class="lang-en">Part 2 · Effect Foundations</span></div>
     <h1><span class="lang-zh">项目里的 Effect 工具箱</span><span class="lang-en">The Effect toolbox</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《项目里的 Effect 工具箱》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“项目里的 Effect 工具箱”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "The Effect toolbox" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "The Effect toolbox" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">前三课你拿到了 Effect 的"核心三件套"：把计算<strong>描述成值</strong>、用 <strong>Service/Layer</strong> 管依赖、用 <strong>Fiber/FiberSet</strong> 管并发。这一课轻松些，逛一圈 opencode 在 Effect 之上<strong>自建的小工具箱</strong>——就在 <span class="mono">packages/core/src/effect/</span> 目录里。这些小工具不改变 Effect 的玩法，而是把项目里<strong>反复出现的模式</strong>固化成趁手的几行，让重复的活儿写得对、读得顺。认得它们，你读 <span class="mono">packages/core</span> 时就不会被这些"自家约定"绊住。</p>
+<table class="t">
+  <tr><th>小工具</th><th>解决的高频问题</th><th>一句话</th></tr>
+  <tr><td><span class="mono">Effect.fn</span></td><td>出错时是一团匿名闭包</td><td>给每段 effect 起名，自带可追踪的轨迹</td></tr>
+  <tr><td><span class="mono">memoMap</span></td><td>同一服务被重复构造</td><td>全进程只造一份、大家共享</td></tr>
+  <tr><td><span class="mono">KeyedMutex</span></td><td>同一对象上并发打架</td><td>按 key 排队：同 key 串行、异 key 并行</td></tr>
+  <tr><td><span class="mono">serviceUse</span></td><td>调服务的样板太啰嗦</td><td>取服务 + 调方法合成一步</td></tr>
+</table>
+<p>这一抽屉东西的共同点是：<strong>每一件都对着一个"天天要做、又容易做错"的动作</strong>。它们不是炫技的新概念，而是把前三课的核心能力，磨成了适合本项目天天用的形状。下面一件件看，你会发现每件背后都站着一个具体的工程烦恼。</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 生活类比</div>
+  Effect 给了你一套<strong>专业厨房的刀和灶</strong>（核心能力），但天天开火做菜，你总会自己再配几样<strong>趁手的小工具</strong>：一把固定刻度的量勺、一个防止两人同时动同一口锅的"占用牌"、一个一菜一份不串味的分隔盒。这些东西不替代刀和灶，却让<strong>重复的动作不出错、不啰嗦</strong>。opencode 的 <span class="mono">effect/</span> 目录就是这么一抽屉小工具——每一件，都是把"我们这儿天天要做的某个动作"做成了一个稳妥的现成件。少了这些小工具，刀和灶还在、菜照样能做，但你会发现自己一遍遍重复那些琐碎又易错的准备动作——而一套好用的小工具，恰恰是把"熟练"变成"不会出错"的关键。
+</div>
+
+<h2>Effect.fn：给每段 effect 一个名字</h2>
+<p>翻 <span class="mono">packages/core</span> 你会发现一个写法<strong>无处不在</strong>（粗略一数有 277 处）：函数不是普通的 <span class="mono">function</span>，而是 <span class="mono">Effect.fn("Domain.method")(function*(){...})</span>。这就是给一段 effect <strong>挂上一个名字</strong>。</p>
+<pre class="code"><span class="cm">// 简化自 packages/core/src/session/runner/llm.ts</span>
+<span class="kw">const</span> getSession = Effect.<span class="fn">fn</span>(<span class="st">"SessionRunner.getSession"</span>)(<span class="kw">function*</span> (id) {
+  <span class="cm">// …这段 effect 在 trace 里就叫 SessionRunner.getSession</span>
+})</pre>
+<p>为什么值得？因为 Effect 自带<strong>可观测性</strong>：每段被命名的 effect 在出错或追踪时，都会带着 <span class="mono">"SessionRunner.getSession"</span> 这样的名字出现在调用链里。出了问题，你看到的不是一团匿名闭包，而是一条<strong>有名有姓的轨迹</strong>。<span class="mono">AGENTS.md</span> 明文规定：对外的命名 effect 用 <span class="mono">Effect.fn("Domain.method")</span>，内部小helper 用 <span class="mono">Effect.fnUntraced</span>。把"命名"变成习惯，整个系统就自带了一张调试地图。</p>
+<div class="cols">
+  <div class="col"><h4>Effect.fn("Domain.method")</h4><p>对外的、值得在 trace 里<strong>露名</strong>的 effect——出错时带着名字出现在调用链里。</p></div>
+  <div class="col"><h4>Effect.fnUntraced</h4><p>内部的小 helper，<strong>不必占用 trace 名额</strong>，省一点开销，也让轨迹更干净。</p></div>
+</div>
+<p>这个区分很能体现 opencode 的工程品味：可观测性<strong>有成本</strong>，所以它不是无脑全开，而是"对外的关键 effect 命名、内部琐碎 helper 不命名"。这条小小的约定，写进了 <span class="mono">AGENTS.md</span>，于是 277 处命名背后是一致的判断标准，而不是各写各的。<strong>把判断固化成约定</strong>，正是大型代码库保持整齐的秘诀之一。</p>
+<p>更妙的是，命名几乎是"<strong>零负担</strong>"的可观测性。你不用额外接日志框架、不用在每个函数里手写埋点，只要把 <span class="mono">function*(){}</span> 包进 <span class="mono">Effect.fn("名字")</span>，追踪信息就自动有了。等到第四部分排查"某次工具执行到底卡在哪一步"时，正是这 277 处命名，让一条横跨多个服务的调用链<strong>有名有姓、一眼可循</strong>。平时多写一个名字、出事时少熬一个通宵——这笔账，opencode 心里算得很清楚，也值得你记下。</p>
+
+<h2>memoMap：同一个服务只造一份</h2>
+<p>第 6 课说过 <span class="mono">makeRuntime</span> 背后有个 memoMap 去重——它的真身就在 <span class="mono">effect/memo-map.ts</span>，短到一行：</p>
+<pre class="code"><span class="cm">// packages/core/src/effect/memo-map.ts</span>
+<span class="kw">export const</span> memoMap = Layer.<span class="fn">makeMemoMapUnsafe</span>()</pre>
+<p>就这么一个<strong>全局共享的备忘录</strong>。当多处都依赖 <span class="mono">Database</span> 这个 Layer 时，memoMap 记住"它已经造过了"，于是<strong>整个进程里 Database 只活一份</strong>，谁要都给同一个。把它单独抽成一个文件、全项目共享，是为了保证"<strong>同一个服务，无论从哪条路径被依赖，都是同一个实例</strong>"。这正是第 6 课"声明即正确"的兑现处——你只管声明依赖，去重这种脏活，一个一行的小工具替你包了。</p>
+<div class="flow">
+  <div class="node"><div class="nt">Agent 要 DB</div><div class="nd">依赖 Database.layer</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">memoMap 查</div><div class="nd">造过了吗？</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">Session 也要 DB</div><div class="nd">命中缓存</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">同一个 DB</div><div class="nd">全进程一份</div></div>
+</div>
+<p>别小看这"只造一份"。如果每个依赖方各造一个 Database，你就会有好几条数据库连接、好几份缓存，它们之间的状态<strong>可能悄悄对不上</strong>——这是分布式里最难查的那类 bug。memoMap 用一个进程级的备忘录把这种隐患从根上掐掉：<strong>无论一个服务被多少条依赖路径牵涉到，它在内存里永远只有一份</strong>。一行代码，换来整个依赖图的实例一致性。</p>
+
+<h2>KeyedMutex：给同一把钥匙排队</h2>
+<p>有些操作"<strong>同一个对象上不能同时来两个</strong>"——比如同一个 session，不能让两路逻辑同时往里写、把状态搅乱。但<strong>不同</strong> session 之间又完全可以并行。普通的锁要么锁太狠（全局一把锁、并发全没了），要么自己手写一堆 per-key 的锁很容易错。<span class="mono">KeyedMutex</span> 就是为此而生：</p>
+<div class="cellgroup">
+  <div class="cg-cap"><b>KeyedMutex&lt;Key&gt;</b>：按"钥匙"分别排队的锁</div>
+  <div class="cells"><span class="cell scale">同一个 Key</span><span class="lab">串行——一个做完下一个才进</span></div>
+  <div class="cells"><span class="cell q">不同 Key</span><span class="lab">并行——互不相干，各跑各的</span></div>
+</div>
+<p>它的接口（<span class="mono">effect/keyed-mutex.ts</span>）就是"<strong>给我一把钥匙，我保证同一把钥匙下的操作一个接一个</strong>"。落到 opencode，最自然的钥匙就是 session ID：同一个会话的处理被串起来、不打架，不同会话照样满速并发。这种"<strong>细到每把钥匙</strong>"的精确排队，既保住了正确性，又没牺牲并发——是手写锁很难同时做到的。</p>
+<div class="vflow">
+  <div class="step"><b>session A · 操作①</b>　拿到 A 这把钥匙，进入执行</div>
+  <div class="step"><b>session A · 操作②</b>　同一把钥匙，<strong>排队</strong>等①做完才进</div>
+  <div class="step"><b>session B · 操作</b>　不同钥匙，<strong>立刻并行</strong>，完全不等 A</div>
+</div>
+<p>这正是第 3 课"agent 循环"能安全跑的隐形前提之一：同一个会话的处理被 KeyedMutex 串成一条线，不会出现"两路 drain 同时往一个 session 写"的混乱；而你开十个会话，它们之间照样满速并行。<strong>"细到每把钥匙"的锁</strong>，让"安全"和"并发"这对常被认为对立的目标，在 opencode 里同时成立。后面第四部分讲 <span class="mono">run-coordinator</span> 时，你会再见到这种"按 session 排队"的思路。</p>
+<p>顺带一提，"按 key 排队"是个适用面极广的模式，远不止 session。任何"同一个实体上的操作必须串行、不同实体之间却可以并行"的场景——同一个文件的写入、同一个账号的状态变更、同一个项目的某项后台任务——都能套上这把锁。opencode 把它抽成一个泛型的 <span class="mono">KeyedMutex&lt;Key&gt;</span>，正是看准了这个模式会在仓库各处反复出现，与其每处手写一遍、错一遍，不如做成一件公用的、一定正确的小工具。一件好工具的标志，就是它解决的不是某一个特例，而是<strong>一整类问题</strong>——你换个 Key，它就服务于一个全新的场景。</p>
+
+<h2>serviceUse：少写点样板</h2>
+<p>还记得用一个 Service 要 <span class="mono">yield* Service</span> 再调方法吗？当某个服务被频繁调用，这套样板会反复出现。<span class="mono">effect/service-use.ts</span> 的 <span class="mono">serviceUse(tag)</span> 把它包薄了一层：</p>
+<pre class="code"><span class="cm">// 简化自 packages/core/src/effect/service-use.ts</span>
+<span class="kw">export const</span> serviceUse = (tag) =&gt; <span class="cm">/* 返回一个代理：直接调 .method() 即可，</span>
+<span class="cm">  内部自动 tag.use(service =&gt; service.method(...)) */</span></pre>
+<p>它做的事不复杂——把"取出服务、再调它某个方法"这两步<strong>合成一步</strong>，少写一行样板。这类工具单看都很小，但正是它们让 <span class="mono">packages/core</span> 那几万行代码<strong>读起来不啰嗦</strong>。好的工具箱不追求炫技，只把高频动作磨得顺手。</p>
+<p>这类"减少样板"的小工具，价值常被低估。一行样板单看不算什么，但当它在几万行代码里出现成百上千次，省下的就不只是敲键盘的功夫，更是<strong>认知负担</strong>：读代码的人少看一层"取服务"的噪音，就能更快抓住真正要紧的那行业务逻辑。好的抽象不一定惊艳，但一定让"主线"更突出、让"杂音"退场。serviceUse 就是这样一件不起眼、却处处省心的小件。</p>
+
+<h2>为什么值得自建这一层</h2>
+<p>你可能会问：Effect 已经够强了，为什么还要自配这一抽屉小工具？因为<strong>框架给的是通用能力，项目要的是顺手</strong>。</p>
+<div class="cols">
+  <div class="col"><h4>固化正确做法</h4><p>把"该命名 effect""同服务只造一份""按 key 排队"这些<strong>容易写错</strong>的模式，做成现成件，大家照用、不易跑偏。</p></div>
+  <div class="col"><h4>统一团队口径</h4><p>整个仓库用同一套小工具，风格一致、读起来心里有底——新人认得这几件，就认得了半部 core。</p></div>
+</div>
+<p>还有一层更深的考量：这些小工具是 opencode 的"<strong>护栏</strong>"。框架给你自由，而自由意味着每个人都可能用不同方式做同一件事——有人命名 effect、有人不命名，有人手写 per-key 锁、有人干脆忘了加锁。把正确做法收敛成几个现成件，等于在最容易出错的地方架起护栏：你顺着护栏走，自然就走在对的路上。对一个多人协作、还在高速演进的项目，这种"<strong>让正确成为默认</strong>"的设计，往往比任何文档都管用。</p>
+<p>把视角再拉远，这一抽屉小工具其实回答了一个更大的问题：<strong>一个项目该怎么"驯服"一个强大却通用的框架？</strong>答案不是把框架的所有花样都用上，而是<strong>挑出自己真正高频的那几个动作，各配一件趁手的小工具，然后全队只用这几件</strong>。Effect 的能力近乎无穷，但 opencode 真正天天用的，就是命名、去重、排队、省样板这几样。认清"我们到底在反复做什么"，再为它造工具——这种克制本身，就是成熟工程的标志。</p>
+<p>所以这一抽屉东西，本质是 opencode 把自己<strong>反复踩过的坑、反复要做对的事</strong>，沉淀成了几个稳妥的现成件。读源码时，遇到 <span class="mono">Effect.fn</span>、<span class="mono">KeyedMutex</span>、<span class="mono">serviceUse</span> 不必慌——它们不是新概念，只是"<strong>把前三课的核心能力，包成了天天好用的样子</strong>"。第二部分到此打完地基；下一部分，我们就带着这套 Effect 眼光，去看 opencode 的客户端/服务器骨架。</p>
+
+<div class="card macro">
+  <div class="tag">🌍 宏观理解</div>
+  <span class="mono">packages/core/src/effect/</span> 是 opencode 在 Effect 之上自建的<strong>小工具箱</strong>，把高频模式固化成趁手件：<strong>Effect.fn</strong> 给每段 effect 命名（277 处，自带可观测性）；<strong>memoMap</strong> 让同一服务全进程只造一份；<strong>KeyedMutex</strong> 按钥匙（如 session ID）精确排队——同 key 串行、异 key 并行；<strong>serviceUse</strong> 省掉调用服务的样板。它们不改 Effect 的玩法，只把"该做对的高频动作"磨顺。认得这几件，读 core 就少了一半"自家约定"的门槛。说到底，读懂这一抽屉小工具，收获的不只是几个 API，更是一种<strong>眼光</strong>：看任何大型代码库时，先认出它"为自己造了哪些趁手件"，往往就抓住了这个团队的工程品味与高频痛点。带着这种眼光，你接下来读 server、读 session core，都会更快摸到门道。
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 细节 / 源码对应</div>
+  几件小工具的真身（均在 <span class="inline">packages/core/src/effect/</span>，并遵循 <span class="mono">AGENTS.md</span> 的自重导出写法）：
+<pre class="code"><span class="cm">// memo-map.ts —— 全项目共享一个 Layer 备忘录</span>
+<span class="kw">export const</span> memoMap = Layer.<span class="fn">makeMemoMapUnsafe</span>()
+
+<span class="cm">// keyed-mutex.ts —— 按 Key 排队的锁</span>
+<span class="kw">export interface</span> KeyedMutex&lt;Key&gt; { <span class="cm">/* 同 Key 串行、异 Key 并行 */</span> }
+<span class="kw">export const</span> make = &lt;Key&gt;(): Effect.Effect&lt;KeyedMutex&lt;Key&gt;&gt; =&gt; <span class="cm">/* … */</span>
+<span class="kw">export</span> * <span class="kw">as</span> KeyedMutex <span class="kw">from</span> <span class="st">"./keyed-mutex"</span>   <span class="cm">// 自重导出</span>
+
+<span class="cm">// 命名 effect：对外用 Effect.fn，内部 helper 用 Effect.fnUntraced</span>
+<span class="kw">const</span> getSession = Effect.<span class="fn">fn</span>(<span class="st">"SessionRunner.getSession"</span>)(<span class="kw">function*</span> (id) { <span class="cm">/* … */</span> })</pre>
+</div>
+
+<div class="card key">
+  <div class="tag">✅ 本课要点</div>
+  <ul>
+    <li><span class="mono">effect/</span> 是 opencode 在 Effect 之上自建的<strong>工具箱</strong>，固化高频模式。</li>
+    <li><strong>Effect.fn("Domain.method")</strong>：给 effect 命名（277 处），自带可观测性；内部用 <span class="mono">fnUntraced</span>。</li>
+    <li><strong>memoMap</strong>（一行）：同一个 Layer 全进程只造一份。</li>
+    <li><strong>KeyedMutex</strong>：按钥匙排队——同 key 串行、异 key 并行（天然适配 session ID）。</li>
+    <li><strong>serviceUse</strong>：省掉调用服务的样板。它们让 core 读起来顺、写起来不易错。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. packages/core/src/effect/ 这个目录是什么？</div>
+  <ol class="opts">
+    <li>Effect 框架本身的源码</li>
+    <li>项目的配置文件目录</li>
+    <li>opencode 在 Effect 之上自建的小工具箱，把高频模式固化成趁手件</li>
+    <li>存放单元测试的目录</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。这些小工具不改 Effect 的玩法，而是把项目里反复出现的模式（命名、去重、排队、省样板）做成现成件，让重复的活写得对、读得顺。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. Effect.fn("Domain.method")(function*(){...}) 主要带来什么？</div>
+  <ol class="opts">
+    <li>给这段 effect 自动加锁</li>
+    <li>自动重试失败的 effect</li>
+    <li>给这段 effect 命名，带来可观测性——出错/追踪时调用链里带着名字</li>
+    <li>让这段 effect 跑得更快</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。命名是近乎零负担的可观测性：包进 Effect.fn 就有了轨迹；core 里 277 处命名，排查跨服务调用链时一眼可循。内部 helper 用 fnUntraced。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. KeyedMutex 的核心特点是什么？</div>
+  <ol class="opts">
+    <li>只能用来锁数据库</li>
+    <li>全局一把大锁，锁住一切</li>
+    <li>什么都不锁</li>
+    <li>同一个 key 上的操作串行，不同 key 之间并行</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。按 key 精确排队：以 session ID 为 key，同一会话的处理串成一条线、不打架，不同会话照样满速并行——既保正确又不牺牲并发。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>memoMap 只有一行代码，却解决了什么隐患？为什么“同一个服务全进程只造一份”对正确性很重要？</li>
+    <li>课里说这些小工具是“护栏”，让“正确成为默认”。结合你自己的项目，举一个你也想为团队做成“现成件”的高频动作。</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">The last three lessons gave you Effect's "core trio": <strong>describe computation as a value</strong>, manage deps with <strong>Service/Layer</strong>, manage concurrency with <strong>Fiber/FiberSet</strong>. This lesson is lighter — a tour of the <strong>small toolbox opencode built on top of Effect</strong>, right in <span class="mono">packages/core/src/effect/</span>. These tools don't change how Effect works; they crystallize the project's <strong>recurring patterns</strong> into a few handy lines, so repetitive work reads cleanly and runs correctly. Recognize them and you won't trip on these "house conventions" when reading <span class="mono">packages/core</span>.</p>
+<table class="t">
+  <tr><th>Tool</th><th>The recurring problem it solves</th><th>In one line</th></tr>
+  <tr><td><span class="mono">Effect.fn</span></td><td>an anonymous closure on error</td><td>name each effect, get a traceable trail</td></tr>
+  <tr><td><span class="mono">memoMap</span></td><td>the same service built repeatedly</td><td>built once per process, shared</td></tr>
+  <tr><td><span class="mono">KeyedMutex</span></td><td>concurrent clashes on one object</td><td>queue by key: same key serial, different keys parallel</td></tr>
+  <tr><td><span class="mono">serviceUse</span></td><td>boilerplate to call a service</td><td>fetch-service + call-method in one step</td></tr>
+</table>
+<p>What this drawer has in common: <strong>each piece targets one "done daily, easy to get wrong" action</strong>. They aren't flashy new concepts but the last three lessons' core abilities, ground into a shape fit for this project's daily use. Going one by one below, you'll find a concrete engineering annoyance behind each.</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 Analogy</div>
+  Effect gives you a <strong>professional kitchen's knives and stove</strong> (core abilities), but cooking daily you'll add a few <strong>handy gadgets</strong>: a fixed-measure scoop, an "occupied" tag so two people don't grab the same pot, a divided tray so one dish doesn't bleed into another. These don't replace knives and stove, but they make <strong>repetitive moves error-free and terse</strong>. opencode's <span class="mono">effect/</span> directory is exactly such a drawer of gadgets — each one turns "an action we do here every day" into a ready, dependable part. Without them the knives and stove remain and you can still cook, but you'd repeat those fiddly, error-prone prep moves again and again — and a good gadget set is exactly what turns "skilled" into "won't slip."
+</div>
+
+<h2>Effect.fn: give each effect a name</h2>
+<p>Browse <span class="mono">packages/core</span> and you'll find one form <strong>everywhere</strong> (a rough count: 277 spots): functions aren't plain <span class="mono">function</span> but <span class="mono">Effect.fn("Domain.method")(function*(){...})</span>. That's <strong>attaching a name</strong> to an effect.</p>
+<pre class="code"><span class="cm">// simplified from packages/core/src/session/runner/llm.ts</span>
+<span class="kw">const</span> getSession = Effect.<span class="fn">fn</span>(<span class="st">"SessionRunner.getSession"</span>)(<span class="kw">function*</span> (id) {
+  <span class="cm">// …in a trace this effect is called SessionRunner.getSession</span>
+})</pre>
+<p>Why bother? Because Effect has built-in <strong>observability</strong>: each named effect, on error or tracing, appears in the call chain carrying a name like <span class="mono">"SessionRunner.getSession"</span>. When something breaks, you see not a blob of anonymous closures but a <strong>named trail</strong>. <span class="mono">AGENTS.md</span> mandates it: outward named effects use <span class="mono">Effect.fn("Domain.method")</span>, internal small helpers use <span class="mono">Effect.fnUntraced</span>. Make "naming" a habit and the whole system carries a built-in debug map.</p>
+<div class="cols">
+  <div class="col"><h4>Effect.fn("Domain.method")</h4><p>outward effects worth <strong>showing a name</strong> in a trace — they appear named in the call chain on error.</p></div>
+  <div class="col"><h4>Effect.fnUntraced</h4><p>internal small helpers, <strong>no need to take a trace slot</strong> — saves a bit of overhead and keeps trails clean.</p></div>
+</div>
+<p>This distinction shows opencode's engineering taste: observability <strong>has a cost</strong>, so it's not blindly all-on but "name the key outward effects, don't name the trivial internal helpers." This tiny convention, written into <span class="mono">AGENTS.md</span>, means the 277 named spots follow one consistent standard rather than everyone's own. <strong>Crystallizing judgment into a convention</strong> is one secret to keeping a large codebase tidy.</p>
+<p>Better still, naming is almost <strong>zero-cost</strong> observability. You don't wire in a logging framework or hand-instrument each function — just wrap <span class="mono">function*(){}</span> in <span class="mono">Effect.fn("name")</span> and trace info is automatic. When Part 4 chases "which step a tool execution stalled at," it's these 277 names that make a call chain spanning many services <strong>named and easy to follow</strong>. Write one more name now, lose one fewer all-nighter later — opencode does this math clearly.</p>
+
+<h2>memoMap: build a service only once</h2>
+<p>Lesson 6 mentioned a memoMap behind <span class="mono">makeRuntime</span> for dedup — its true form is in <span class="mono">effect/memo-map.ts</span>, just one line:</p>
+<pre class="code"><span class="cm">// packages/core/src/effect/memo-map.ts</span>
+<span class="kw">export const</span> memoMap = Layer.<span class="fn">makeMemoMapUnsafe</span>()</pre>
+<p>Just one <strong>globally shared memo</strong>. When many places depend on the <span class="mono">Database</span> Layer, memoMap remembers "already built," so <strong>Database lives once across the whole process</strong>, the same one for all. Pulling it into its own file, shared project-wide, ensures "<strong>the same service is the same instance no matter which path depends on it</strong>." That's where Lesson 6's "declare and it's correct" pays off — you just declare deps, and the dirty dedup work, a one-line tool handles for you.</p>
+<div class="flow">
+  <div class="node"><div class="nt">Agent needs DB</div><div class="nd">depends on Database.layer</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">memoMap checks</div><div class="nd">built already?</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">Session needs DB too</div><div class="nd">cache hit</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">same DB</div><div class="nd">one per process</div></div>
+</div>
+<p>Don't underrate "built once." If every dependent built its own Database, you'd have several DB connections and caches whose states <strong>could quietly diverge</strong> — the hardest class of bug in distributed systems. memoMap kills this at the root with a process-level memo: <strong>however many dependency paths touch a service, it has exactly one instance in memory</strong>. One line of code buys instance consistency across the whole dependency graph.</p>
+
+<h2>KeyedMutex: queue by the same key</h2>
+<p>Some operations "<strong>can't have two at once on the same object</strong>" — e.g. one session can't have two paths writing into it concurrently, scrambling state. But <strong>different</strong> sessions can run fully in parallel. A plain lock either locks too hard (one global lock, all concurrency gone) or, hand-rolling many per-key locks, is easy to get wrong. <span class="mono">KeyedMutex</span> exists for this:</p>
+<div class="cellgroup">
+  <div class="cg-cap"><b>KeyedMutex&lt;Key&gt;</b>: a lock that queues per "key"</div>
+  <div class="cells"><span class="cell scale">same Key</span><span class="lab">serial — one finishes before the next enters</span></div>
+  <div class="cells"><span class="cell q">different Key</span><span class="lab">parallel — unrelated, each runs its own</span></div>
+</div>
+<p>Its interface (<span class="mono">effect/keyed-mutex.ts</span>) is "<strong>give me a key and I guarantee operations under that key go one after another</strong>." In opencode the natural key is the session ID: one session's processing is serialized and won't clash, while different sessions still run at full concurrency. This "<strong>down to each key</strong>" precise queuing keeps correctness without sacrificing concurrency — hard to do at once by hand.</p>
+<div class="vflow">
+  <div class="step"><b>session A · op①</b>　takes key A, enters and runs</div>
+  <div class="step"><b>session A · op②</b>　same key, <strong>queues</strong> until ① finishes</div>
+  <div class="step"><b>session B · op</b>　different key, <strong>parallel at once</strong>, never waits for A</div>
+</div>
+<p>This is one hidden prerequisite for Lesson 3's "agent loop" to run safely: one session's processing is strung into a line by KeyedMutex, with no "two drains writing one session" chaos; yet open ten sessions and they still run in parallel at full speed. A <strong>lock as fine as each key</strong> lets "safety" and "concurrency" — often thought opposed — hold at once in opencode. Part 4's <span class="mono">run-coordinator</span> revisits this "queue per session" idea.</p>
+<p>Incidentally, "queue by key" is a broadly applicable pattern, far beyond sessions. Any scenario where "operations on the same entity must be serial, but different entities may be parallel" — writes to one file, state changes on one account, a background task on one project — fits this lock. opencode abstracts it into a generic <span class="mono">KeyedMutex&lt;Key&gt;</span>, foreseeing this pattern recurring repo-wide; rather than hand-write (and mis-write) it each place, make one shared, always-correct tool. A good tool's mark is solving not one special case but <strong>a whole class</strong> — swap the Key and it serves a brand-new scenario.</p>
+
+<h2>serviceUse: write less boilerplate</h2>
+<p>Remember using a Service needs <span class="mono">yield* Service</span> then call a method? When a service is called often, this boilerplate recurs. <span class="mono">effect/service-use.ts</span>'s <span class="mono">serviceUse(tag)</span> thins it by a layer:</p>
+<pre class="code"><span class="cm">// simplified from packages/core/src/effect/service-use.ts</span>
+<span class="kw">export const</span> serviceUse = (tag) =&gt; <span class="cm">/* returns a proxy: just call .method(),</span>
+<span class="cm">  internally auto tag.use(service =&gt; service.method(...)) */</span></pre>
+<p>What it does isn't complex — it <strong>fuses</strong> "fetch the service, then call one of its methods" into one step, one line less boilerplate. Such tools look small alone, but they're exactly what keeps <span class="mono">packages/core</span>'s tens of thousands of lines <strong>terse to read</strong>. A good toolbox doesn't chase flash; it grinds high-frequency moves smooth.</p>
+<p>The value of such "less boilerplate" tools is often underrated. One line of boilerplate is nothing alone, but appearing hundreds or thousands of times across tens of thousands of lines, what's saved isn't just keystrokes but <strong>cognitive load</strong>: a reader who skips one layer of "fetch service" noise grabs the business line that actually matters faster. A good abstraction needn't dazzle, but it must make the "main line" stand out and the "noise" recede. serviceUse is just such an unremarkable yet everywhere-reassuring piece.</p>
+
+<h2>Why build this layer at all</h2>
+<p>You might ask: Effect is already powerful, why a drawer of gadgets too? Because <strong>a framework gives general ability; a project wants ergonomics</strong>.</p>
+<div class="cols">
+  <div class="col"><h4>Crystallize the right way</h4><p>Turn <strong>easy-to-mis-write</strong> patterns — "name effects," "build a service once," "queue by key" — into ready parts everyone reuses, hard to stray from.</p></div>
+  <div class="col"><h4>Unify the team's idiom</h4><p>The whole repo uses one tool set — consistent style, reassuring to read — a newcomer who knows these few knows half of core.</p></div>
+</div>
+<p>There's a deeper consideration: these tools are opencode's <strong>guardrails</strong>. A framework gives freedom, and freedom means everyone may do the same thing differently — some name effects, some don't; some hand-write per-key locks, some forget to lock at all. Converging the right way into a few ready parts erects a guardrail right where mistakes are easiest: follow the rail and you're naturally on the right path. For a multi-person, fast-evolving project, this "<strong>make correct the default</strong>" design often beats any doc.</p>
+<p>Pull back further and this drawer answers a bigger question: <strong>how should a project "tame" a powerful but general framework?</strong> Not by using all its tricks, but by <strong>picking the few actions you truly do often, fitting each a handy tool, then the whole team uses just these</strong>. Effect's abilities are near-infinite, but what opencode truly uses daily is naming, dedup, queuing, less boilerplate. Recognizing "what we actually do repeatedly," then building tools for it — that restraint itself is the mark of mature engineering.</p>
+<p>So this drawer is, in essence, opencode distilling its <strong>repeatedly-stepped pitfalls and repeatedly-needed-correct things</strong> into a few dependable ready parts. Reading the source, meeting <span class="mono">Effect.fn</span>, <span class="mono">KeyedMutex</span>, <span class="mono">serviceUse</span> needn't faze you — they're not new concepts, just "<strong>the last three lessons' core abilities, wrapped into a daily-usable shape</strong>." Part 2's foundation is laid here; next part, with this Effect lens, we look at opencode's client/server skeleton.</p>
+
+<div class="card macro">
+  <div class="tag">🌍 Big picture</div>
+  <span class="mono">packages/core/src/effect/</span> is the <strong>small toolbox</strong> opencode built on Effect, crystallizing high-frequency patterns into handy parts: <strong>Effect.fn</strong> names each effect (277 spots, built-in observability); <strong>memoMap</strong> builds a service once per process; <strong>KeyedMutex</strong> queues precisely by key (e.g. session ID) — same key serial, different keys parallel; <strong>serviceUse</strong> drops the boilerplate of calling a service. They don't change how Effect works, only grind the "should-be-correct high-frequency actions" smooth. Know these few and reading core sheds half the "house convention" barrier. Ultimately, grasping this drawer gains not just a few APIs but a <strong>lens</strong>: reading any large codebase, first spot "what handy parts it built for itself" and you often grasp the team's engineering taste and frequent pains. With this lens, reading the server and the session core next comes faster.
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  The true forms of a few tools (all in <span class="inline">packages/core/src/effect/</span>, following <span class="mono">AGENTS.md</span>'s self-reexport form):
+<pre class="code"><span class="cm">// memo-map.ts — one shared Layer memo project-wide</span>
+<span class="kw">export const</span> memoMap = Layer.<span class="fn">makeMemoMapUnsafe</span>()
+
+<span class="cm">// keyed-mutex.ts — a lock that queues by Key</span>
+<span class="kw">export interface</span> KeyedMutex&lt;Key&gt; { <span class="cm">/* same Key serial, different Key parallel */</span> }
+<span class="kw">export const</span> make = &lt;Key&gt;(): Effect.Effect&lt;KeyedMutex&lt;Key&gt;&gt; =&gt; <span class="cm">/* … */</span>
+<span class="kw">export</span> * <span class="kw">as</span> KeyedMutex <span class="kw">from</span> <span class="st">"./keyed-mutex"</span>   <span class="cm">// self-reexport</span>
+
+<span class="cm">// named effects: outward use Effect.fn, internal helpers use Effect.fnUntraced</span>
+<span class="kw">const</span> getSession = Effect.<span class="fn">fn</span>(<span class="st">"SessionRunner.getSession"</span>)(<span class="kw">function*</span> (id) { <span class="cm">/* … */</span> })</pre>
+</div>
+
+<div class="card key">
+  <div class="tag">✅ Key points</div>
+  <ul>
+    <li><span class="mono">effect/</span> is opencode's <strong>toolbox</strong> on top of Effect, crystallizing high-frequency patterns.</li>
+    <li><strong>Effect.fn("Domain.method")</strong>: name effects (277 spots), built-in observability; internal use <span class="mono">fnUntraced</span>.</li>
+    <li><strong>memoMap</strong> (one line): a Layer built once per process.</li>
+    <li><strong>KeyedMutex</strong>: queue by key — same key serial, different keys parallel (fits session ID).</li>
+    <li><strong>serviceUse</strong>: drops service-call boilerplate. Together they make core terse to read, hard to mis-write.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. What is the packages/core/src/effect/ directory?</div>
+  <ol class="opts">
+    <li>The source code of the Effect framework itself</li>
+    <li>The project's config directory</li>
+    <li>opencode's own small toolbox on top of Effect, crystallizing high-frequency patterns into handy parts</li>
+    <li>A directory holding unit tests</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. These tools don't change how Effect works; they turn recurring project patterns (naming, dedup, queuing, less boilerplate) into ready parts so repetitive work reads cleanly and runs correctly.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. What does Effect.fn("Domain.method")(function*(){...}) mainly bring?</div>
+  <ol class="opts">
+    <li>It automatically locks the effect</li>
+    <li>It auto-retries a failed effect</li>
+    <li>It names the effect, giving observability — it appears named in the call chain on error/trace</li>
+    <li>It makes the effect run faster</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. Naming is near-zero-cost observability: wrap in Effect.fn and you get a trail; core's 277 named spots make cross-service chains easy to follow. Internal helpers use fnUntraced.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. What is KeyedMutex's core characteristic?</div>
+  <ol class="opts">
+    <li>It can only lock the database</li>
+    <li>One global lock over everything</li>
+    <li>It locks nothing</li>
+    <li>Operations under the same key are serial; different keys run in parallel</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. Precise per-key queuing: with session ID as key, one session's processing is serialized and won't clash, while different sessions run at full concurrency — correctness without sacrificing parallelism.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>memoMap is one line, yet what hazard does it remove? Why is “one instance of a service per process” important for correctness?</li>
+    <li>The lesson calls these tools “guardrails” that make “correct the default”. From your own project, name one high-frequency action you'd also want to turn into a “ready part” for your team.</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="07-concurrency-primitives.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">并发原语</span><span class="lang-en">Concurrency primitives</span></div></a><a class="next" href="09-server-overview.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">server 总览</span><span class="lang-en">The server, overview</span></div></a></div>
 </div>
 <script>

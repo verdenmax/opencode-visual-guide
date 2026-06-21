@@ -380,6 +380,47 @@ QUIZZES = {
             {"zh": "对照表里，Promise.all 和 FiberSet 拉开差距的是哪两行？结合你实际用 AI agent 的体验，说说这两点为什么重要。", "en": "In the comparison table, which two rows separate Promise.all from FiberSet? From your own experience using an AI agent, say why those two matter."},
         ],
     },
+    "08-effect-toolbox.html": {
+        "mcq": [
+            {
+                "q": {"zh": "packages/core/src/effect/ 这个目录是什么？", "en": "What is the packages/core/src/effect/ directory?"},
+                "opts": [
+                    {"zh": "opencode 在 Effect 之上自建的小工具箱，把高频模式固化成趁手件", "en": "opencode's own small toolbox on top of Effect, crystallizing high-frequency patterns into handy parts"},
+                    {"zh": "Effect 框架本身的源码", "en": "The source code of the Effect framework itself"},
+                    {"zh": "存放单元测试的目录", "en": "A directory holding unit tests"},
+                    {"zh": "项目的配置文件目录", "en": "The project's config directory"},
+                ],
+                "answer": 0,
+                "why": {"zh": "这些小工具不改 Effect 的玩法，而是把项目里反复出现的模式（命名、去重、排队、省样板）做成现成件，让重复的活写得对、读得顺。", "en": "These tools don't change how Effect works; they turn recurring project patterns (naming, dedup, queuing, less boilerplate) into ready parts so repetitive work reads cleanly and runs correctly."},
+            },
+            {
+                "q": {"zh": "Effect.fn(\"Domain.method\")(function*(){...}) 主要带来什么？", "en": "What does Effect.fn(\"Domain.method\")(function*(){...}) mainly bring?"},
+                "opts": [
+                    {"zh": "给这段 effect 命名，带来可观测性——出错/追踪时调用链里带着名字", "en": "It names the effect, giving observability — it appears named in the call chain on error/trace"},
+                    {"zh": "让这段 effect 跑得更快", "en": "It makes the effect run faster"},
+                    {"zh": "自动重试失败的 effect", "en": "It auto-retries a failed effect"},
+                    {"zh": "给这段 effect 自动加锁", "en": "It automatically locks the effect"},
+                ],
+                "answer": 0,
+                "why": {"zh": "命名是近乎零负担的可观测性：包进 Effect.fn 就有了轨迹；core 里 277 处命名，排查跨服务调用链时一眼可循。内部 helper 用 fnUntraced。", "en": "Naming is near-zero-cost observability: wrap in Effect.fn and you get a trail; core's 277 named spots make cross-service chains easy to follow. Internal helpers use fnUntraced."},
+            },
+            {
+                "q": {"zh": "KeyedMutex 的核心特点是什么？", "en": "What is KeyedMutex's core characteristic?"},
+                "opts": [
+                    {"zh": "同一个 key 上的操作串行，不同 key 之间并行", "en": "Operations under the same key are serial; different keys run in parallel"},
+                    {"zh": "全局一把大锁，锁住一切", "en": "One global lock over everything"},
+                    {"zh": "什么都不锁", "en": "It locks nothing"},
+                    {"zh": "只能用来锁数据库", "en": "It can only lock the database"},
+                ],
+                "answer": 0,
+                "why": {"zh": "按 key 精确排队：以 session ID 为 key，同一会话的处理串成一条线、不打架，不同会话照样满速并行——既保正确又不牺牲并发。", "en": "Precise per-key queuing: with session ID as key, one session's processing is serialized and won't clash, while different sessions run at full concurrency — correctness without sacrificing parallelism."},
+            },
+        ],
+        "open": [
+            {"zh": "memoMap 只有一行代码，却解决了什么隐患？为什么“同一个服务全进程只造一份”对正确性很重要？", "en": "memoMap is one line, yet what hazard does it remove? Why is “one instance of a service per process” important for correctness?"},
+            {"zh": "课里说这些小工具是“护栏”，让“正确成为默认”。结合你自己的项目，举一个你也想为团队做成“现成件”的高频动作。", "en": "The lesson calls these tools “guardrails” that make “correct the default”. From your own project, name one high-frequency action you'd also want to turn into a “ready part” for your team."},
+        ],
+    },
 }
 
 def render(fname, lang):
