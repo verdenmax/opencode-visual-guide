@@ -329,7 +329,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <h1><span class="lang-zh">模型解析与 Copilot provider</span><span class="lang-en">Model resolution &amp; Copilot</span></h1>
   </div>
   <div class="lang-zh">
-<p class="lead">这是 M6 的<strong>收官之课</strong>。前面六课，我们从「反腐层」的总图（L28）一路走到协议骨架（L29）、四家方言（L30~32）、传输六旋钮（L33）、事件流与缓存（L34）。但有个最朴素的问题一直悬着没答：<strong>用户在界面上敲下一个模型名（比如 <span class="mono">anthropic/claude-sonnet</span>），opencode 是怎么从这个字符串，一路解析到「该走哪条 Route、配哪组旋钮、用什么价钱、上限多少」的？</strong>这一课就补上这条「从一个名字到一条配好的链路」的解析线。而压轴登场的，是 <strong>GitHub Copilot</strong>——一个把前六课所有伏笔都收齐的「终极样本」：它复用 OpenAI 的协议、却自带一套独特的认证，是「六旋钮架构」威力的最后一次、也是最漂亮的一次展示。</p>
+<p class="lead">这是 M6 的<strong>收官之课</strong>。前面六课，我们从「反腐层」的总图（L28）一路走到协议骨架（L29）、四家方言（L30~32）、传输积木（L33）、事件流与缓存（L34）。但有个最朴素的问题一直悬着没答：<strong>用户在界面上敲下一个模型名（比如 <span class="mono">anthropic/claude-sonnet</span>），opencode 是怎么从这个字符串，一路解析到「该走哪条 Route、配哪几件、用什么价钱、上限多少」的？</strong>这一课就补上这条「从一个名字到一条配好的链路」的解析线。而压轴登场的，是 <strong>GitHub Copilot</strong>——一个把前六课所有伏笔都收齐的「终极样本」：它复用 OpenAI 的协议（连 Route 都直接拿来用）、却自带一套独特的认证，是「积木式架构」威力的最后一次、也是最漂亮的一次展示。</p>
 <p>这一课会让你看清两件事。其一，opencode <strong>不把模型的事实写死在代码里</strong>，而是去<strong>拉取 models.dev 这个社区维护的「模型大全」</strong>——某模型支持不支持工具调用、上下文多大、输入输出多少钱、缓存读写各打几折……全来自这个外部目录。其二，<strong>catalog</strong> 把这份目录变成可查的内存结构，让「模型名 → 一条配好的 Route」这次解析得以发生。把这两件事看懂，整个「core 说规范语 → 适配器翻方言 → 传输送达 → 事件回来 → 缓存省钱」的 LLM 闭环，就<strong>彻底合龙</strong>了。</p>
 
 <div class="card analogy">
@@ -365,49 +365,48 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="f-arrow">catalog 查 →</div>
   <div class="f-node">ModelInfo<br><small>能力/成本/上限/走哪条 Route</small></div>
   <div class="f-arrow">→</div>
-  <div class="f-node">配好的 Route<br><small>第 33 课那六个旋钮</small></div>
+  <div class="f-node">配好的 Route<br><small>第 33 课那几个正交件</small></div>
 </div>
 <p>catalog 的核心是一个 <span class="mono">providers: Map&lt;ProviderID, ProviderRecord&gt;</span>，每个 <span class="mono">ProviderRecord</span> 里又有一个 <span class="mono">models: Map&lt;ModelID, ModelInfo&gt;</span>。于是「一个模型名」的解析，就是<strong>两次字典查找</strong>：先按 providerID 找到供应商、再按 modelID 找到具体模型信息。查不到？catalog 给了两个<strong>类型化的错误</strong>，把失败的两种情形分得清清楚楚：</p>
 <div class="cols">
   <div class="col"><h4>ProviderNotFoundError</h4><p>连供应商都没找到（比如模型名拼错了 provider 段）。第一层查找就失败。</p></div>
   <div class="col"><h4>ModelNotFoundError</h4><p>供应商有，但它名下没有这个模型。第二层查找失败，错误里带上 providerID + modelID。</p></div>
 </div>
-<p>注意这种设计的体贴：它<strong>不是返回一个含糊的 null 让上层去猜</strong>「到底哪一步出了错」，而是明确告诉你「是供应商没找到，还是供应商有、但这个模型没找到」。两种失败的修复方式截然不同——前者你得检查 provider 名、后者你得检查 model 名——把它们用不同的错误类型分开，上层就能给出精准的提示。这种把失败<strong>分得清清楚楚</strong>的设计，呼应了整本书反复出现的「让错误自己说清自己是谁」。这一步解析的产物 <span class="mono">ModelInfo</span>，正握着「这个模型该走哪条 Route」的钥匙——而 Route，就是第 33 课那个六旋钮的组合。<strong>至此，一个用户输入的模型名，终于接上了一条从协议到传输、配置完整的链路。</strong></p>
+<p>注意这种设计的体贴：它<strong>不是返回一个含糊的 null 让上层去猜</strong>「到底哪一步出了错」，而是明确告诉你「是供应商没找到，还是供应商有、但这个模型没找到」。两种失败的修复方式截然不同——前者你得检查 provider 名、后者你得检查 model 名——把它们用不同的错误类型分开，上层就能给出精准的提示。这种把失败<strong>分得清清楚楚</strong>的设计，呼应了整本书反复出现的「让错误自己说清自己是谁」。这一步解析的产物 <span class="mono">ModelInfo</span>，正握着「这个模型该走哪条 Route」的钥匙——而 Route，就是第 33 课那几个正交件的组合。<strong>至此，一个用户输入的模型名，终于接上了一条从协议到传输、配置完整的链路。</strong></p>
 
 <h2>Copilot：复用 OpenAI 协议，自带一套门禁</h2>
-<p>压轴的，是 GitHub Copilot 这个<strong>特殊供应商</strong>。它特殊在哪？翻开 <span class="mono">github-copilot/copilot-provider.ts</span>，第一眼你就会看到它 import 了 <span class="mono">OpenAICompatibleChatLanguageModel</span> 和 <span class="mono">OpenAIResponsesLanguageModel</span>——<strong>它的协议，整个复用了 OpenAI 那套</strong>（第 31 课的 Chat 与 Responses）！这意味着「请求怎么编码、响应怎么解码」，Copilot 一个字都不用重写。那它到底「特殊」在哪？特殊在<strong>认证</strong>：</p>
+<p>压轴的，是 GitHub Copilot 这个<strong>特殊供应商</strong>。它特殊在哪？翻开 <span class="mono">packages/llm/src/providers/github-copilot.ts</span>，第一眼你就会看到它 import 了 <span class="mono">OpenAIChat</span> 和 <span class="mono">OpenAIResponses</span> 两个协议模块，并<strong>直接复用它们现成的 <span class="mono">.route</span></strong>（第 31 课的 Chat 与 Responses）——连协议带整条 Route 整个拿来用！这意味着「请求怎么编码、响应怎么解码、字节怎么分帧」，Copilot 一个字都不用重写。那它到底「特殊」在哪？特殊在<strong>认证</strong>：</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">协议</span><span class="t-txt">复用 OpenAI Chat / Responses（第 31 课），零重写</span></div>
   <div class="t-row"><span class="t-num">端点</span><span class="t-txt">指向 Copilot 自己的 baseURL</span></div>
   <div class="t-row"><span class="t-num">认证</span><span class="t-txt">GitHub OAuth 工牌 → 换取短期 Copilot token → Bearer 头</span></div>
   <div class="t-row"><span class="t-num">头部</span><span class="t-txt">附加 Copilot 特有的自定义 headers</span></div>
 </div>
-<p>看出来了吗？Copilot 正是第 33 课「六个正交旋钮」的<strong>最后一次、也是最漂亮的一次实战演示</strong>：<span class="mono">protocol</span> 旋钮拨到「OpenAI 兼容」（复用）、<span class="mono">endpoint</span> 旋钮拨到 Copilot 的地址、<span class="mono">auth</span> 旋钮拨到「GitHub 换 token」这套独特流程。把它和 OpenAI 官方并排，哪几个旋钮变了、哪几个没动，一目了然：</p>
+<p>看出来了吗？Copilot 正是第 33 课「正交件组合」的<strong>最后一次、也是最漂亮的一次实战演示</strong>：<span class="mono">protocol</span> 件拨到「OpenAI 兼容」（复用）、<span class="mono">endpoint</span> 件拨到 Copilot 的地址、<span class="mono">auth</span> 件拨到「GitHub 换 token」这套独特流程。把它和 OpenAI 官方并排，哪几件变了、哪几件没动，一目了然：</p>
 <table class="t">
-  <tr><th>旋钮</th><th>OpenAI 官方</th><th>GitHub Copilot</th></tr>
+  <tr><th>件</th><th>OpenAI 官方</th><th>GitHub Copilot</th></tr>
   <tr><td>protocol</td><td>openai-chat / responses</td><td>同上（整套复用！）</td></tr>
   <tr><td>endpoint</td><td>api.openai.com</td><td>Copilot 自己的 baseURL</td></tr>
   <tr><td>auth</td><td>固定 API key</td><td>GitHub 工牌换短期 token</td></tr>
   <tr><td>transport / framing</td><td>HTTP / SSE</td><td>同上</td></tr>
 </table>
-<p>它和第 31 课的「openai-compatible 只改端点」是同一招的升级版——这次不光改端点，还<strong>换了一套认证</strong>，但<strong>协议依然原封不动地复用</strong>。Copilot 的认证比一般的 API key 复杂：你不能直接拿一个固定密钥，而要先用 GitHub 的 OAuth 工牌，去<strong>换取一个有时效的 Copilot 专用 token</strong>，再用它做 Bearer 认证。正因为 <span class="mono">auth</span> 早被设计成一个独立旋钮，这套「先换证、再进门」的特殊流程，才能<strong>整个塞进 auth 旋钮里、丝毫不惊动协议层</strong>。假如当初认证逻辑和协议编解码缠在一起，Copilot 这种「同协议、异认证」的家伙就会逼你把 OpenAI 协议又抄一遍——而正交分解让它优雅地化解于无形。<strong>用一个最棘手的真实供应商，给整个 M6 的设计哲学盖了章。</strong></p>
-<p>为什么要绕这么一圈「先换证、再进门」？因为这套<strong>令牌交换</strong>背后是一种更安全的设计：你的 GitHub OAuth 凭证是长期的、贵重的，不该被反复发到推理端点上；而换来的 Copilot token 是<strong>短期、限定用途</strong>的，即便泄露，危害也被时效和权限死死框住。这正是「最小权限 + 短时效凭证」的安全惯例。opencode 要做的，无非是把这套交换流程封装进 auth 旋钮——上层只管说「我要用 Copilot」，底下「拿工牌换通行证」的来回，被 auth 这一层<strong>悄悄消化掉</strong>，协议层和 agent 循环全程无感。安全性的复杂，被恰当地隔离在了它该待的那一层，没有渗进别处。</p>
+<p>它和第 31 课的「openai-compatible 只改端点」是同一招的升级版——这次不光改端点，还<strong>换了一套认证</strong>，但<strong>协议依然原封不动地复用</strong>。Copilot 的认证比一般的 API key 复杂：你不能直接拿一个固定密钥，而要先用 GitHub 的 OAuth 工牌，去<strong>换取一个有时效的 Copilot 专用 token</strong>，再用它做 Bearer 认证。正因为 <span class="mono">auth</span> 早被设计成独立的一件，这套「先换证、再进门」的特殊流程，才能<strong>整个塞进 auth 这一件里、丝毫不惊动协议层</strong>。假如当初认证逻辑和协议编解码缠在一起，Copilot 这种「同协议、异认证」的家伙就会逼你把 OpenAI 协议又抄一遍——而正交分解让它优雅地化解于无形。<strong>用一个最棘手的真实供应商，给整个 M6 的设计哲学盖了章。</strong></p>
+<p>为什么要绕这么一圈「先换证、再进门」？因为这套<strong>令牌交换</strong>背后是一种更安全的设计：你的 GitHub OAuth 凭证是长期的、贵重的，不该被反复发到推理端点上；而换来的 Copilot token 是<strong>短期、限定用途</strong>的，即便泄露，危害也被时效和权限死死框住。这正是「最小权限 + 短时效凭证」的安全惯例。opencode 要做的，无非是把这套交换流程封装进 auth 这一件——上层只管说「我要用 Copilot」，底下「拿工牌换通行证」的来回，被 auth 这一层<strong>悄悄消化掉</strong>，协议层和 agent 循环全程无感。安全性的复杂，被恰当地隔离在了它该待的那一层，没有渗进别处。</p>
 
 <div class="card detail">
   <div class="tag">🔬 源码细节</div>
-  <p>Copilot 复用 OpenAI 模型、只换认证头的痕迹，在 <span class="mono">copilot-provider.ts</span> 里清晰可见：</p>
-  <pre class="code"><span class="cm">// 简化自 github-copilot/copilot-provider.ts</span>
-<span class="kw">import</span> { OpenAICompatibleChatLanguageModel } <span class="kw">from</span> <span class="st">"./chat/..."</span>
-<span class="kw">import</span> { OpenAIResponsesLanguageModel } <span class="kw">from</span> <span class="st">"./responses/..."</span>
+  <p>Copilot 直接复用 OpenAI 的两条 <span class="mono">Route</span>、只用 <span class="mono">.with(...)</span> 覆盖 endpoint 与 auth 的痕迹，在 <span class="mono">providers/github-copilot.ts</span> 里清晰可见：</p>
+  <pre class="code"><span class="cm">// 简化自 packages/llm/src/providers/github-copilot.ts</span>
+<span class="kw">import</span> * <span class="kw">as</span> OpenAIChat <span class="kw">from</span> <span class="st">"../protocols/openai-chat"</span>
+<span class="kw">import</span> * <span class="kw">as</span> OpenAIResponses <span class="kw">from</span> <span class="st">"../protocols/openai-responses"</span>
 
-<span class="cm">// 协议复用 OpenAI；只在 headers 上做文章</span>
-<span class="kw">const</span> headers = {
-  ...(apiKey &amp;&amp; { Authorization: <span class="st">`Bearer ${'$'}{apiKey}`</span> }),  <span class="cm">// 换来的 Copilot token</span>
-  ...options.headers,                                  <span class="cm">// Copilot 特有头</span>
-}
-provider.chat = createChatModel        <span class="cm">// ← 仍是 OpenAI Chat 那套</span>
-provider.responses = createResponsesModel  <span class="cm">// ← 仍是 OpenAI Responses 那套</span></pre>
-  <p>整个文件做的事，本质上就是「<strong>拿 OpenAI 的两个语言模型，套一层自己的 headers 和 baseURL</strong>」。<span class="mono">chat</span> 和 <span class="mono">responses</span> 两个方法直接指向 OpenAI 兼容的实现——协议层完全没动。所有「Copilot 味」都浓缩在 <span class="mono">headers</span> 和 <span class="mono">baseURL</span> 这两处<strong>配置</strong>里，而非<strong>代码逻辑</strong>里。这是一个极好的「<strong>差异应该体现为配置、而非分支</strong>」的范例：Copilot 与 OpenAI 的不同，没有变成散落在协议代码里的一堆 <span class="mono">if (isCopilot)</span>，而是收敛成「换一组 headers、换一个 baseURL」这样干净的配置差异。把差异关进配置的笼子，协议代码才能永远只有一份。</p>
+<span class="cm">// 直接拿 OpenAI 现成的两条 route，用 .with(...) 只覆盖 endpoint + auth</span>
+<span class="kw">const</span> chatRoute = OpenAIChat.route.<span class="fn">with</span>({ provider: id })
+<span class="kw">const</span> configuredChat = chatRoute.<span class="fn">with</span>({
+  endpoint: { baseURL: options.baseURL },     <span class="cm">// ← Copilot 自己的地址</span>
+  auth: AuthOptions.<span class="fn">bearer</span>(options, []),       <span class="cm">// ← 换来的 token 作 Bearer</span>
+})</pre>
+  <p>整个文件做的事，本质上就是「<strong>拿 OpenAI 现成的两条 Route，用 <span class="mono">.with(...)</span> 只覆盖 endpoint 和 auth</strong>」。<span class="mono">chat</span> 和 <span class="mono">responses</span> 两条路由直接复用 <span class="mono">OpenAIChat.route</span> / <span class="mono">OpenAIResponses.route</span>——协议、framing 全没动。所有「Copilot 味」都浓缩在 <span class="mono">endpoint</span>（baseURL）和 <span class="mono">auth</span>（bearer token）这两件<strong>配置</strong>里，而非<strong>代码逻辑</strong>里。这是一个极好的「<strong>差异应该体现为配置、而非分支</strong>」的范例：Copilot 与 OpenAI 的不同，没有变成散落在协议代码里的一堆 <span class="mono">if (isCopilot)</span>，而是收敛成「换一个 baseURL、换一种 auth」这样干净的配置差异。把差异关进配置的笼子，协议代码才能永远只有一份。</p>
 </div>
 
 <div class="card macro">
@@ -417,11 +416,11 @@ provider.responses = createResponsesModel  <span class="cm">// ← 仍是 OpenAI
     <li><strong>L28 反腐层</strong>：core 只说规范语（LLMRequest 出 / LLMEvent 回），适配器砌一道翻译墙。</li>
     <li><strong>L29 协议骨架</strong>：每个协议都填同一张「两栏表」（body 请求侧 + stream 响应侧状态机）。</li>
     <li><strong>L30~32 四家方言</strong>：Anthropic（块+缓存预算）、OpenAI（Chat/Responses 双协议 + 24 行白嫖生态）、Gemini+Bedrock（改名方言 + 二进制传输/套娃状态机）。</li>
-    <li><strong>L33 传输六旋钮</strong>：Route = id/protocol/endpoint/auth/transport/framing，正交可组合。</li>
+    <li><strong>L33 传输与积木</strong>：Route 由四个正交件（protocol/endpoint/auth/framing）+ id 拼成，正交可组合（传输 HTTP/WS 是 framing 维的延伸）。</li>
     <li><strong>L34 事件与缓存</strong>：LLMEvent（入站规范词汇，补全翻译墙）+ cache-policy（把稳定前缀缓存住，接通 Context Epoch）。</li>
-    <li><strong>L35 解析与 Copilot</strong>：models.dev（外置的模型大全，事实地基）→ catalog（模型名→配好的 Route）；Copilot 复用 OpenAI 协议、只换 endpoint+auth，给六旋钮架构盖章。</li>
+    <li><strong>L35 解析与 Copilot</strong>：models.dev（外置的模型大全，事实地基）→ catalog（模型名→配好的 Route）；Copilot 复用 OpenAI 的 Route、只换 endpoint+auth，给这套积木式架构盖章。</li>
   </ul>
-  <p>一句话串起来：<strong>用户敲一个模型名，catalog 凭 models.dev 的事实把它解析成一条配好六旋钮的 Route；core 用规范语发请求，Route 的协议把它翻成方言、传输送上线、framing 切帧、协议再把响应解码回规范 LLMEvent 流交给 agent 循环，全程的缓存则靠 cache-policy 与 Context Epoch 联手压低成本。</strong>七课走下来，你会发现整个 LLM 层没有一处是「为了炫技」，每一层抽象都在解一个真实的痛点——这正是值得反复回味的工程之美。下一个 part（M7）将转向<strong>工具系统</strong>——agent 循环手里那些真正「干活」的工具（读写文件、跑命令、搜索……）是怎么定义、执行、隔离的。LLM 是 agent 的「嘴和脑」，工具则是它的「手」。</p>
+  <p>一句话串起来：<strong>用户敲一个模型名，catalog 凭 models.dev 的事实把它解析成一条配好各件的 Route；core 用规范语发请求，Route 的协议把它翻成方言、传输送上线、framing 切帧、协议再把响应解码回规范 LLMEvent 流交给 agent 循环，全程的缓存则靠 cache-policy 与 Context Epoch 联手压低成本。</strong>七课走下来，你会发现整个 LLM 层没有一处是「为了炫技」，每一层抽象都在解一个真实的痛点——这正是值得反复回味的工程之美。下一个 part（M7）将转向<strong>工具系统</strong>——agent 循环手里那些真正「干活」的工具（读写文件、跑命令、搜索……）是怎么定义、执行、隔离的。LLM 是 agent 的「嘴和脑」，工具则是它的「手」。</p>
 </div>
 
 <div class="card key">
@@ -429,9 +428,9 @@ provider.responses = createResponsesModel  <span class="cm">// ← 仍是 OpenAI
   <ul>
     <li><strong>models.dev = 外置的社区模型目录</strong>（<span class="mono">models-dev.ts</span> 经 HTTP 拉取、缓存、发 <span class="mono">models-dev.refreshed</span>）：每个 Model 记录能力（attachment/reasoning/tool_call…）、<span class="mono">cost</span>（输入/输出/缓存读写单价，第 34 课算账的数据源）、<span class="mono">limit</span>（上下文/输入/输出上限）、modalities。把易变的模型事实挡在代码之外，新模型常常零改动即可识别。</li>
     <li><strong>catalog（<span class="mono">catalog.ts</span> CatalogV2）= 解析器</strong>：<span class="mono">providers: Map&lt;ProviderID, {provider, models: Map&lt;ModelID, ModelInfo&gt;}&gt;</span>。模型名经两次字典查找 → ModelInfo（含走哪条 Route）；查不到给类型化的 <span class="mono">ProviderNotFoundError</span> / <span class="mono">ModelNotFoundError</span>。</li>
-    <li><strong>解析全链路</strong>：模型名 → 拆 providerID+modelID → catalog 查到 ModelInfo → 第 33 课的六旋钮 Route → 可发起 stream。</li>
-    <li><strong>Copilot = 六旋钮架构的终极演示</strong>（<span class="mono">github-copilot/copilot-provider.ts</span>）：<strong>协议整套复用 OpenAI</strong>（Chat+Responses，零重写），只拨动 <span class="mono">endpoint</span>（Copilot baseURL）和 <span class="mono">auth</span>（GitHub OAuth 工牌 → 换短期 Copilot token → Bearer + 自定义头）两个旋钮。</li>
-    <li><strong>差异是配置、不是分支</strong>：Copilot 与 OpenAI 的不同收敛成「换 headers + baseURL」的配置差异，而非协议代码里的 <span class="mono">if (isCopilot)</span>。正因 auth 早被设计成独立旋钮，「先换证再进门」的特殊认证才能不惊动协议层。M6 闭环至此合龙，下一站 M7 工具系统。</li>
+    <li><strong>解析全链路</strong>：模型名 → 拆 providerID+modelID → catalog 查到 ModelInfo → 第 33 课的积木式 Route → 可发起 stream。</li>
+    <li><strong>Copilot = 积木式架构的终极演示</strong>（<span class="mono">packages/llm/src/providers/github-copilot.ts</span>）：<strong>直接复用 OpenAI 的 Route</strong>（<span class="mono">OpenAIChat.route</span>/<span class="mono">OpenAIResponses.route</span>，零重写），只用 <span class="mono">.with(...)</span> 覆盖 <span class="mono">endpoint</span>（Copilot baseURL）和 <span class="mono">auth</span>（<span class="mono">AuthOptions.bearer</span>，token 由 GitHub OAuth 换取）两件。</li>
+    <li><strong>差异是配置、不是分支</strong>：Copilot 与 OpenAI 的不同收敛成「换 headers + baseURL」的配置差异，而非协议代码里的 <span class="mono">if (isCopilot)</span>。正因 auth 早被设计成独立的一件，「先换证再进门」的特殊认证才能不惊动协议层。M6 闭环至此合龙，下一站 M7 工具系统。</li>
   </ul>
 </div>
 <div class="selftest">
@@ -463,16 +462,16 @@ provider.responses = createResponsesModel  <span class="cm">// ← 仍是 OpenAI
   </details>
 </div>
 <div class="quiz">
-  <div class="qn">3. GitHub Copilot 作为「特殊供应商」，它的「特殊」主要体现在六个旋钮的哪一个上？</div>
+  <div class="qn">3. GitHub Copilot 作为「特殊供应商」，它的「特殊」主要体现在 Route 哪一件上？</div>
   <ol class="opts">
     <li>auth（和 endpoint）：协议整套复用 OpenAI Chat/Responses，只换端点 + 一套「GitHub 工牌换短期 token」的独特认证</li>
     <li>framing：它用二进制分帧</li>
-    <li>六个旋钮全都和别人不同</li>
+    <li>Route 的每一件全都和别人不同</li>
     <li>protocol：它发明了一套全新协议</li>
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。copilot-provider.ts 直接 import OpenAICompatibleChat/Responses 语言模型——协议零重写。它的「特殊」全在 auth：不能用固定 API key，要先拿 GitHub OAuth 工牌换一个有时效的 Copilot token 再做 Bearer 认证（外加自定义头），endpoint 也指向 Copilot 自己。这是第 33 课六旋钮的最佳实战：protocol 旋钮复用、只拨 endpoint+auth。差异收敛成「换 headers+baseURL」的配置，而非协议里的 if(isCopilot)。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。packages/llm/src/providers/github-copilot.ts 直接复用 OpenAIChat.route / OpenAIResponses.route——协议、framing 零重写。它的「特殊」全在 auth：不能用固定 API key，要先拿 GitHub OAuth 工牌换一个有时效的 Copilot token 再做 Bearer 认证（AuthOptions.bearer），endpoint 也指向 Copilot 自己。这是第 33 课积木式 Route 的最佳实战：复用 protocol 件、只用 .with(...) 换 endpoint+auth。差异收敛成「换 baseURL+auth」的配置，而非协议里的 if(isCopilot)。</div></div></div>
   </details>
 </div>
 <div class="card spark">
@@ -484,7 +483,7 @@ provider.responses = createResponsesModel  <span class="cm">// ← 仍是 OpenAI
 </div>
 </div></div>
   <div class="lang-en">
-<p class="lead">This is M6's <strong>finale</strong>. Over the prior six lessons, we walked from the "anti-corruption layer" overview (L28) through the protocol skeleton (L29), four dialects (L30–32), transport's six knobs (L33), event stream and caching (L34). But one plain question lingered unanswered: <strong>when a user types a model name in the UI (say <span class="mono">anthropic/claude-sonnet</span>), how does opencode resolve that string all the way to "which Route to ride, which knobs to set, what price, what limits"?</strong> This lesson fills in that "from a name to a configured pipeline" resolution thread. And taking the final bow is <strong>GitHub Copilot</strong>—an "ultimate sample" that collects all six prior lessons' threads: it reuses OpenAI's protocol yet brings its own distinctive auth, the last and most beautiful display of the "six-knob architecture"'s power.</p>
+<p class="lead">This is M6's <strong>finale</strong>. Over the prior six lessons, we walked from the "anti-corruption layer" overview (L28) through the protocol skeleton (L29), four dialects (L30–32), transport's building blocks (L33), event stream and caching (L34). But one plain question lingered unanswered: <strong>when a user types a model name in the UI (say <span class="mono">anthropic/claude-sonnet</span>), how does opencode resolve that string all the way to "which Route to ride, which pieces to set, what price, what limits"?</strong> This lesson fills in that "from a name to a configured pipeline" resolution thread. And taking the final bow is <strong>GitHub Copilot</strong>—an "ultimate sample" that collects all six prior lessons' threads: it reuses OpenAI's protocol (even its very Route) yet brings its own distinctive auth, the last and most beautiful display of the "building-block architecture"'s power.</p>
 <p>This lesson clarifies two things. One, opencode <strong>doesn't hardcode model facts in code</strong>, but <strong>fetches models.dev, a community-maintained "model encyclopedia"</strong>—whether a model supports tool calling, how big its context is, the price of input/output, the discount on cache read/write… all from this external catalog. Two, <strong>catalog</strong> turns this directory into a queryable in-memory structure, enabling the "model name → a configured Route" resolution. Understand these two and the whole LLM loop—"core speaks canonical → adapters translate dialects → transport delivers → events come back → caching saves money"—is <strong>fully closed</strong>.</p>
 
 <div class="card analogy">
@@ -520,24 +519,24 @@ provider.responses = createResponsesModel  <span class="cm">// ← 仍是 OpenAI
   <div class="f-arrow">catalog lookup →</div>
   <div class="f-node">ModelInfo<br><small>capabilities/cost/limits/which Route</small></div>
   <div class="f-arrow">→</div>
-  <div class="f-node">configured Route<br><small>lesson 33's six knobs</small></div>
+  <div class="f-node">configured Route<br><small>lesson 33's orthogonal pieces</small></div>
 </div>
 <p>catalog's core is a <span class="mono">providers: Map&lt;ProviderID, ProviderRecord&gt;</span>, each <span class="mono">ProviderRecord</span> holding a <span class="mono">models: Map&lt;ModelID, ModelInfo&gt;</span>. So resolving "a model name" is <strong>two dictionary lookups</strong>: first find the provider by providerID, then the specific model info by modelID. Not found? catalog gives two <strong>typed errors</strong> that cleanly separate the two failure cases:</p>
 <div class="cols">
   <div class="col"><h4>ProviderNotFoundError</h4><p>even the provider isn't found (e.g. the provider segment of the model name is misspelled). The first lookup fails.</p></div>
   <div class="col"><h4>ModelNotFoundError</h4><p>the provider exists but has no such model. The second lookup fails, the error carrying providerID + modelID.</p></div>
 </div>
-<p>Note this design's thoughtfulness: it <strong>doesn't return a vague null</strong> leaving the upper layer to guess "which step failed," but tells you clearly "is it the provider not found, or the provider exists but this model not found." The two failures' fixes differ entirely—the former you check the provider name, the latter the model name—and separating them with different error types lets the upper layer give precise hints. This design of <strong>cleanly separating failures</strong> echoes the book's recurring "let errors say who they are." This resolution step's output <span class="mono">ModelInfo</span> holds the key to "which Route this model should ride"—and a Route is lesson 33's six-knob composition. <strong>Now a user-entered model name finally connects to a complete, configured pipeline from protocol to transport.</strong></p>
+<p>Note this design's thoughtfulness: it <strong>doesn't return a vague null</strong> leaving the upper layer to guess "which step failed," but tells you clearly "is it the provider not found, or the provider exists but this model not found." The two failures' fixes differ entirely—the former you check the provider name, the latter the model name—and separating them with different error types lets the upper layer give precise hints. This design of <strong>cleanly separating failures</strong> echoes the book's recurring "let errors say who they are." This resolution step's output <span class="mono">ModelInfo</span> holds the key to "which Route this model should ride"—and a Route is lesson 33's composition of orthogonal pieces. <strong>Now a user-entered model name finally connects to a complete, configured pipeline from protocol to transport.</strong></p>
 
 <h2>Copilot: reuse the OpenAI protocol, bring your own gate</h2>
-<p>Taking the final bow is GitHub Copilot, a <strong>special provider</strong>. Special how? Open <span class="mono">github-copilot/copilot-provider.ts</span> and at first glance you'll see it imports <span class="mono">OpenAICompatibleChatLanguageModel</span> and <span class="mono">OpenAIResponsesLanguageModel</span>—<strong>its protocol reuses OpenAI's entirely</strong> (lesson 31's Chat and Responses)! Meaning "how requests encode, how responses decode," Copilot rewrites not a word. So where is it "special"? In <strong>auth</strong>:</p>
+<p>Taking the final bow is GitHub Copilot, a <strong>special provider</strong>. Special how? Open <span class="mono">packages/llm/src/providers/github-copilot.ts</span> and at first glance you'll see it imports the <span class="mono">OpenAIChat</span> and <span class="mono">OpenAIResponses</span> protocol modules and <strong>reuses their ready-made <span class="mono">.route</span></strong> (lesson 31's Chat and Responses)—protocol and whole Route taken wholesale! Meaning "how requests encode, how responses decode, how bytes are framed," Copilot rewrites not a word. So where is it "special"? In <strong>auth</strong>:</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">protocol</span><span class="t-txt">reuse OpenAI Chat / Responses (lesson 31), zero rewrite</span></div>
   <div class="t-row"><span class="t-num">endpoint</span><span class="t-txt">points to Copilot's own baseURL</span></div>
   <div class="t-row"><span class="t-num">auth</span><span class="t-txt">GitHub OAuth badge → exchange for a short-lived Copilot token → Bearer header</span></div>
   <div class="t-row"><span class="t-num">headers</span><span class="t-txt">attach Copilot-specific custom headers</span></div>
 </div>
-<p>See it? Copilot is the <strong>last and most beautiful field demonstration</strong> of lesson 33's "six orthogonal knobs": the <span class="mono">protocol</span> knob turned to "OpenAI-compatible" (reused), the <span class="mono">endpoint</span> knob to Copilot's address, the <span class="mono">auth</span> knob to the distinctive "GitHub exchanges a token" flow. Lay it next to OpenAI official and which knobs changed, which didn't, is plain:</p>
+<p>See it? Copilot is the <strong>last and most beautiful field demonstration</strong> of lesson 33's orthogonal pieces: the <span class="mono">protocol</span> piece turned to "OpenAI-compatible" (reused), the <span class="mono">endpoint</span> piece to Copilot's address, the <span class="mono">auth</span> piece to the distinctive "GitHub exchanges a token" flow. Lay it next to OpenAI official and which pieces changed, which didn't, is plain:</p>
 <table class="t">
   <tr><th>Knob</th><th>OpenAI official</th><th>GitHub Copilot</th></tr>
   <tr><td>protocol</td><td>openai-chat / responses</td><td>same (entirely reused!)</td></tr>
@@ -545,24 +544,23 @@ provider.responses = createResponsesModel  <span class="cm">// ← 仍是 OpenAI
   <tr><td>auth</td><td>fixed API key</td><td>GitHub badge exchanges short-lived token</td></tr>
   <tr><td>transport / framing</td><td>HTTP / SSE</td><td>same</td></tr>
 </table>
-<p>It's an upgraded version of lesson 31's "openai-compatible only changes the endpoint"—this time not only the endpoint but <strong>a whole new auth</strong>, yet the <strong>protocol is still reused untouched</strong>. Copilot's auth is more complex than a plain API key: you can't just hold a fixed secret, but must first use GitHub's OAuth badge to <strong>exchange for a time-limited Copilot-specific token</strong>, then use it for Bearer auth. Precisely because <span class="mono">auth</span> was designed early as an independent knob, this special "exchange first, then enter" flow can be <strong>stuffed entirely into the auth knob, disturbing the protocol layer not at all</strong>. Had auth logic been entangled with protocol codec, a "same-protocol, different-auth" creature like Copilot would force you to copy the OpenAI protocol again—and orthogonal decomposition dissolves it elegantly into nothing. <strong>Using one of the trickiest real providers, it stamps a seal on all of M6's design philosophy.</strong></p>
-<p>Why the whole roundabout "exchange first, then enter"? Because this <strong>token exchange</strong> reflects a more secure design: your GitHub OAuth credential is long-lived and precious, and shouldn't be repeatedly sent to inference endpoints; while the exchanged Copilot token is <strong>short-lived and purpose-limited</strong>, so even if leaked, the damage is tightly bounded by expiry and scope. This is the "least privilege + short-lived credential" security convention. All opencode does is encapsulate this exchange flow into the auth knob—the upper layer just says "I want Copilot," and the underlying "badge-for-pass" round trip is <strong>quietly digested</strong> by the auth layer, the protocol layer and agent loop oblivious throughout. The complexity of security is properly isolated in the layer where it belongs, without seeping elsewhere.</p>
+<p>It's an upgraded version of lesson 31's "openai-compatible only changes the endpoint"—this time not only the endpoint but <strong>a whole new auth</strong>, yet the <strong>protocol is still reused untouched</strong>. Copilot's auth is more complex than a plain API key: you can't just hold a fixed secret, but must first use GitHub's OAuth badge to <strong>exchange for a time-limited Copilot-specific token</strong>, then use it for Bearer auth. Precisely because <span class="mono">auth</span> was designed early as an independent piece, this special "exchange first, then enter" flow can be <strong>stuffed entirely into the auth piece, disturbing the protocol layer not at all</strong>. Had auth logic been entangled with protocol codec, a "same-protocol, different-auth" creature like Copilot would force you to copy the OpenAI protocol again—and orthogonal decomposition dissolves it elegantly into nothing. <strong>Using one of the trickiest real providers, it stamps a seal on all of M6's design philosophy.</strong></p>
+<p>Why the whole roundabout "exchange first, then enter"? Because this <strong>token exchange</strong> reflects a more secure design: your GitHub OAuth credential is long-lived and precious, and shouldn't be repeatedly sent to inference endpoints; while the exchanged Copilot token is <strong>short-lived and purpose-limited</strong>, so even if leaked, the damage is tightly bounded by expiry and scope. This is the "least privilege + short-lived credential" security convention. All opencode does is encapsulate this exchange flow into the auth piece—the upper layer just says "I want Copilot," and the underlying "badge-for-pass" round trip is <strong>quietly digested</strong> by the auth layer, the protocol layer and agent loop oblivious throughout. The complexity of security is properly isolated in the layer where it belongs, without seeping elsewhere.</p>
 
 <div class="card detail">
   <div class="tag">🔬 Source Detail</div>
-  <p>The trace of Copilot reusing OpenAI models and only swapping auth headers is clear in <span class="mono">copilot-provider.ts</span>:</p>
-  <pre class="code"><span class="cm">// simplified from github-copilot/copilot-provider.ts</span>
-<span class="kw">import</span> { OpenAICompatibleChatLanguageModel } <span class="kw">from</span> <span class="st">"./chat/..."</span>
-<span class="kw">import</span> { OpenAIResponsesLanguageModel } <span class="kw">from</span> <span class="st">"./responses/..."</span>
+  <p>The trace of Copilot reusing OpenAI's two <span class="mono">Route</span>s and only <span class="mono">.with(...)</span>-overriding endpoint + auth is clear in <span class="mono">providers/github-copilot.ts</span>:</p>
+  <pre class="code"><span class="cm">// simplified from packages/llm/src/providers/github-copilot.ts</span>
+<span class="kw">import</span> * <span class="kw">as</span> OpenAIChat <span class="kw">from</span> <span class="st">"../protocols/openai-chat"</span>
+<span class="kw">import</span> * <span class="kw">as</span> OpenAIResponses <span class="kw">from</span> <span class="st">"../protocols/openai-responses"</span>
 
-<span class="cm">// protocol reuses OpenAI; only the headers are touched</span>
-<span class="kw">const</span> headers = {
-  ...(apiKey &amp;&amp; { Authorization: <span class="st">`Bearer ${'$'}{apiKey}`</span> }),  <span class="cm">// the exchanged Copilot token</span>
-  ...options.headers,                                  <span class="cm">// Copilot-specific headers</span>
-}
-provider.chat = createChatModel        <span class="cm">// ← still the OpenAI Chat set</span>
-provider.responses = createResponsesModel  <span class="cm">// ← still the OpenAI Responses set</span></pre>
-  <p>What the whole file does is essentially "<strong>take OpenAI's two language models, wrap them in its own headers and baseURL</strong>." The <span class="mono">chat</span> and <span class="mono">responses</span> methods point directly to the OpenAI-compatible implementations—the protocol layer untouched. All the "Copilot flavor" is concentrated in the two pieces of <strong>configuration</strong> <span class="mono">headers</span> and <span class="mono">baseURL</span>, not in <strong>code logic</strong>. It's an excellent example of "<strong>differences should manifest as configuration, not branches</strong>": Copilot's difference from OpenAI didn't become a pile of <span class="mono">if (isCopilot)</span> scattered through protocol code, but converged into clean config differences like "swap a set of headers, swap a baseURL." Cage the difference in configuration, and the protocol code can forever stay single-copy.</p>
+<span class="cm">// take OpenAI's ready-made routes, .with(...) overriding only endpoint + auth</span>
+<span class="kw">const</span> chatRoute = OpenAIChat.route.<span class="fn">with</span>({ provider: id })
+<span class="kw">const</span> configuredChat = chatRoute.<span class="fn">with</span>({
+  endpoint: { baseURL: options.baseURL },     <span class="cm">// ← Copilot's own address</span>
+  auth: AuthOptions.<span class="fn">bearer</span>(options, []),       <span class="cm">// ← the exchanged token as Bearer</span>
+})</pre>
+  <p>What the whole file does is essentially "<strong>take OpenAI's ready-made routes and <span class="mono">.with(...)</span>-override only endpoint and auth</strong>." The <span class="mono">chat</span> and <span class="mono">responses</span> routes directly reuse <span class="mono">OpenAIChat.route</span> / <span class="mono">OpenAIResponses.route</span>—protocol and framing untouched. All the "Copilot flavor" is concentrated in the two pieces of <strong>configuration</strong> <span class="mono">endpoint</span> (baseURL) and <span class="mono">auth</span> (bearer token), not in <strong>code logic</strong>. It's an excellent example of "<strong>differences should manifest as configuration, not branches</strong>": Copilot's difference from OpenAI didn't become a pile of <span class="mono">if (isCopilot)</span> scattered through protocol code, but converged into clean config differences like "swap a baseURL, swap an auth." Cage the difference in configuration, and the protocol code can forever stay single-copy.</p>
 </div>
 
 <div class="card macro">
@@ -572,11 +570,11 @@ provider.responses = createResponsesModel  <span class="cm">// ← still the Ope
     <li><strong>L28 anti-corruption layer</strong>: core speaks only canonical (LLMRequest out / LLMEvent back), adapters wall off with translation.</li>
     <li><strong>L29 protocol skeleton</strong>: every protocol fills the same "two-column form" (body request side + stream response-side state machine).</li>
     <li><strong>L30–32 four dialects</strong>: Anthropic (blocks + cache budget), OpenAI (Chat/Responses dual protocol + 24-line ecosystem free-ride), Gemini+Bedrock (renamed dialect + binary transport / nesting-doll state machine).</li>
-    <li><strong>L33 transport six knobs</strong>: Route = id/protocol/endpoint/auth/transport/framing, orthogonal and composable.</li>
+    <li><strong>L33 transport & building blocks</strong>: a Route is assembled from four orthogonal pieces (protocol/endpoint/auth/framing) + id, orthogonal and composable (the HTTP/WS transport choice is an extension of the framing axis).</li>
     <li><strong>L34 events and caching</strong>: LLMEvent (inbound canonical vocabulary, completing the translation wall) + cache-policy (cache the stable prefix, connecting Context Epoch).</li>
-    <li><strong>L35 resolution and Copilot</strong>: models.dev (externalized model encyclopedia, factual bedrock) → catalog (model name → configured Route); Copilot reuses the OpenAI protocol, swapping only endpoint+auth, sealing the six-knob architecture.</li>
+    <li><strong>L35 resolution and Copilot</strong>: models.dev (externalized model encyclopedia, factual bedrock) → catalog (model name → configured Route); Copilot reuses OpenAI's Route, swapping only endpoint+auth, sealing this building-block architecture.</li>
   </ul>
-  <p>In one sentence: <strong>the user types a model name, catalog resolves it via models.dev's facts into a six-knob-configured Route; core sends a request in canonical, the Route's protocol translates it into dialect, transport puts it on the wire, framing cuts frames, the protocol decodes the response back into a canonical LLMEvent stream for the agent loop, and caching throughout is kept cheap by cache-policy and Context Epoch joining forces.</strong> Seven lessons in, you'll find not one part of the LLM layer is "for showing off"—every layer of abstraction solves a real pain point, which is exactly the engineering beauty worth savoring repeatedly. The next part (M7) turns to the <strong>tool system</strong>—how the tools the agent loop wields to actually "do work" (read/write files, run commands, search…) are defined, executed, isolated. The LLM is the agent's "mouth and brain," tools its "hands."</p>
+  <p>In one sentence: <strong>the user types a model name, catalog resolves it via models.dev's facts into a Route with its pieces configured; core sends a request in canonical, the Route's protocol translates it into dialect, transport puts it on the wire, framing cuts frames, the protocol decodes the response back into a canonical LLMEvent stream for the agent loop, and caching throughout is kept cheap by cache-policy and Context Epoch joining forces.</strong> Seven lessons in, you'll find not one part of the LLM layer is "for showing off"—every layer of abstraction solves a real pain point, which is exactly the engineering beauty worth savoring repeatedly. The next part (M7) turns to the <strong>tool system</strong>—how the tools the agent loop wields to actually "do work" (read/write files, run commands, search…) are defined, executed, isolated. The LLM is the agent's "mouth and brain," tools its "hands."</p>
 </div>
 
 <div class="card key">
@@ -584,9 +582,9 @@ provider.responses = createResponsesModel  <span class="cm">// ← still the Ope
   <ul>
     <li><strong>models.dev = an externalized community model catalog</strong> (<span class="mono">models-dev.ts</span> fetches via HTTP, caches, emits <span class="mono">models-dev.refreshed</span>): each Model records capabilities (attachment/reasoning/tool_call…), <span class="mono">cost</span> (input/output/cache-read/write prices, lesson 34's reckoning data source), <span class="mono">limit</span> (context/input/output caps), modalities. Blocking volatile model facts out of the code, a new model is often recognized with zero changes.</li>
     <li><strong>catalog (<span class="mono">catalog.ts</span> CatalogV2) = the resolver</strong>: <span class="mono">providers: Map&lt;ProviderID, {provider, models: Map&lt;ModelID, ModelInfo&gt;}&gt;</span>. A model name via two dictionary lookups → ModelInfo (incl. which Route); not found gives typed <span class="mono">ProviderNotFoundError</span> / <span class="mono">ModelNotFoundError</span>.</li>
-    <li><strong>The full resolution chain</strong>: model name → split providerID+modelID → catalog finds ModelInfo → lesson 33's six-knob Route → ready to stream.</li>
-    <li><strong>Copilot = the ultimate six-knob demo</strong> (<span class="mono">github-copilot/copilot-provider.ts</span>): <strong>protocol entirely reuses OpenAI</strong> (Chat+Responses, zero rewrite), turning only the <span class="mono">endpoint</span> (Copilot baseURL) and <span class="mono">auth</span> (GitHub OAuth badge → exchange short-lived Copilot token → Bearer + custom headers) knobs.</li>
-    <li><strong>Difference is configuration, not branches</strong>: Copilot's difference from OpenAI converges into "swap headers + baseURL" config, not <span class="mono">if (isCopilot)</span> in protocol code. Because auth was designed early as an independent knob, the special "exchange first, then enter" auth disturbs the protocol layer not at all. M6's loop now closes; next stop M7, the tool system.</li>
+    <li><strong>The full resolution chain</strong>: model name → split providerID+modelID → catalog finds ModelInfo → lesson 33's building-block Route → ready to stream.</li>
+    <li><strong>Copilot = the ultimate building-block demo</strong> (<span class="mono">packages/llm/src/providers/github-copilot.ts</span>): <strong>directly reuses OpenAI's Route</strong> (<span class="mono">OpenAIChat.route</span>/<span class="mono">OpenAIResponses.route</span>, zero rewrite), <span class="mono">.with(...)</span>-overriding only the <span class="mono">endpoint</span> (Copilot baseURL) and <span class="mono">auth</span> (<span class="mono">AuthOptions.bearer</span>, token obtained via GitHub OAuth exchange) pieces.</li>
+    <li><strong>Difference is configuration, not branches</strong>: Copilot's difference from OpenAI converges into "swap headers + baseURL" config, not <span class="mono">if (isCopilot)</span> in protocol code. Because auth was designed early as an independent piece, the special "exchange first, then enter" auth disturbs the protocol layer not at all. M6's loop now closes; next stop M7, the tool system.</li>
   </ul>
 </div>
 <div class="selftest">
@@ -618,16 +616,16 @@ provider.responses = createResponsesModel  <span class="cm">// ← still the Ope
   </details>
 </div>
 <div class="quiz">
-  <div class="qn">3. GitHub Copilot as a "special provider"—its "specialness" mainly shows in which of the six knobs?</div>
+  <div class="qn">3. GitHub Copilot as a "special provider"—its "specialness" mainly shows in which Route piece?</div>
   <ol class="opts">
     <li>auth (and endpoint): protocol entirely reuses OpenAI Chat/Responses, swapping only the endpoint + a distinctive "GitHub badge exchanges short-lived token" auth</li>
     <li>framing: it uses binary framing</li>
-    <li>All six knobs differ from everyone</li>
+    <li>Every Route piece differs from everyone</li>
     <li>protocol: it invented a brand-new protocol</li>
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. copilot-provider.ts directly imports the OpenAICompatibleChat/Responses language models — protocol zero rewrite. Its "specialness" is all in auth: no fixed API key, but first exchange a GitHub OAuth badge for a time-limited Copilot token then Bearer-auth (plus custom headers), with endpoint also pointing to Copilot's own. This is lesson 33's six knobs' best field test: reuse the protocol knob, turn only endpoint+auth. The difference converges into "swap headers+baseURL" config, not if(isCopilot) in the protocol.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. packages/llm/src/providers/github-copilot.ts directly reuses OpenAIChat.route / OpenAIResponses.route — protocol and framing zero rewrite. Its "specialness" is all in auth: no fixed API key, but first exchange a GitHub OAuth badge for a time-limited Copilot token then Bearer-auth (AuthOptions.bearer), with endpoint also pointing to Copilot's own. This is lesson 33's building-block Route's best field test: reuse the protocol piece, .with(...)-swap only endpoint+auth. The difference converges into "swap baseURL+auth" config, not if(isCopilot) in the protocol.</div></div></div>
   </details>
 </div>
 <div class="card spark">

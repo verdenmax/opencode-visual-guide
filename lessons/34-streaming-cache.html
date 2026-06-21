@@ -338,7 +338,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 </div>
 
 <h2>回来的规范事件流：LLMEvent 的统一词汇</h2>
-<p>第 28 课我们说，反腐层有一进一出：出去的是 <span class="mono">LLMRequest</span>，回来的是 <span class="mono">LLMEvent</span> 流。前者第 28 课看过了，后者一直没正面展开——它就定义在 <span class="mono">schema/events.ts</span> 里。打开一看，<span class="mono">LLMEvent</span> 是一个<strong>有 17 个成员的标签联合</strong>，但它们其实归成几族，逻辑非常清晰：</p>
+<p>第 28 课我们说，反腐层有一进一出：出去的是 <span class="mono">LLMRequest</span>，回来的是 <span class="mono">LLMEvent</span> 流。前者第 28 课看过了，后者一直没正面展开——它就定义在 <span class="mono">schema/events.ts</span> 里。打开一看，<span class="mono">LLMEvent</span> 是一个<strong>有 16 个成员的标签联合</strong>，但它们其实归成几族，逻辑非常清晰：</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">step-start / step-finish</div><div class="c-txt">一个推理步骤的边界（呼应第 20 课的有界步数）</div></div>
   <div class="cell"><div class="c-tag">text-start / -delta / -end</div><div class="c-txt">正文文字：开始、一段段增量、结束</div></div>
@@ -356,7 +356,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="t-row"><span class="t-num">step-finish</span><span class="t-txt">本步结束（可能进入下一步）</span></div>
   <div class="t-row"><span class="t-num">finish</span><span class="t-txt">整轮结束，附 Usage（输入/输出/缓存 token）</span></div>
 </div>
-<p>关键认知：<strong>这 17 种事件，就是六种协议的「最大公约数」</strong>。Anthropic 的 <span class="mono">content_block_delta</span>、OpenAI 的 <span class="mono">choices[].delta</span>、Gemini 的流式 part、Bedrock 的二进制帧——千差万别，但 <span class="mono">stream.step</span> 最终都把它们翻译成<strong>这同一套 LLMEvent</strong>。于是楼上的 agent 循环（第 17 课）只需认识这 17 种事件，就能驱动任何一家模型。第 28 课画的那道「翻译墙」，出站一侧是 LLMRequest、入站一侧就是 LLMEvent——<strong>到这一课，墙的两面才算都看全了</strong>。墙内是清一色的规范事件，墙外是六种方言的喧哗，而那道墙，就是 <span class="mono">stream.step</span> 这台翻译机。也正因为楼上只认这 17 种事件，opencode 想接入「第七家、第八家」模型供应商时，agent 循环<strong>一行都不用改</strong>——新供应商只需把自己的流式输出翻译成这套既定词汇即可。统一的事件词汇，既是对内的契约，也是对外扩展的接口。</p>
+<p>关键认知：<strong>这 16 种事件，就是六种协议的「最大公约数」</strong>。Anthropic 的 <span class="mono">content_block_delta</span>、OpenAI 的 <span class="mono">choices[].delta</span>、Gemini 的流式 part、Bedrock 的二进制帧——千差万别，但 <span class="mono">stream.step</span> 最终都把它们翻译成<strong>这同一套 LLMEvent</strong>。于是楼上的 agent 循环（第 17 课）只需认识这 16 种事件，就能驱动任何一家模型。第 28 课画的那道「翻译墙」，出站一侧是 LLMRequest、入站一侧就是 LLMEvent——<strong>到这一课，墙的两面才算都看全了</strong>。墙内是清一色的规范事件，墙外是六种方言的喧哗，而那道墙，就是 <span class="mono">stream.step</span> 这台翻译机。也正因为楼上只认这 16 种事件，opencode 想接入「第七家、第八家」模型供应商时，agent 循环<strong>一行都不用改</strong>——新供应商只需把自己的流式输出翻译成这套既定词汇即可。统一的事件词汇，既是对内的契约，也是对外扩展的接口。</p>
 
 <h2>自动缓存：把那段「不变的开头」缓存住</h2>
 <p>第二个主题，是 <span class="mono">cache-policy.ts</span>——一个只有一百来行、却把好几课串起来的小文件。先回顾动机：第 30 课讲过 Anthropic 的提示缓存（在某些块上打 <span class="mono">cache_control</span>，缓存住从开头到该标记的前缀），还讲过「最多 4 个断点」的预算。但<strong>断点到底该打在哪几个位置？</strong>——这就是 cache-policy 要回答的。它的默认策略 <span class="mono">"auto"</span> 打三个断点：</p>
@@ -411,18 +411,18 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="tag">🗺️ 宏观图景</div>
   <p>这一课把 M6（乃至前几个 part）的几根线收成了扣：</p>
   <ul>
-    <li><strong>LLMEvent = 反腐层的入站半边</strong>（<span class="mono">schema/events.ts</span>，17 成员）：step / text / reasoning / tool-input 的 start-delta-end 三段式 + tool-call/result/error + finish(带 Usage) + provider-error。六种协议的 stream.step 全翻译成它，第 17 课 agent 循环只消费它。补全了第 28 课「翻译墙」的入站一面。</li>
+    <li><strong>LLMEvent = 反腐层的入站半边</strong>（<span class="mono">schema/events.ts</span>，16 成员）：step / text / reasoning / tool-input 的 start-delta-end 三段式 + tool-call/result/error + finish(带 Usage) + provider-error。六种协议的 stream.step 全翻译成它，第 17 课 agent 循环只消费它。补全了第 28 课「翻译墙」的入站一面。</li>
     <li><strong>自动缓存的 3 个断点</strong>（<span class="mono">cache-policy.ts</span> 的 "auto"）：最后一个工具定义 + 最后一段系统提示 + 最新用户消息——把「整回合不变的稳定前缀」缓存住。</li>
     <li><strong>接通第 24 课</strong>：断点打在「最新用户消息」边界，使回合内每次 assistant↔tool 往返都命中同一段缓存前缀；这正是 Context Epoch 死守「基线前缀稳定」的<strong>真正目的</strong>——稳定 = 可缓存 = 省钱。</li>
     <li><strong>缓存默认开</strong>：写 1.25x、读 0.1x，5 分钟内复用一次即回本，工具回合复用多次稳赚。各家机制不同（Anthropic/Bedrock 显式内联；OpenAI/Gemini 隐式，cache-policy 整段跳过）。</li>
   </ul>
-  <p>M6 至此只差最后一课。第 35 课讲<strong>模型解析与 GitHub Copilot provider</strong>：opencode 怎么从 models.dev 目录认出「某个模型该走哪条 Route、配哪组旋钮」，以及 Copilot 这个「既是供应商又自带认证体系」的特殊存在。讲完它，整个「core 说规范语 → 适配器翻方言 → 传输层送达 → 事件流回来 → 缓存省钱」的 LLM 闭环就彻底合龙了。</p>
+  <p>M6 至此只差最后一课。第 35 课讲<strong>模型解析与 GitHub Copilot provider</strong>：opencode 怎么从 models.dev 目录认出「某个模型该走哪条 Route、配齐哪几件」，以及 Copilot 这个「既是供应商又自带认证体系」的特殊存在。讲完它，整个「core 说规范语 → 适配器翻方言 → 传输层送达 → 事件流回来 → 缓存省钱」的 LLM 闭环就彻底合龙了。</p>
 </div>
 
 <div class="card key">
   <div class="tag">🎯 本课要点</div>
   <ul>
-    <li><strong>LLMEvent（<span class="mono">schema/events.ts</span>，17 成员）</strong>是反腐层的入站规范词汇：step-start/finish、text/reasoning/tool-input 各自的 start-delta-end 三段式、tool-call/result/error、finish（带 Usage）、provider-error。六种协议 stream.step 都翻译成它，agent 循环（L17）只消费它——补全第 28 课「翻译墙」的入站半边。</li>
+    <li><strong>LLMEvent（<span class="mono">schema/events.ts</span>，16 成员）</strong>是反腐层的入站规范词汇：step-start/finish、text/reasoning/tool-input 各自的 start-delta-end 三段式、tool-call/result/error、finish（带 Usage）、provider-error。六种协议 stream.step 都翻译成它，agent 循环（L17）只消费它——补全第 28 课「翻译墙」的入站半边。</li>
     <li><strong>三段式反映流式</strong>：会「一点点来」的内容（正文/推理/工具参数）都拆成 start→delta…→end，正是第 29 课状态机的吐出形态。</li>
     <li><strong>cache-policy.ts 的 "auto" 打 3 个断点</strong>：最后工具定义 + 最后系统提示 + 最新用户消息（<span class="mono">markLastTool/markLastSystem/markMessages</span>），缓存「整回合不变的稳定前缀」。</li>
     <li><strong>接通 Context Epoch（L24）</strong>：断点打在「最新用户消息」边界，回合内每次 assistant↔tool 往返都命中同一前缀；故 Context Epoch 死守「基线前缀稳定」的真正目的就是<strong>保住缓存命中</strong>。缓存默认开（写 1.25x/读 0.1x，5 分钟内一次复用即回本）。</li>
@@ -432,7 +432,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="selftest">
 <h2>🧪 自测 · 想一想为什么这么设计</h2>
 <div class="quiz">
-  <div class="qn">1. LLMEvent（schema/events.ts，17 个成员）在整套设计里扮演什么角色？</div>
+  <div class="qn">1. LLMEvent（schema/events.ts，16 个成员）在整套设计里扮演什么角色？</div>
   <ol class="opts">
     <li>用于 UI 渲染的前端数据结构</li>
     <li>数据库里存事件日志的表</li>
@@ -441,7 +441,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。第 28 课的反腐层有一进一出：出去 LLMRequest、回来 LLMEvent 流。LLMEvent 是六种协议的「最大公约数」——Anthropic content_block_delta、OpenAI choices[].delta、Gemini part、Bedrock 二进制帧，都被 stream.step 翻译成这同一套 17 种事件。于是 agent 循环（L17）只认这 17 种就能驱动任何模型，新增第七家供应商它一行不改。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。第 28 课的反腐层有一进一出：出去 LLMRequest、回来 LLMEvent 流。LLMEvent 是六种协议的「最大公约数」——Anthropic content_block_delta、OpenAI choices[].delta、Gemini part、Bedrock 二进制帧，都被 stream.step 翻译成这同一套 16 种事件。于是 agent 循环（L17）只认这 16 种就能驱动任何模型，新增第七家供应商它一行不改。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -488,7 +488,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 </div>
 
 <h2>The canonical event stream back: LLMEvent's unified vocabulary</h2>
-<p>Lesson 28 said the anti-corruption layer has an out and a back: out goes <span class="mono">LLMRequest</span>, back comes the <span class="mono">LLMEvent</span> stream. We saw the former in lesson 28; the latter was never directly unfolded—it's defined in <span class="mono">schema/events.ts</span>. Open it and <span class="mono">LLMEvent</span> is a <strong>tagged union with 17 members</strong>, but they group into a few families, very cleanly:</p>
+<p>Lesson 28 said the anti-corruption layer has an out and a back: out goes <span class="mono">LLMRequest</span>, back comes the <span class="mono">LLMEvent</span> stream. We saw the former in lesson 28; the latter was never directly unfolded—it's defined in <span class="mono">schema/events.ts</span>. Open it and <span class="mono">LLMEvent</span> is a <strong>tagged union with 16 members</strong>, but they group into a few families, very cleanly:</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">step-start / step-finish</div><div class="c-txt">a reasoning step's boundary (echoing lesson 20's bounded steps)</div></div>
   <div class="cell"><div class="c-tag">text-start / -delta / -end</div><div class="c-txt">body text: start, segment-by-segment delta, end</div></div>
@@ -506,7 +506,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="t-row"><span class="t-num">step-finish</span><span class="t-txt">this step ends (may enter the next)</span></div>
   <div class="t-row"><span class="t-num">finish</span><span class="t-txt">whole turn ends, with Usage (input/output/cache tokens)</span></div>
 </div>
-<p>Key realization: <strong>these 17 events are the "greatest common divisor" of the six protocols</strong>. Anthropic's <span class="mono">content_block_delta</span>, OpenAI's <span class="mono">choices[].delta</span>, Gemini's streaming parts, Bedrock's binary frames—wildly different, but <span class="mono">stream.step</span> ultimately translates them all into <strong>this same LLMEvent set</strong>. So the agent loop upstairs (lesson 17) need only know these 17 events to drive any model. The "translation wall" lesson 28 drew has LLMRequest on the outbound side and LLMEvent on the inbound side—<strong>only by this lesson are both faces of the wall fully seen</strong>. Inside the wall is uniform canonical events, outside is the clamor of six dialects, and the wall itself is the translation machine <span class="mono">stream.step</span>. Precisely because upstairs knows only these 17 events, when opencode wants to add a "seventh, eighth" model provider, the agent loop <strong>doesn't change a line</strong>—a new provider need only translate its streaming output into this established vocabulary. A unified event vocabulary is both an internal contract and the interface for outward extension.</p>
+<p>Key realization: <strong>these 16 events are the "greatest common divisor" of the six protocols</strong>. Anthropic's <span class="mono">content_block_delta</span>, OpenAI's <span class="mono">choices[].delta</span>, Gemini's streaming parts, Bedrock's binary frames—wildly different, but <span class="mono">stream.step</span> ultimately translates them all into <strong>this same LLMEvent set</strong>. So the agent loop upstairs (lesson 17) need only know these 16 events to drive any model. The "translation wall" lesson 28 drew has LLMRequest on the outbound side and LLMEvent on the inbound side—<strong>only by this lesson are both faces of the wall fully seen</strong>. Inside the wall is uniform canonical events, outside is the clamor of six dialects, and the wall itself is the translation machine <span class="mono">stream.step</span>. Precisely because upstairs knows only these 16 events, when opencode wants to add a "seventh, eighth" model provider, the agent loop <strong>doesn't change a line</strong>—a new provider need only translate its streaming output into this established vocabulary. A unified event vocabulary is both an internal contract and the interface for outward extension.</p>
 
 <h2>Auto caching: cache that "unchanging opening"</h2>
 <p>The second theme is <span class="mono">cache-policy.ts</span>—a file of only a hundred-some lines that strings several lessons together. First recall the motive: lesson 30 covered Anthropic's prompt caching (mark some blocks with <span class="mono">cache_control</span>, caching the prefix from the start to that marker), and the "at most 4 breakpoints" budget. But <strong>where exactly should the breakpoints land?</strong>—that's what cache-policy answers. Its default policy <span class="mono">"auto"</span> places three breakpoints:</p>
@@ -561,18 +561,18 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="tag">🗺️ The Big Picture</div>
   <p>This lesson ties M6's (and earlier parts') several threads into knots:</p>
   <ul>
-    <li><strong>LLMEvent = the inbound half of the anti-corruption layer</strong> (<span class="mono">schema/events.ts</span>, 17 members): step / text / reasoning / tool-input start-delta-end triples + tool-call/result/error + finish(with Usage) + provider-error. All six protocols' stream.step translate into it, lesson 17's agent loop consumes only it. Completes the inbound face of lesson 28's "translation wall."</li>
+    <li><strong>LLMEvent = the inbound half of the anti-corruption layer</strong> (<span class="mono">schema/events.ts</span>, 16 members): step / text / reasoning / tool-input start-delta-end triples + tool-call/result/error + finish(with Usage) + provider-error. All six protocols' stream.step translate into it, lesson 17's agent loop consumes only it. Completes the inbound face of lesson 28's "translation wall."</li>
     <li><strong>Auto caching's 3 breakpoints</strong> (cache-policy.ts's "auto"): last tool definition + last system part + latest user message—caching the "stable prefix unchanged through the whole turn."</li>
     <li><strong>Connecting lesson 24</strong>: breakpoints at the "latest user message" boundary make every assistant↔tool round-trip within a turn hit the same cached prefix; this is the <strong>true purpose</strong> of Context Epoch guarding "baseline prefix stable"—stable = cacheable = money saved.</li>
     <li><strong>Caching on by default</strong>: write 1.25x, read 0.1x, one reuse within 5 minutes pays off, a tool turn reuses many times for a sure win. Mechanisms differ (Anthropic/Bedrock explicit inline; OpenAI/Gemini implicit, cache-policy skips the whole pass).</li>
   </ul>
-  <p>M6 now has just one lesson left. Lesson 35 covers <strong>model resolution and the GitHub Copilot provider</strong>: how opencode recognizes from the models.dev catalog "which Route a model should ride, which set of knobs to configure," and Copilot, that "both a provider and a self-contained auth system" special case. After it, the whole LLM loop—"core speaks canonical → adapters translate dialects → transport delivers → event stream comes back → caching saves money"—is fully closed.</p>
+  <p>M6 now has just one lesson left. Lesson 35 covers <strong>model resolution and the GitHub Copilot provider</strong>: how opencode recognizes from the models.dev catalog "which Route a model should ride, which pieces to configure," and Copilot, that "both a provider and a self-contained auth system" special case. After it, the whole LLM loop—"core speaks canonical → adapters translate dialects → transport delivers → event stream comes back → caching saves money"—is fully closed.</p>
 </div>
 
 <div class="card key">
   <div class="tag">🎯 Key Takeaways</div>
   <ul>
-    <li><strong>LLMEvent (<span class="mono">schema/events.ts</span>, 17 members)</strong> is the anti-corruption layer's inbound canonical vocabulary: step-start/finish, text/reasoning/tool-input each as start-delta-end triples, tool-call/result/error, finish (with Usage), provider-error. All six protocols' stream.step translate into it, the agent loop (L17) consumes only it—completing the inbound half of lesson 28's "translation wall."</li>
+    <li><strong>LLMEvent (<span class="mono">schema/events.ts</span>, 16 members)</strong> is the anti-corruption layer's inbound canonical vocabulary: step-start/finish, text/reasoning/tool-input each as start-delta-end triples, tool-call/result/error, finish (with Usage), provider-error. All six protocols' stream.step translate into it, the agent loop (L17) consumes only it—completing the inbound half of lesson 28's "translation wall."</li>
     <li><strong>The triple reflects streaming</strong>: content arriving "bit by bit" (body/reasoning/tool args) all split into start→delta…→end, exactly lesson 29's state-machine output shape.</li>
     <li><strong>cache-policy.ts's "auto" places 3 breakpoints</strong>: last tool definition + last system part + latest user message (<span class="mono">markLastTool/markLastSystem/markMessages</span>), caching the "stable prefix unchanged through the turn."</li>
     <li><strong>Connects Context Epoch (L24)</strong>: breakpoints at the "latest user message" boundary make every assistant↔tool round-trip in a turn hit the same prefix; so Context Epoch guarding "baseline prefix stable" is truly to <strong>preserve cache hits</strong>. Caching on by default (write 1.25x/read 0.1x, one reuse within 5 min pays off).</li>
@@ -582,7 +582,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="selftest">
 <h2>🧪 Self-test - think about the design</h2>
 <div class="quiz">
-  <div class="qn">1. What role does LLMEvent (schema/events.ts, 17 members) play in the whole design?</div>
+  <div class="qn">1. What role does LLMEvent (schema/events.ts, 16 members) play in the whole design?</div>
   <ol class="opts">
     <li>A frontend data structure for UI rendering</li>
     <li>A DB table storing event logs</li>
@@ -591,7 +591,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. Lesson 28's anti-corruption layer has an out and a back: out LLMRequest, back the LLMEvent stream. LLMEvent is the six protocols' "greatest common divisor" — Anthropic's content_block_delta, OpenAI's choices[].delta, Gemini's parts, Bedrock's binary frames, all translated by stream.step into this same 17-event set. So the agent loop (L17) drives any model knowing only these 17, and adding a seventh provider changes not a line of it.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. Lesson 28's anti-corruption layer has an out and a back: out LLMRequest, back the LLMEvent stream. LLMEvent is the six protocols' "greatest common divisor" — Anthropic's content_block_delta, OpenAI's choices[].delta, Gemini's parts, Bedrock's binary frames, all translated by stream.step into this same 16-event set. So the agent loop (L17) drives any model knowing only these 16, and adding a seventh provider changes not a line of it.</div></div></div>
   </details>
 </div>
 <div class="quiz">

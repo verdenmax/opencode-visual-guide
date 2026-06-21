@@ -33,7 +33,7 @@
 
 ## L32 Gemini 与 Bedrock 协议
 
-- **Gemini（`gemini.ts`）全面改名**：顶层 `contents`，每条 `{role, parts}`，role 只有 `"user"`/`"model"`（**无 assistant**）；system 进顶层 `systemInstruction`；parts = text/functionCall/functionResponse/inline_data；`thought`+`thoughtSignature`；usage `thoughtsTokenCount`（**思考 token 单列**，与 Anthropic 相反）；toolChoice `functionCallingConfig.mode` AUTO/NONE/ANY。
+- **Gemini（`gemini.ts`）全面改名**：顶层 `contents`，每条 `{role, parts}`，role 只有 `"user"`/`"model"`（**无 assistant**）；system 进顶层 `systemInstruction`；parts = text/functionCall/functionResponse/inlineData；`thought`+`thoughtSignature`；usage `thoughtsTokenCount`（**思考 token 单列**，与 Anthropic 相反）；toolChoice `functionCallingConfig.mode` AUTO/NONE/ANY。
 - **「信任上轮推理」三家三名**：Anthropic `signature`（密码学签名）/ OpenAI Responses `encrypted_content`（加密托管）/ Gemini `thoughtSignature`（思考签名）。
 - **Bedrock（`bedrock-converse.ts`）= 同 Claude 方言、异传输**：转售 Claude，用 AWS Converse API；块 text/toolUse/toolResult/reasoningContent(signature)，system 顶层块数组，共享 `utils/bedrock-cache` 的 4 断点。**方言≈Anthropic，但传输用 AWS 二进制事件流，故必须另起协议。**
 - **二进制帧结构**（`bedrock-event-stream.ts`）：`[length:4][headers-length:4][prelude-crc:4][headers][payload][crc:4]`；借 `@smithy/eventstream-codec` 校验 CRC、按 `:event-type` 头重组 JSON。framing 是 Route 里与 protocol 正交的零件。
@@ -45,11 +45,11 @@
 - **完整流水线（`Route.stream`）**：①protocol.body.from 编码 → ②endpoint 寻址 → ③auth 签名 → ④transport 取字节流 → ⑤framing 切帧 → ⑥protocol.stream 解码成 LLMEvent。
 - **两种 transport**（`route/transport/`）：HTTP（请求/响应，绝大多数）；WebSocket（持久双向，`WebSocketConnection{sendText, messages 流}`）。**唯 OpenAI Responses 同时支持两者**（`openai-responses.ts` 导出 httpTransport + webSocketTransport；请求体 HTTP/WS 共享形状，HTTP 加 `stream:true`、WS 加 `type:"response.create"`）。
 - **framing = 字节流形状的缝**（`route/framing.ts`）：`Framing<Frame>{id, frame:(bytes Stream)→Frame Stream}`。`Framing.sse`（UTF-8 解码 + SSE 通道解码 + 丢空行/[DONE]，每帧是一个 data: JSON）/ AWS 二进制。**帧类型对这一层不透明**，故同一种 framing 被任意协议复用（SSE 同时服务 Anthropic/Gemini/OpenAI）。
-- **六个正交旋钮**：`Route.make({id, protocol, endpoint, auth, transport, framing})`。类型参数 `Frame` 强制 framing（产 `Framing<Frame>`）↔ protocol（`stream.event: Codec<Event,Frame>`）对齐——正交但不放任。
+- **四个正交件 + id**：源码注释明言 Route 由「four orthogonal pieces」`{protocol, endpoint, auth, framing}` 加 id 拼成。常见 HTTP 写法 `Route.make({id, protocol, endpoint, auth, framing})`（Route 据 framing 自动建 HttpTransport）；走 WS 时以 `transport` 顶替 `framing`（`make` 两个重载，二者传其一）。类型参数 `Frame` 强制 framing（产 `Framing<Frame>`）↔ protocol（`stream.event: Codec<Event,Frame>`）对齐——正交但不放任。
 
 ## L34 流式事件与缓存
 
-- **`LLMEvent`（`schema/events.ts`，17 成员）= 反腐层入站规范词汇**：step-start / step-finish；text-start/-delta/-end；reasoning-start/-delta/-end；tool-input-start/-delta/-end；tool-call；tool-result；tool-error；finish（带 Usage）；provider-error。会「一点点来」的内容都拆成 start→delta…→end 三段式（L29 状态机吐出形态）。六种协议 stream.step 全翻译成它，agent 循环（L17）只消费它——补全 L28「翻译墙」入站半边。
+- **`LLMEvent`（`schema/events.ts`，16 成员）= 反腐层入站规范词汇**：step-start / step-finish；text-start/-delta/-end；reasoning-start/-delta/-end；tool-input-start/-delta/-end；tool-call；tool-result；tool-error；finish（带 Usage）；provider-error。会「一点点来」的内容都拆成 start→delta…→end 三段式（L29 状态机吐出形态）。六种协议 stream.step 全翻译成它，agent 循环（L17）只消费它——补全 L28「翻译墙」入站半边。
 - **`cache-policy.ts` 的 "auto" 打 3 断点**：`markLastTool`（最后工具定义）+ `markLastSystem`（最后系统提示）+ `markMessages`（"latest-user-message"，最新用户消息）。缓存「整回合不变的稳定前缀」。
 - **接通 L24 Context Epoch**：断点打在「最新用户消息」边界，使回合内每次 assistant↔tool 往返（L17）都命中同一缓存前缀；这正是 Context Epoch 死守「基线前缀稳定」的真正目的。
 - **缓存默认开**（`undefined→"auto"`）：Anthropic 5m 缓存写 1.25x、读 0.1x，5 分钟内复用一次即回本（1.25+0.1<2），工具回合复用多次稳赚。
@@ -61,6 +61,6 @@
 
 - **models.dev = 外置社区模型目录**（`core/src/models-dev.ts`，HTTP 拉取、缓存、发 `models-dev.refreshed` 事件）。`Model` schema：id/name/family/release_date、能力 attachment/reasoning/temperature/tool_call、`cost`（输入/输出/cache_read/cache_write 单价，**L34 算账数据源**）、`limit`（context/input/output 上限）、`modalities`（text/audio/image/video/pdf）、status（alpha/beta/deprecated）。把易变事实挡在代码外，新模型常零改动即识别。
 - **catalog（`core/src/catalog.ts` CatalogV2）= 解析器**：`providers: Map<ProviderID, ProviderRecord{provider, models: Map<ModelID, ModelInfo>}>`，`defaultModel`。模型名经两次字典查找 → `ModelInfo`（含走哪条 Route）；查不到给**类型化错误** `ProviderNotFoundError` / `ModelNotFoundError`（分清「供应商没找到」vs「供应商有但模型没找到」）。
-- **解析全链路**：模型名 → 拆 providerID+modelID → catalog 查 ModelInfo → L33 的六旋钮 Route → 可发起 stream。
-- **Copilot = 六旋钮终极演示**（`core/src/github-copilot/copilot-provider.ts`）：import `OpenAICompatibleChatLanguageModel` + `OpenAIResponsesLanguageModel`——**协议整套复用 OpenAI**（零重写）；只拨 `endpoint`（Copilot baseURL）+ `auth`（GitHub OAuth 工牌 → 换短期 Copilot token → `Authorization: Bearer` + 自定义 headers）。
+- **解析全链路**：模型名 → 拆 providerID+modelID → catalog 查 ModelInfo → L33 的积木式 Route → 可发起 stream。
+- **Copilot = 积木式架构终极演示**（`packages/llm/src/providers/github-copilot.ts`）：import `OpenAIChat` + `OpenAIResponses`，**直接复用它们的 `.route`**（零重写）；用 `.with({ endpoint: {baseURL}, auth: AuthOptions.bearer(...) })` 只覆盖 `endpoint`（Copilot baseURL）+ `auth`（bearer token，由 GitHub OAuth 换取）。`shouldUseResponsesApi`(gpt-5+→Responses)。注：`core/src/github-copilot/copilot-provider.ts` 是另一套基于 Vercel AI-SDK 的 provider（`LanguageModelV3`），不展示 Route 六件式。
 - **差异是配置、不是分支**：Copilot 与 OpenAI 的不同收敛成「换 headers + baseURL」配置，而非协议里的 `if(isCopilot)`。`provider.chat`/`provider.responses` 直指 OpenAI 兼容实现。令牌交换 = 最小权限 + 短时效凭证的安全惯例，整个封装进 auth 旋钮、不惊动协议层。

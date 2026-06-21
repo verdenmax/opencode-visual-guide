@@ -15,8 +15,8 @@ Part 6 回答一个第四、五部分一直假定为「已解决」的问题：*
 | L30 | Anthropic Messages 协议 | 一切皆「块」+ 顶层 system；4 个缓存断点预算(可变 Breakpoints 计数器穿过 lower*，超额悄悄丢，与 Bedrock 共享 utils/cache)；usage 两半合并 |
 | L31 | OpenAI Chat/Responses 协议 | 一家两协议：Chat 扁平角色 vs Responses 带类型条目+推理一等公民(encrypted_content)；24 行 openai-compatible 整份复用 Chat 协议 |
 | L32 | Gemini 与 Bedrock 协议 | Gemini 全面改名(contents/parts/model/thoughtSignature，思考三家三名)；Bedrock 同 Claude 方言、异 AWS 二进制传输→另起协议；套娃状态机(字节→帧→事件) |
-| L33 | 路由与传输 | 一个 Route=六个正交旋钮(id/protocol/endpoint/auth/transport/framing)；完整流水线；HTTP vs WebSocket；framing 是字节流形状的缝、帧类型对它不透明 |
-| L34 | 流式事件与缓存 | LLMEvent(17 成员，反腐层入站半边，补全翻译墙)；cache-policy 自动打 3 断点缓存稳定前缀(接通 L24 Context Epoch)；RESPECTS_INLINE_HINTS 跳过 OpenAI/Gemini |
+| L33 | 路由与传输 | 一个 Route=四个正交件(protocol/endpoint/auth/framing)+id（源码原话「four orthogonal pieces」）；完整流水线；HTTP vs WebSocket(transport 是 framing 维的延伸)；framing 是字节流形状的缝、帧类型对它不透明 |
+| L34 | 流式事件与缓存 | LLMEvent(16 成员，反腐层入站半边，补全翻译墙)；cache-policy 自动打 3 断点缓存稳定前缀(接通 L24 Context Epoch)；RESPECTS_INLINE_HINTS 跳过 OpenAI/Gemini |
 | L35 | 模型解析与 Copilot | models.dev(外置社区模型大全，事实地基，cost 供 L34 算账)→catalog(模型名→配好的 Route，类型化错误)；Copilot 复用 OpenAI 协议、只换 endpoint+auth |
 
 ## 与相邻部分的关系
@@ -30,5 +30,5 @@ Part 6 回答一个第四、五部分一直假定为「已解决」的问题：*
 1. **反腐层一进一出**（L28/L34）：core 只认规范的 `LLMRequest`（出）和 `LLMEvent` 流（回）；一道翻译墙挡住所有供应商差异，墙内 agent 循环对供应商一无所知。
 2. **协议即一张两栏表**（L29）：`body`（请求侧，一个 `from` 函数，一次成形）+ `stream`（响应侧，一台 `(State,Event)→[State,LLMEvent[]]` 状态机，边收边攒）。不对称映射现实：请求一次发出、响应流式到达。
 3. **协议 ≠ 供应商**（L28/L31/L35）：6 种协议（线缆格式）复用覆盖十几家供应商；OpenAI 兼容 24 行、Copilot 只换 auth，都是「复用协议、只拧一两个旋钮」。
-4. **六个正交旋钮**（L33）：`Route = {id, protocol, endpoint, auth, transport, framing}`，各自独立替换；前面所有「轻巧复用」本质都是「拨动其中一两个」。
+4. **四个正交件 + id**（L33）：源码 `Route.make` 注释明言「four orthogonal pieces」=`{protocol, endpoint, auth, framing}`，加一个 id，各自独立替换；transport 是 framing 维在非 HTTP 时的替换（二者只传其一）。前面所有「轻巧复用」本质都是「只换一两件」。
 5. **差异交给适配层吸收，而非假装统一**（贯穿 L30–L35）：缓存机制各异（Anthropic/Bedrock 显式内联 vs OpenAI/Gemini 隐式 → cache-policy 整段跳过）、推理签名三家三名、模型事实外置给 models.dev——好抽象懂得在哪统一、在哪放手。

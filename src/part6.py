@@ -461,7 +461,7 @@ LESSON_30 = {
   <div class="t-row"><span class="t-num">messages</span><span class="t-txt">两处历史想缓存 → remaining 2→1→0，打标记</span></div>
   <div class="t-row"><span class="t-num">第5个</span><span class="t-txt">又有一处想缓存 → remaining=0，dropped++，悄悄放弃（不打）</span></div>
 </div>
-<p>这段代码的<strong>克制</strong>体现在两点。其一，<strong>「悄悄放弃」而非「报错」</strong>：超额的缓存标记被默默丢掉，请求照常发出去——缓存只是优化，不该因为「想多缓存」反而把请求搞挂。其二，<strong>TTL 也被简化成两档</strong>：<span class="mono">ttlBucket</span> 把任何 ≥3600 秒的请求归为 <span class="mono">"1h"</span>，否则就是默认的 5 分钟——因为 Anthropic 只认这两档。还有个值得一提的工程决策：这套「4 个上限 + TTL 两档」的逻辑，被抽到了 <span class="mono">protocols/utils/cache.ts</span> 里<strong>共享</strong>，因为<strong>Bedrock 上的 Claude 也吃同一套规矩</strong>（第 32 课会再遇到它）。同一条供应商约束，被两个协议复用——又一处「把共性抽出来」的复利。</p>
+<p>这段代码的<strong>克制</strong>体现在两点。其一，<strong>「丢弃而非让请求失败」</strong>：超额的缓存标记被丢掉（仅在末尾用 <span class="mono">logWarning</span> 记一条聚合警告，告知丢了几个），请求照常发出去——缓存只是优化，不该因为「想多缓存」反而把请求搞挂。其二，<strong>TTL 也被简化成两档</strong>：<span class="mono">ttlBucket</span> 把任何 ≥3600 秒的请求归为 <span class="mono">"1h"</span>，否则就是默认的 5 分钟——因为 Anthropic 只认这两档。还有个值得一提的工程决策：这套「4 个上限 + TTL 两档」的逻辑，被抽到了 <span class="mono">protocols/utils/cache.ts</span> 里<strong>共享</strong>，因为<strong>Bedrock 上的 Claude 也吃同一套规矩</strong>（第 32 课会再遇到它）。同一条供应商约束，被两个协议复用——又一处「把共性抽出来」的复利。</p>
 <div class="card detail">
   <div class="tag">🔬 源码细节</div>
   <p>预算计数器的核心，就是这个 <span class="mono">cacheControl</span> 函数（简化自 anthropic-messages.ts）：</p>
@@ -504,7 +504,7 @@ LESSON_30 = {
   <ul>
     <li><strong>body（出去）= lower* 系列函数</strong>：把规范请求翻成 Anthropic 体——内容拆成<strong>带类型的块</strong>（text/image/tool_use/tool_result/服务端工具…），system 单拎成<strong>顶层字段</strong>。</li>
     <li><strong>签名特性①「一切皆块」</strong>：每段内容都是带 <span class="mono">type</span> 的结构化块，可单独挂 <span class="mono">cache_control</span> 元数据。</li>
-    <li><strong>签名特性②「4 个缓存断点预算」</strong>：跨 tools/system/messages 最多 4 个 ephemeral 标记，超额 400；用可变 <span class="mono">Breakpoints{remaining,dropped}</span> 计数器穿过 lower*，超了就悄悄丢。逻辑与 Bedrock <strong>共享</strong>于 utils/cache.ts。</li>
+    <li><strong>签名特性②「4 个缓存断点预算」</strong>：跨 tools/system/messages 最多 4 个 ephemeral 标记，超额 400；用可变 <span class="mono">Breakpoints{remaining,dropped}</span> 计数器穿过 lower*，超了就丢弃（请求不失败，仅记一条聚合警告）。逻辑与 Bedrock <strong>共享</strong>于 utils/cache.ts。</li>
     <li><strong>stream（回来）</strong>：message_start→content_block_start/delta/stop→message_delta→message_stop；工具参数跨帧累积、usage 两半合并、缓存用量回译、思考 token 不单列。</li>
   </ul>
   <p>一条值得你串起来的线：<strong>缓存断点和第 24 课的 Context Epoch 是天作之合</strong>。Context Epoch 拼命维持「基线前缀稳定」，图的是什么？图的正是让 Anthropic 这个缓存前缀<strong>持续命中</strong>——前缀稳，缓存才不失效，省下的就是真金白银。上层「稳住前缀」的苦心，到这一层「缓存断点」上兑现成了账单上的数字。这就是读源码内幕的乐趣：两个相隔六课、看似无关的设计，在这里悄悄咬合上了，彼此成全。</p>
@@ -515,7 +515,7 @@ LESSON_30 = {
   <ul>
     <li>Anthropic Messages 协议是第一份「填好的 <span class="mono">Protocol</span> 表」（<span class="mono">protocols/anthropic-messages.ts</span>），opencode 的主力方言（Claude 走这条）。</li>
     <li><strong>一切皆块</strong>：内容拆成带 <span class="mono">type</span> 的结构化块（text/image/tool_use/tool_result/server_tool_use/服务端工具结果）；<strong>system 是顶层独立字段</strong>（区别于 OpenAI 把它当首条消息）——正是适配器要吸收的方言差异。</li>
-    <li><strong>4 个缓存断点预算</strong>：跨 tools/system/messages 最多 4 个 <span class="mono">cache_control: ephemeral</span> 标记，超额报 400；lowering 层用可变 <span class="mono">Breakpoints{remaining,dropped}</span> 计数器穿过 <span class="mono">lower*</span>，花完名额就 <span class="mono">dropped++</span> 悄悄放弃（不报错）。TTL 两档：≥3600s→"1h"，否则 5m。</li>
+    <li><strong>4 个缓存断点预算</strong>：跨 tools/system/messages 最多 4 个 <span class="mono">cache_control: ephemeral</span> 标记，超额报 400；lowering 层用可变 <span class="mono">Breakpoints{remaining,dropped}</span> 计数器穿过 <span class="mono">lower*</span>，花完名额就 <span class="mono">dropped++</span> 丢弃（请求照发不失败，仅末尾记一条聚合 <span class="mono">logWarning</span>）。TTL 两档：≥3600s→"1h"，否则 5m。</li>
     <li>这套缓存逻辑抽到 <span class="mono">utils/cache.ts</span> 与 <strong>Bedrock 共享</strong>（同一供应商约束，两协议复用）。可变计数器是刻意的本地、单趟手法，区别于状态机的显式传状态。</li>
     <li><strong>stream</strong>：message_start/content_block_*/message_delta/message_stop；工具参数经 input_json_delta 跨帧累积；usage 两半 <span class="mono">mergeUsage</span> 合并、缓存用量回译为 cacheRead/cacheWrite、思考 token 不单列。缓存断点与第 24 课 Context Epoch「稳基线前缀」遥相呼应。</li>
   </ul>
@@ -566,7 +566,7 @@ LESSON_30 = {
   <div class="t-row"><span class="t-num">messages</span><span class="t-txt">two history spots want caching → remaining 2→1→0, emit markers</span></div>
   <div class="t-row"><span class="t-num">5th</span><span class="t-txt">another wants caching → remaining=0, dropped++, quietly give up</span></div>
 </div>
-<p>This code's <strong>restraint</strong> shows in two places. First, <strong>"quietly give up" rather than "error"</strong>: excess cache markers are silently dropped, the request goes out as usual—caching is only an optimization, it shouldn't break the request just because you "wanted to cache more." Second, <strong>TTL is also simplified to two buckets</strong>: <span class="mono">ttlBucket</span> maps any request ≥3600 seconds to <span class="mono">"1h"</span>, otherwise the default 5 minutes—because Anthropic only recognizes these two. One more engineering decision worth noting: this "4-cap + two TTL buckets" logic is hoisted into <span class="mono">protocols/utils/cache.ts</span> to be <strong>shared</strong>, because <strong>Claude on Bedrock eats the same rules</strong> (lesson 32 meets it again). One provider constraint, reused by two protocols—another instance of "factor out the commonality" compounding.</p>
+<p>This code's <strong>restraint</strong> shows in two places. First, <strong>"drop rather than fail the request"</strong>: excess cache markers are dropped (with one aggregate <span class="mono">logWarning</span> at the end noting how many), and the request goes out as usual—caching is only an optimization, it shouldn't break the request just because you "wanted to cache more." Second, <strong>TTL is also simplified to two buckets</strong>: <span class="mono">ttlBucket</span> maps any request ≥3600 seconds to <span class="mono">"1h"</span>, otherwise the default 5 minutes—because Anthropic only recognizes these two. One more engineering decision worth noting: this "4-cap + two TTL buckets" logic is hoisted into <span class="mono">protocols/utils/cache.ts</span> to be <strong>shared</strong>, because <strong>Claude on Bedrock eats the same rules</strong> (lesson 32 meets it again). One provider constraint, reused by two protocols—another instance of "factor out the commonality" compounding.</p>
 <div class="card detail">
   <div class="tag">🔬 Source Detail</div>
   <p>The heart of the budget counter is this <span class="mono">cacheControl</span> function (simplified from anthropic-messages.ts):</p>
@@ -609,7 +609,7 @@ LESSON_30 = {
   <ul>
     <li><strong>body (out) = the lower* family</strong>: translates the canonical request into the Anthropic body—content split into <strong>typed blocks</strong> (text/image/tool_use/tool_result/server tools…), system hoisted into a <strong>top-level field</strong>.</li>
     <li><strong>Signature quirk ① "everything is a block"</strong>: each piece of content is a structured block with a <span class="mono">type</span>, able to hang its own <span class="mono">cache_control</span> metadata.</li>
-    <li><strong>Signature quirk ② "4 cache breakpoints budget"</strong>: at most 4 ephemeral markers across tools/system/messages, 400 if exceeded; a mutable <span class="mono">Breakpoints{remaining,dropped}</span> counter threads through lower*, dropping silently past the cap. Logic <strong>shared</strong> with Bedrock in utils/cache.ts.</li>
+    <li><strong>Signature quirk ② "4 cache breakpoints budget"</strong>: at most 4 ephemeral markers across tools/system/messages, 400 if exceeded; a mutable <span class="mono">Breakpoints{remaining,dropped}</span> counter threads through lower*, dropping past the cap (request not failed, just one aggregate warning). Logic <strong>shared</strong> with Bedrock in utils/cache.ts.</li>
     <li><strong>stream (back)</strong>: message_start→content_block_start/delta/stop→message_delta→message_stop; tool args accumulate across frames, usage's two halves merged, cache usage back-translated, thinking tokens not broken out.</li>
   </ul>
   <p>A thread worth tying together: <strong>cache breakpoints and lesson 24's Context Epoch are a match made in heaven</strong>. Context Epoch works hard to keep the "baseline prefix stable"—for what? Precisely to keep this Anthropic cache prefix <strong>hitting continuously</strong>—a stable prefix means the cache doesn't invalidate, and what's saved is hard cash. The upper layer's pains to "hold the prefix steady" cash out, at this "cache breakpoint" layer, into numbers on the bill. That's the joy of reading source internals: two designs six lessons apart, seemingly unrelated, quietly mesh here, each completing the other.</p>
@@ -620,7 +620,7 @@ LESSON_30 = {
   <ul>
     <li>The Anthropic Messages protocol is the first "filled-in <span class="mono">Protocol</span> form" (<span class="mono">protocols/anthropic-messages.ts</span>), opencode's primary dialect (Claude rides this).</li>
     <li><strong>Everything is a block</strong>: content split into structured blocks with a <span class="mono">type</span> (text/image/tool_use/tool_result/server_tool_use/server tool results); <strong>system is a top-level field</strong> (vs OpenAI treating it as the first message)—exactly the dialect difference the adapter absorbs.</li>
-    <li><strong>4 cache breakpoints budget</strong>: at most 4 <span class="mono">cache_control: ephemeral</span> markers across tools/system/messages, 400 if exceeded; the lowering layer threads a mutable <span class="mono">Breakpoints{remaining,dropped}</span> counter through <span class="mono">lower*</span>, and once slots are spent does <span class="mono">dropped++</span> and quietly gives up (no error). Two TTL buckets: ≥3600s→"1h", else 5m.</li>
+    <li><strong>4 cache breakpoints budget</strong>: at most 4 <span class="mono">cache_control: ephemeral</span> markers across tools/system/messages, 400 if exceeded; the lowering layer threads a mutable <span class="mono">Breakpoints{remaining,dropped}</span> counter through <span class="mono">lower*</span>, and once slots are spent does <span class="mono">dropped++</span> and drops the marker (request still sent, just one aggregate <span class="mono">logWarning</span>). Two TTL buckets: ≥3600s→"1h", else 5m.</li>
     <li>This cache logic is hoisted into <span class="mono">utils/cache.ts</span> and <strong>shared with Bedrock</strong> (one provider constraint, two protocols reusing). The mutable counter is a deliberate local, single-pass technique, distinct from a state machine's explicit state threading.</li>
     <li><strong>stream</strong>: message_start/content_block_*/message_delta/message_stop; tool args accumulate across frames via input_json_delta; usage's two halves <span class="mono">mergeUsage</span>'d, cache usage back-translated to cacheRead/cacheWrite, thinking tokens not broken out. Cache breakpoints echo lesson 24's Context Epoch "stable baseline prefix."</li>
   </ul>
@@ -846,7 +846,7 @@ LESSON_32 = {
   <div class="cell"><div class="c-tag">text</div><div class="c-txt">文本片段</div></div>
   <div class="cell"><div class="c-tag">functionCall</div><div class="c-txt">工具调用（camelCase！不是 tool_use 也不是 tool_calls）</div></div>
   <div class="cell"><div class="c-tag">functionResponse</div><div class="c-txt">工具结果回传</div></div>
-  <div class="cell"><div class="c-tag">inline_data</div><div class="c-txt">内联图片等多模态数据</div></div>
+  <div class="cell"><div class="c-tag">inlineData</div><div class="c-txt">内联图片等多模态数据</div></div>
   <div class="cell"><div class="c-tag">thought + thoughtSignature</div><div class="c-txt">标记为思考的 part，带「思考签名」</div></div>
 </div>
 <p>看到 <span class="mono">thoughtSignature</span> 了吗？这就是本课第一个「会心一笑」的点。回顾一下：让模型跨轮信任自己上一轮的推理，第 30 课 Anthropic 叫 <span class="mono">signature</span>，第 31 课 OpenAI Responses 叫 <span class="mono">encrypted_content</span>，到了 Gemini 这儿叫 <span class="mono">thoughtSignature</span>——<strong>同一个概念，三家三个名字</strong>。明明是一回事，偏偏没人愿意跟别人叫一样的名字。把它们并排一放，「协议即方言」这五个字就再不抽象了：</p>
@@ -947,7 +947,7 @@ LESSON_32 = {
   <div class="cell"><div class="c-tag">text</div><div class="c-txt">text fragment</div></div>
   <div class="cell"><div class="c-tag">functionCall</div><div class="c-txt">tool call (camelCase! not tool_use, not tool_calls)</div></div>
   <div class="cell"><div class="c-tag">functionResponse</div><div class="c-txt">tool result returned</div></div>
-  <div class="cell"><div class="c-tag">inline_data</div><div class="c-txt">inline image and other multimodal data</div></div>
+  <div class="cell"><div class="c-tag">inlineData</div><div class="c-txt">inline image and other multimodal data</div></div>
   <div class="cell"><div class="c-tag">thought + thoughtSignature</div><div class="c-txt">a part marked as thought, with a "thought signature"</div></div>
 </div>
 <p>See <span class="mono">thoughtSignature</span>? This is the lesson's first "knowing smile." Recall: to let the model trust its own prior reasoning across turns, lesson 30's Anthropic calls it <span class="mono">signature</span>, lesson 31's OpenAI Responses calls it <span class="mono">encrypted_content</span>, and here in Gemini it's <span class="mono">thoughtSignature</span>—<strong>the same concept, three vendors, three names</strong>. Lay them side by side and the five words "protocol = dialect" stop being abstract:</p>
@@ -1037,7 +1037,7 @@ LESSON_32 = {
 LESSON_33 = {
     "zh": r"""
 <p class="lead">第 29~32 课，我们把六种协议的「方言」摸了个遍。但你有没有注意到一件事：<strong>协议从头到尾，没碰过一次网络</strong>。它只管「把请求编码成什么样、把响应解码成什么」——纯粹是<strong>语言层面</strong>的活儿。可话总得真的发出去、字节总得真的收回来吧？这一课的主角，就是协议脚下那条<strong>真正搬运字节的传送带</strong>：传输（transport）、分帧（framing）、端点（endpoint）、认证（auth）。它们和协议一起，被 <span class="mono">Route</span> 拼成一条完整的流水线。读完这一课，第 29 课那张「两栏表」会第一次<strong>接上电、转起来</strong>——你会看见一个请求从规范对象出发，经过编码、寻址、签名、上线、分帧、解码，最终变回一串规范事件的<strong>全程</strong>。</p>
-<p>更重要的是，这一课会揭示 opencode 这套设计的<strong>最终形态</strong>：一个 <span class="mono">Route</span> 不是铁板一块，而是<strong>六个正交旋钮</strong>拼出来的——协议、端点、认证、传输、分帧，外加一个 id。每个旋钮都能独立替换。正因如此，第 31 课的「OpenAI 兼容只改端点」、第 32 课的「Bedrock 只换分帧」，才都能用「<strong>只拧一个旋钮、其余照旧</strong>」这么轻巧的方式实现。这一课，就是把这六个旋钮一字排开，让你看清这套<strong>积木式</strong>架构的全貌。</p>
+<p>更重要的是，这一课会揭示 opencode 这套设计的<strong>最终形态</strong>：一个 <span class="mono">Route</span> 不是铁板一块，而是由源码所谓的<strong>四个正交件</strong>——协议、端点、认证、分帧——<strong>外加一个 id</strong> 拼出来的。每一件都能独立替换。（「传输方式」HTTP/WebSocket 不是另一个独立件，而是分帧这一维的延伸：常见的 HTTP 情形你只填 <span class="mono">framing</span>、Route 自动据它建一个 HTTP 传输；要走 WebSocket，就直接给一个 <span class="mono">transport</span> 顶替 framing。）正因如此，第 31 课的「OpenAI 兼容只改端点」、第 32 课的「Bedrock 只换分帧」，才都能用「<strong>只换一件、其余照旧</strong>」这么轻巧的方式实现。这一课，就是把这几件一字排开，让你看清这套<strong>积木式</strong>架构的全貌。</p>
 
 <div class="card analogy">
   <div class="tag">🚚 生活类比</div>
@@ -1067,8 +1067,8 @@ LESSON_33 = {
   <div class="col"><h4>HTTP（货车往返）</h4><p>经典的请求/响应：POST 一个请求体出去，把响应体当作<strong>一个字节流</strong>拉回来，本轮就结束。简单、universal，<strong>绝大多数供应商都走这条</strong>。一来一回，干净利落。</p></div>
   <div class="col"><h4>WebSocket（常开热线）</h4><p>一条<strong>持久的双向连接</strong>：连上后，可以不断 <span class="mono">sendText</span> 发消息、从 <span class="mono">messages</span> 流里收消息。适合低延迟、实时、需要双向互动的场景。</p></div>
 </div>
-<p>谁会用 WebSocket？翻遍 <span class="mono">protocols/</span>，你会发现<strong>唯一同时支持两种传输的，是 OpenAI Responses</strong>——它既给了 <span class="mono">httpTransport</span>，也给了 <span class="mono">webSocketTransport</span>。这正好接上第 31 课埋的伏笔：Responses 的请求体被设计成「HTTP 和 WebSocket 共享同一套形状」，HTTP 版多个 <span class="mono">stream:true</span>、WebSocket 版多个 <span class="mono">type:"response.create"</span>。同一份协议编解码，<strong>底下换一种传输照样能用</strong>——这又是「协议与传输正交」的活证据：Responses 的方言只写一遍，HTTP 和 WebSocket 两条腿都能走。其余各家（Anthropic、Gemini、OpenAI Chat、Bedrock）目前都只走 HTTP，但「想加 WebSocket 只需配一个 transport 旋钮、不动协议」这件事，本身就是这套架构留好的余地。</p>
-<p>为什么 HTTP 几乎一统天下、WebSocket 只是个别选项？因为对「发一个请求、流式收一段回复」这件事，HTTP 的「货车往返」已经够用且最省心：一次 POST、一个响应体流、结束，无状态、无需维护长连接、被所有网络设施友好对待。WebSocket 的「常开热线」更强，但也更重——要管理连接的建立、保活、断线重连，代价不小。它真正的价值在<strong>双向、实时、低延迟</strong>的场景：比如你想在模型生成途中插话、或要求毫秒级的来回。OpenAI Responses 之所以两种都备，正是因为它面向那些<strong>需要实时互动</strong>的高级用法。换句话说，opencode 没有「为了时髦而上 WebSocket」，而是<strong>哪种传输划算就用哪种</strong>，并把选择权做成一个可随时拨动的旋钮——这本身就是工程上的清醒。</p>
+<p>谁会用 WebSocket？翻遍 <span class="mono">protocols/</span>，你会发现<strong>唯一同时支持两种传输的，是 OpenAI Responses</strong>——它既给了 <span class="mono">httpTransport</span>，也给了 <span class="mono">webSocketTransport</span>。这正好接上第 31 课埋的伏笔：Responses 的请求体被设计成「HTTP 和 WebSocket 共享同一套形状」，HTTP 版多个 <span class="mono">stream:true</span>、WebSocket 版多个 <span class="mono">type:"response.create"</span>。同一份协议编解码，<strong>底下换一种传输照样能用</strong>——这又是「协议与传输正交」的活证据：Responses 的方言只写一遍，HTTP 和 WebSocket 两条腿都能走。其余各家（Anthropic、Gemini、OpenAI Chat、Bedrock）目前都只走 HTTP，但「想加 WebSocket 只需配一个 transport（顶替 framing）、不动协议」这件事，本身就是这套架构留好的余地。</p>
+<p>为什么 HTTP 几乎一统天下、WebSocket 只是个别选项？因为对「发一个请求、流式收一段回复」这件事，HTTP 的「货车往返」已经够用且最省心：一次 POST、一个响应体流、结束，无状态、无需维护长连接、被所有网络设施友好对待。WebSocket 的「常开热线」更强，但也更重——要管理连接的建立、保活、断线重连，代价不小。它真正的价值在<strong>双向、实时、低延迟</strong>的场景：比如你想在模型生成途中插话、或要求毫秒级的来回。OpenAI Responses 之所以两种都备，正是因为它面向那些<strong>需要实时互动</strong>的高级用法。换句话说，opencode 没有「为了时髦而上 WebSocket」，而是<strong>哪种传输划算就用哪种</strong>，并把选择权做成一个可随时切换的选项——这本身就是工程上的清醒。</p>
 
 <h2>framing：传输与协议之间的那道缝</h2>
 <p>第⑤步「分帧」值得单独说，因为它是<strong>整套设计里最精妙的一道接缝</strong>。<span class="mono">framing.ts</span> 的注释把它定义得很美：「<strong>Framing 是传输与协议之间、字节流形状的那道缝</strong>」。它的接口简单到只有一个函数：<span class="mono">frame: (字节流) =&gt; 帧流</span>。</p>
@@ -1081,17 +1081,16 @@ LESSON_33 = {
 </div>
 <p>opencode 内置两种 framing。<strong>SSE</strong>（<span class="mono">Framing.sse</span>）：把字节按 UTF-8 解码，跑一遍 SSE 通道解码器，丢掉空行和 <span class="mono">[DONE]</span> 这种保活信号，每一帧就是一个事件的 <span class="mono">data:</span> JSON 负载——<strong>几乎所有 JSON 流式 HTTP 供应商都用它</strong>。<strong>AWS 二进制事件流</strong>：就是第 32 课你已经见过的那套带长度前缀和 CRC 校验的二进制帧。关键在注释最后一句：「<strong>帧的类型对这一层是不透明的</strong>」——framing 只负责「把字节切成一份一份」，至于每一份里装的是什么，它<strong>一概不管</strong>，那是协议 <span class="mono">stream.event</span> 解码该操心的事。正因为 framing 对「帧里是什么」保持无知，它才能<strong>被任意协议复用</strong>：SSE 这一种分帧方式，同时服务着 Anthropic、Gemini、OpenAI 三套完全不同的方言。一道划得恰到好处的缝，换来了上下两层各自的自由。反过来想，假如当初没有 framing 这道缝，而是让每个协议自己从字节流里抠帧，那么「按 data: 空行切」这段逻辑就得在 Anthropic、Gemini、OpenAI 里<strong>各抄一遍</strong>——又是第 28 课最忌讳的重复。framing 把「字节→帧」这件三家共通的脏活<strong>提取成一个独立、可复用的零件</strong>，正是「找出共性、抽到一处」这条贯穿全书的智慧，在传输层的又一次现身。</p>
 
-<h2>六个正交旋钮：积木式的 Route</h2>
-<p>把这一课和前几课合起来，opencode LLM 层的<strong>最终形态</strong>就清晰了：一个 <span class="mono">Route</span> 由<strong>六个可独立替换的旋钮</strong>拼成。</p>
+<h2>四个正交件：积木式的 Route</h2>
+<p>把这一课和前几课合起来，opencode LLM 层的<strong>最终形态</strong>就清晰了——<span class="mono">Route.make</span> 的源码注释把它说得明明白白：一个 <span class="mono">Route</span> 由<strong>四个正交件</strong>拼成，外加一个 id。</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">id</div><div class="c-txt">路由标识，用于诊断与解析</div></div>
   <div class="cell"><div class="c-tag">protocol</div><div class="c-txt">方言编解码（body.from + stream.step）</div></div>
   <div class="cell"><div class="c-tag">endpoint</div><div class="c-txt">打哪个 URL</div></div>
   <div class="cell"><div class="c-tag">auth</div><div class="c-txt">怎么签名/认证</div></div>
-  <div class="cell"><div class="c-tag">transport</div><div class="c-txt">HTTP 还是 WebSocket</div></div>
-  <div class="cell"><div class="c-tag">framing</div><div class="c-txt">SSE 还是二进制分帧</div></div>
+  <div class="cell"><div class="c-tag">framing</div><div class="c-txt">怎么把响应字节流切成帧（SSE / 二进制）；走 WS 时以 transport 顶替</div></div>
 </div>
-<p>把各家供应商按这几个旋钮的取值排开，你会立刻看懂前几课那些「轻巧复用」到底是怎么回事：</p>
+<p>注意源码的克制：<span class="mono">make</span> 的注释只认这「四件 + id」，并特意说「若新 Route 不合这四轴模型，就<strong>另写一个专用构造器</strong>，而非预先把公共接口面撑大」。而「传输方式」之所以不算第五件，是因为它和 framing 是<strong>同一维的两种写法</strong>：<span class="mono">make</span> 有两个重载——常见情形传 <span class="mono">framing</span>，Route 自动 <span class="mono">HttpTransport.httpJson({framing})</span> 给你建好 HTTP 传输；要 WebSocket 就传 <span class="mono">transport</span> 顶替 framing（二者只能传其一）。把各家供应商按这几件的取值排开，你会立刻看懂前几课那些「轻巧复用」到底是怎么回事：</p>
 <table class="t">
   <tr><th>供应商</th><th>protocol</th><th>transport</th><th>framing</th></tr>
   <tr><td>Anthropic</td><td>anthropic-messages</td><td>HTTP</td><td>SSE</td></tr>
@@ -1101,7 +1100,7 @@ LESSON_33 = {
   <tr><td>OpenAI Responses</td><td>openai-responses</td><td>HTTP 或 WS</td><td>SSE</td></tr>
   <tr><td>Bedrock</td><td>bedrock-converse</td><td>HTTP</td><td>二进制事件流</td></tr>
 </table>
-<p>这张表把前几课的「魔法」全祛魅了：「OpenAI 兼容」只是把 protocol 旋钮拨到 <span class="mono">openai-chat</span>、改个 endpoint（第 31 课的 24 行）；「Bedrock」只是把 framing 旋钮从 SSE 拨到二进制、其余尽量沿用 Anthropic 那套（第 32 课）；「Responses 上 WebSocket」只是把 transport 旋钮从 HTTP 拨到 WS。<strong>每一个看似聪明的复用，本质都是「只拧一两个旋钮、其余照旧」</strong>。这就是正交分解的复利：六个旋钮各管一维，组合空间却覆盖了所有现实供应商，而新增一家的成本，往往只是<strong>给六个旋钮挑一组合适的取值</strong>。</p>
+<p>这张表把前几课的「魔法」全祛魅了：「OpenAI 兼容」只是把 protocol 件拨到 <span class="mono">openai-chat</span>、改个 endpoint（第 31 课的 24 行）；「Bedrock」只是把 framing 件从 SSE 换成二进制、其余尽量沿用 Anthropic 那套（第 32 课）；「Responses 上 WebSocket」只是把 framing 这一维改用 transport、走 WS。<strong>每一个看似聪明的复用，本质都是「只换一两件、其余照旧」</strong>。这就是正交分解的复利：四件各管一维，组合空间却覆盖了所有现实供应商，而新增一家的成本，往往只是<strong>给这几件挑一组合适的取值</strong>。</p>
 
 <div class="card macro">
   <div class="tag">🗺️ 宏观图景</div>
@@ -1111,24 +1110,24 @@ LESSON_33 = {
     <li><strong>完整流水线</strong>：①body.from 编码 → ②endpoint 寻址 → ③auth 签名 → ④transport 上线取字节流 → ⑤framing 切帧 → ⑥protocol.stream 解码成 LLMEvent。第 29 课的表至此「通上电」。</li>
     <li><strong>两种传输</strong>：HTTP（请求/响应，绝大多数走这条）vs WebSocket（持久双向，唯 OpenAI Responses 两者皆支持，印证第 31 课共享请求体形状）。</li>
     <li><strong>framing 是字节流形状的缝</strong>：<span class="mono">(字节流)=&gt;(帧流)</span>，SSE / 二进制两种；「帧里是什么」对它不透明，故能被任意协议复用（SSE 同时服务 Anthropic/Gemini/OpenAI）。</li>
-    <li><strong>六个正交旋钮</strong>：id/protocol/endpoint/auth/transport/framing 拼成一个 Route，各自独立替换。前几课的「轻巧复用」本质都是「只拧一两个旋钮」。</li>
+    <li><strong>四个正交件 + id</strong>：源码注释明言 Route 由 protocol/endpoint/auth/framing「四个正交件」加 id 拼成，各自独立替换。前几课的「轻巧复用」本质都是「只换一两件」。（「传输」HTTP/WebSocket 不是第五件，而是 framing 这一维的延伸。）</li>
   </ul>
   <p>M6 到此，LLM 协议层的全貌已在你眼前：core 说一种规范语（L28），协议适配器把它翻成各家方言（L29 骨架 → L30~32 具体方言），传输层再把翻好的话真正送达（L33）。还剩两课收尾 M6：第 34 课深入<strong>流式事件与提示缓存</strong>（把 LLMEvent 流和第 24 课 Context Epoch 的基线前缀彻底打通），第 35 课讲<strong>模型解析与 GitHub Copilot provider</strong>（models.dev 目录、Copilot 这个特殊供应商）。骨架已立，剩下的是把两个最值得玩味的细节补全。</p>
 </div>
 
 <div class="card detail">
   <div class="tag">🔬 源码细节</div>
-  <p>六个旋钮是怎么「拼」成一个 Route 的？看 <span class="mono">Route.make</span> 的签名（简化自 client.ts）：</p>
-  <pre class="code"><span class="cm">// 一个 Route = 六个零件的组合</span>
+  <p>这四件是怎么「拼」成一个 Route 的？看 <span class="mono">Route.make</span> 的常见签名（简化自 client.ts）：</p>
+  <pre class="code"><span class="cm">// 常见情形：一个 Route = 四个正交件 + id（传 framing，走 HTTP）</span>
 Route.<span class="fn">make</span>({
   id,                  <span class="cm">// 路由标识</span>
   protocol,            <span class="cm">// Protocol&lt;Body, Frame, Event, State&gt;</span>
   endpoint,            <span class="cm">// 打哪个 URL</span>
   auth,                <span class="cm">// 怎么认证</span>
-  transport,           <span class="cm">// HttpTransport / WebSocketTransport</span>
-  framing,             <span class="cm">// Framing&lt;Frame&gt;：bytes → frames</span>
-})</pre>
-  <p>注意类型参数 <span class="mono">Frame</span> 是怎么<strong>把 framing 和 protocol 悄悄锁在一起</strong>的：<span class="mono">framing</span> 产出 <span class="mono">Framing&lt;Frame&gt;</span>，<span class="mono">protocol.stream.event</span> 是 <span class="mono">Codec&lt;Event, Frame&gt;</span>——两者的 <span class="mono">Frame</span> 必须是同一个类型，编译器才放行。这是个很漂亮的约束：旋钮虽然能自由组合，但「framing 切出来的帧」和「protocol 期望解码的帧」必须<strong>类型对得上</strong>。比如 SSE 的帧是 <span class="mono">string</span>（一段 data: JSON），那配它的 protocol 的 <span class="mono">stream.event</span> 就得是 <span class="mono">Codec&lt;Event, string&gt;</span>；Bedrock 二进制帧是解析后的对象，protocol 那边就得对得上。<strong>正交不等于放任</strong>：六个旋钮能自由组合，但类型系统在接缝处守着，不让你把「切出 string 帧的 framing」错配给「期望二进制帧的 protocol」。自由组合 + 类型兜底，这才是「积木」既灵活又不散架的秘密。</p>
+  framing,             <span class="cm">// Framing&lt;Frame&gt;：bytes → frames（Route 自动据它建 HTTP 传输）</span>
+})
+<span class="cm">// 走 WebSocket：用 transport 顶替 framing（make 的另一个重载，二者只传其一）</span></pre>
+  <p>注意类型参数 <span class="mono">Frame</span> 是怎么<strong>把 framing 和 protocol 悄悄锁在一起</strong>的：<span class="mono">framing</span> 产出 <span class="mono">Framing&lt;Frame&gt;</span>，<span class="mono">protocol.stream.event</span> 是 <span class="mono">Codec&lt;Event, Frame&gt;</span>——两者的 <span class="mono">Frame</span> 必须是同一个类型，编译器才放行。这是个很漂亮的约束：这几件虽然能自由组合，但「framing 切出来的帧」和「protocol 期望解码的帧」必须<strong>类型对得上</strong>。比如 SSE 的帧是 <span class="mono">string</span>（一段 data: JSON），那配它的 protocol 的 <span class="mono">stream.event</span> 就得是 <span class="mono">Codec&lt;Event, string&gt;</span>；Bedrock 二进制帧是解析后的对象，protocol 那边就得对得上。<strong>正交不等于放任</strong>：四件能自由组合，但类型系统在接缝处守着，不让你把「切出 string 帧的 framing」错配给「期望二进制帧的 protocol」。自由组合 + 类型兜底，这才是「积木」既灵活又不散架的秘密。</p>
 </div>
 
 <div class="card key">
@@ -1138,13 +1137,13 @@ Route.<span class="fn">make</span>({
     <li><strong>完整流水线（Route.stream）</strong>：①protocol.body.from 编码 → ②endpoint 寻址 → ③auth 签名 → ④transport 取字节流 → ⑤framing 切帧 → ⑥protocol.stream 解码成 LLMEvent。第 29 课的「两栏表」至此接上完整上下文。</li>
     <li><strong>两种 transport</strong>：HTTP（请求/响应，绝大多数）；WebSocket（持久双向，<span class="mono">sendText</span>+<span class="mono">messages</span> 流）。唯 OpenAI Responses 同时支持两者，印证第 31 课「HTTP 与 WS 共享请求体形状」。</li>
     <li><strong>framing = 字节流形状的缝</strong>（<span class="mono">framing.ts</span>）：<span class="mono">(bytes)=&gt;(frames)</span>，SSE（几乎所有 JSON HTTP 供应商）/ AWS 二进制两种；「帧里是什么」对它不透明，故 SSE 可同时服务 Anthropic/Gemini/OpenAI。</li>
-    <li><strong>六个正交旋钮</strong>：<span class="mono">Route.make({id,protocol,endpoint,auth,transport,framing})</span>。前几课的复用本质都是「只拧一两个旋钮」（兼容=改 endpoint、Bedrock=改 framing、Responses WS=改 transport）。类型参数 <span class="mono">Frame</span> 在 framing↔protocol 接缝处强制对齐，正交但不放任。</li>
+    <li><strong>四个正交件 + id</strong>：<span class="mono">Route.make({id, protocol, endpoint, auth, framing})</span>（常见的 HTTP 写法）。前几课的复用本质都是「只换一两件」（兼容=改 endpoint、Bedrock=改 framing、Responses WS=以 transport 顶替 framing）。类型参数 <span class="mono">Frame</span> 在 framing↔protocol 接缝处强制对齐，正交但不放任。</li>
   </ul>
 </div>
 """,
     "en": r"""
 <p class="lead">Lessons 29–32, we walked through all six protocols' "dialects." But did you notice something: <strong>from start to finish, a protocol never touches the network</strong>. It only handles "what to encode the request into, what to decode the response into"—purely <strong>language-layer</strong> work. But the message has to actually go out, the bytes have to actually come back, right? This lesson's star is the <strong>conveyor belt that actually carries bytes</strong> beneath the protocol: transport, framing, endpoint, auth. Together with the protocol, they're assembled by <span class="mono">Route</span> into one complete pipeline. After this lesson, lesson 29's "two-column form" gets <strong>powered up and spinning</strong> for the first time—you'll see a request's <strong>full journey</strong> from canonical object through encoding, addressing, signing, going on the wire, framing, decoding, finally back into a stream of canonical events.</p>
-<p>More importantly, this lesson reveals the <strong>final form</strong> of opencode's design: a <span class="mono">Route</span> isn't monolithic but assembled from <strong>six orthogonal knobs</strong>—protocol, endpoint, auth, transport, framing, plus an id. Each knob is independently swappable. That's exactly why lesson 31's "OpenAI-compatible only changes the endpoint" and lesson 32's "Bedrock only swaps framing" could be done so lightly, as "<strong>turn one knob, leave the rest</strong>." This lesson lays the six knobs out in a row to show you the full picture of this <strong>building-block</strong> architecture.</p>
+<p>More importantly, this lesson reveals the <strong>final form</strong> of opencode's design: a <span class="mono">Route</span> isn't monolithic but assembled from what the source calls the <strong>four orthogonal pieces</strong>—protocol, endpoint, auth, framing—<strong>plus an id</strong>. Each piece is independently swappable. (The "transport" HTTP/WebSocket choice isn't a separate fifth piece but an extension of the framing axis: in the common HTTP case you pass only <span class="mono">framing</span> and the Route builds an HTTP transport from it; for WebSocket you supply a <span class="mono">transport</span> in place of framing.) That's exactly why lesson 31's "OpenAI-compatible only changes the endpoint" and lesson 32's "Bedrock only swaps framing" could be done so lightly, as "<strong>swap one piece, leave the rest</strong>." This lesson lays these pieces out in a row to show you the full picture of this <strong>building-block</strong> architecture.</p>
 
 <div class="card analogy">
   <div class="tag">🚚 Analogy</div>
@@ -1174,8 +1173,8 @@ Route.<span class="fn">make</span>({
   <div class="col"><h4>HTTP (truck round-trip)</h4><p>Classic request/response: POST a request body out, haul the response body back as <strong>one byte stream</strong>, and the turn is done. Simple, universal, <strong>the vast majority of providers ride this</strong>. One round trip, clean.</p></div>
   <div class="col"><h4>WebSocket (always-on hotline)</h4><p>A <strong>persistent bidirectional connection</strong>: once connected, you can keep <span class="mono">sendText</span>-ing messages and receiving from the <span class="mono">messages</span> stream. Fits low-latency, real-time, bidirectional-interaction scenarios.</p></div>
 </div>
-<p>Who uses WebSocket? Search all of <span class="mono">protocols/</span> and you'll find <strong>the only one supporting both transports is OpenAI Responses</strong>—it provides both <span class="mono">httpTransport</span> and <span class="mono">webSocketTransport</span>. This picks up lesson 31's planted seed: Responses' request body is designed so "HTTP and WebSocket share one shape," the HTTP version adds <span class="mono">stream:true</span>, the WebSocket version adds <span class="mono">type:"response.create"</span>. The same protocol codec <strong>works just as well with a different transport underneath</strong>—more living proof of "protocol and transport are orthogonal": Responses' dialect is written once, walking on both HTTP and WebSocket legs. The others (Anthropic, Gemini, OpenAI Chat, Bedrock) currently ride only HTTP, but "to add WebSocket just configure a transport knob, untouching the protocol" is itself the headroom this architecture left.</p>
-<p>Why does HTTP nearly dominate while WebSocket is just an occasional option? Because for "send one request, stream back one reply," HTTP's "truck round-trip" is enough and most carefree: one POST, one response-body stream, done—stateless, no long connection to maintain, treated kindly by all network infrastructure. WebSocket's "always-on hotline" is more powerful but also heavier—you must manage connection setup, keepalive, reconnect on drop, no small cost. Its real value is in <strong>bidirectional, real-time, low-latency</strong> scenarios: e.g. interjecting mid-generation, or demanding millisecond round-trips. OpenAI Responses keeps both precisely because it targets those <strong>real-time-interaction</strong> advanced uses. In other words, opencode doesn't "adopt WebSocket to be trendy," but <strong>uses whichever transport is worthwhile</strong>, making the choice a knob you can turn anytime—itself engineering clarity.</p>
+<p>Who uses WebSocket? Search all of <span class="mono">protocols/</span> and you'll find <strong>the only one supporting both transports is OpenAI Responses</strong>—it provides both <span class="mono">httpTransport</span> and <span class="mono">webSocketTransport</span>. This picks up lesson 31's planted seed: Responses' request body is designed so "HTTP and WebSocket share one shape," the HTTP version adds <span class="mono">stream:true</span>, the WebSocket version adds <span class="mono">type:"response.create"</span>. The same protocol codec <strong>works just as well with a different transport underneath</strong>—more living proof of "protocol and transport are orthogonal": Responses' dialect is written once, walking on both HTTP and WebSocket legs. The others (Anthropic, Gemini, OpenAI Chat, Bedrock) currently ride only HTTP, but "to add WebSocket just supply a transport (in place of framing), untouching the protocol" is itself the headroom this architecture left.</p>
+<p>Why does HTTP nearly dominate while WebSocket is just an occasional option? Because for "send one request, stream back one reply," HTTP's "truck round-trip" is enough and most carefree: one POST, one response-body stream, done—stateless, no long connection to maintain, treated kindly by all network infrastructure. WebSocket's "always-on hotline" is more powerful but also heavier—you must manage connection setup, keepalive, reconnect on drop, no small cost. Its real value is in <strong>bidirectional, real-time, low-latency</strong> scenarios: e.g. interjecting mid-generation, or demanding millisecond round-trips. OpenAI Responses keeps both precisely because it targets those <strong>real-time-interaction</strong> advanced uses. In other words, opencode doesn't "adopt WebSocket to be trendy," but <strong>uses whichever transport is worthwhile</strong>, making the choice a switch you can flip anytime—itself engineering clarity.</p>
 
 <h2>framing: the seam between transport and protocol</h2>
 <p>Step ⑤ "framing" deserves its own section, because it's <strong>the most exquisite seam in the whole design</strong>. <span class="mono">framing.ts</span>'s comment defines it beautifully: "<strong>Framing is the byte-stream-shaped seam between transport and protocol</strong>." Its interface is as simple as one function: <span class="mono">frame: (byte stream) =&gt; frame stream</span>.</p>
@@ -1188,17 +1187,16 @@ Route.<span class="fn">make</span>({
 </div>
 <p>opencode builds in two framings. <strong>SSE</strong> (<span class="mono">Framing.sse</span>): UTF-8 decode the bytes, run the SSE channel decoder, drop empty lines and <span class="mono">[DONE]</span> keep-alive signals, and each frame is one event's <span class="mono">data:</span> JSON payload—<strong>nearly every JSON-streaming HTTP provider uses it</strong>. <strong>AWS binary event stream</strong>: exactly the length-prefixed, CRC-checksummed binary frames you saw in lesson 32. The key is the comment's last line: "<strong>the frame type is opaque to this layer</strong>"—framing only "cuts bytes into portions," and as for what each portion holds, it <strong>doesn't care at all</strong>—that's the protocol <span class="mono">stream.event</span> decode's worry. Precisely because framing stays ignorant of "what's in the frame," it can be <strong>reused by any protocol</strong>: the single SSE framing serves Anthropic, Gemini, and OpenAI's three completely different dialects at once. A seam cut just right buys both layers their respective freedom. Conversely, had there been no framing seam, with each protocol clawing frames from the byte stream itself, then "cut by data: blank line" logic would have to be <strong>copied into each of</strong> Anthropic, Gemini, OpenAI—again the duplication lesson 28 most abhors. framing extracts the "byte→frame" dirty work common to all three into <strong>one independent, reusable part</strong>—exactly "find the commonality, factor it out," the wisdom running through this whole book, making another appearance at the transport layer.</p>
 
-<h2>Six orthogonal knobs: the building-block Route</h2>
-<p>Combine this lesson with the prior ones and the <strong>final form</strong> of opencode's LLM layer is clear: a <span class="mono">Route</span> is assembled from <strong>six independently-swappable knobs</strong>.</p>
+<h2>Four orthogonal pieces: the building-block Route</h2>
+<p>Combine this lesson with the prior ones and the <strong>final form</strong> of opencode's LLM layer is clear—<span class="mono">Route.make</span>'s source comment spells it out: a <span class="mono">Route</span> is assembled from <strong>four orthogonal pieces</strong>, plus an id.</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">id</div><div class="c-txt">route identity, for diagnostics & resolution</div></div>
   <div class="cell"><div class="c-tag">protocol</div><div class="c-txt">dialect codec (body.from + stream.step)</div></div>
   <div class="cell"><div class="c-tag">endpoint</div><div class="c-txt">which URL to hit</div></div>
   <div class="cell"><div class="c-tag">auth</div><div class="c-txt">how to sign/authenticate</div></div>
-  <div class="cell"><div class="c-tag">transport</div><div class="c-txt">HTTP or WebSocket</div></div>
-  <div class="cell"><div class="c-tag">framing</div><div class="c-txt">SSE or binary framing</div></div>
+  <div class="cell"><div class="c-tag">framing</div><div class="c-txt">how to cut the response byte stream into frames (SSE / binary); supply transport instead for WS</div></div>
 </div>
-<p>Lay each vendor out by these knobs' values and you'll instantly understand what those "light reuses" in prior lessons really were:</p>
+<p>Note the source's restraint: <span class="mono">make</span>'s comment recognizes only these "four pieces + id," and pointedly says "if a new route doesn't fit this four-axis model, <strong>add a purpose-built constructor</strong> rather than widening the public surface preemptively." And "transport" isn't a fifth piece because it and framing are <strong>two spellings of the same axis</strong>: <span class="mono">make</span> has two overloads—the common case takes <span class="mono">framing</span> and the Route auto-builds <span class="mono">HttpTransport.httpJson({framing})</span> for you; for WebSocket you pass a <span class="mono">transport</span> in place of framing (you pass one xor the other). Lay each vendor out by these pieces' values and you'll instantly understand what those "light reuses" in prior lessons really were:</p>
 <table class="t">
   <tr><th>Vendor</th><th>protocol</th><th>transport</th><th>framing</th></tr>
   <tr><td>Anthropic</td><td>anthropic-messages</td><td>HTTP</td><td>SSE</td></tr>
@@ -1208,7 +1206,7 @@ Route.<span class="fn">make</span>({
   <tr><td>OpenAI Responses</td><td>openai-responses</td><td>HTTP or WS</td><td>SSE</td></tr>
   <tr><td>Bedrock</td><td>bedrock-converse</td><td>HTTP</td><td>binary event stream</td></tr>
 </table>
-<p>This table demystifies all the prior lessons' "magic": "OpenAI-compatible" just turns the protocol knob to <span class="mono">openai-chat</span> and changes the endpoint (lesson 31's 24 lines); "Bedrock" just turns the framing knob from SSE to binary, reusing Anthropic's set as much as possible (lesson 32); "Responses on WebSocket" just turns the transport knob from HTTP to WS. <strong>Every seemingly-clever reuse is essentially "turn one or two knobs, leave the rest."</strong> That's the compounding of orthogonal decomposition: six knobs each own one dimension, yet the combination space covers all real-world providers, and the cost of adding one is often just <strong>picking a fitting set of values for the six knobs</strong>.</p>
+<p>This table demystifies all the prior lessons' "magic": "OpenAI-compatible" just turns the protocol piece to <span class="mono">openai-chat</span> and changes the endpoint (lesson 31's 24 lines); "Bedrock" just swaps the framing piece from SSE to binary, reusing Anthropic's set as much as possible (lesson 32); "Responses on WebSocket" just supplies a transport in place of framing on that axis. <strong>Every seemingly-clever reuse is essentially "swap one or two pieces, leave the rest."</strong> That's the compounding of orthogonal decomposition: four pieces each own one dimension, yet the combination space covers all real-world providers, and the cost of adding one is often just <strong>picking a fitting set of values for these pieces</strong>.</p>
 
 <div class="card macro">
   <div class="tag">🗺️ The Big Picture</div>
@@ -1218,24 +1216,24 @@ Route.<span class="fn">make</span>({
     <li><strong>The complete pipeline</strong>: ①body.from encode → ②endpoint address → ③auth sign → ④transport on-wire to byte stream → ⑤framing cut frames → ⑥protocol.stream decode to LLMEvent. Lesson 29's form is now "powered up."</li>
     <li><strong>Two transports</strong>: HTTP (request/response, the vast majority) vs WebSocket (persistent bidirectional, only OpenAI Responses supports both, confirming lesson 31's shared request-body shape).</li>
     <li><strong>framing is the byte-stream-shaped seam</strong>: <span class="mono">(byte stream)=&gt;(frame stream)</span>, SSE / binary; "what's in the frame" is opaque to it, so it's reusable by any protocol (SSE serves Anthropic/Gemini/OpenAI at once).</li>
-    <li><strong>Six orthogonal knobs</strong>: id/protocol/endpoint/auth/transport/framing assemble a Route, each independently swappable. The prior lessons' "light reuses" are all "turn one or two knobs."</li>
+    <li><strong>Four orthogonal pieces + id</strong>: the source comment states a Route is assembled from "four orthogonal pieces" protocol/endpoint/auth/framing plus an id, each independently swappable. The prior lessons' "light reuses" are all "swap one or two pieces." ("transport" HTTP/WebSocket isn't a fifth piece but an extension of the framing axis.)</li>
   </ul>
   <p>With M6 here, the LLM protocol layer's full picture is before you: core speaks one canonical language (L28), protocol adapters translate it into each dialect (L29 skeleton → L30–32 concrete dialects), the transport layer actually delivers the translated message (L33). Two lessons remain to wrap up M6: lesson 34 dives into <strong>streaming events and prompt caching</strong> (fully connecting the LLMEvent stream to lesson 24's Context Epoch baseline prefix), lesson 35 covers <strong>model resolution and the GitHub Copilot provider</strong> (the models.dev catalog, Copilot as a special provider). The skeleton stands; what remains is filling in the two most intriguing details.</p>
 </div>
 
 <div class="card detail">
   <div class="tag">🔬 Source Detail</div>
-  <p>How do the six knobs "assemble" into a Route? Look at <span class="mono">Route.make</span>'s signature (simplified from client.ts):</p>
-  <pre class="code"><span class="cm">// one Route = a composition of six parts</span>
+  <p>How do these four pieces "assemble" into a Route? Look at <span class="mono">Route.make</span>'s common signature (simplified from client.ts):</p>
+  <pre class="code"><span class="cm">// common case: a Route = four orthogonal pieces + id (pass framing, ride HTTP)</span>
 Route.<span class="fn">make</span>({
   id,                  <span class="cm">// route identity</span>
   protocol,            <span class="cm">// Protocol&lt;Body, Frame, Event, State&gt;</span>
   endpoint,            <span class="cm">// which URL to hit</span>
   auth,                <span class="cm">// how to authenticate</span>
-  transport,           <span class="cm">// HttpTransport / WebSocketTransport</span>
-  framing,             <span class="cm">// Framing&lt;Frame&gt;: bytes → frames</span>
-})</pre>
-  <p>Note how the type parameter <span class="mono">Frame</span> <strong>quietly locks framing and protocol together</strong>: <span class="mono">framing</span> produces <span class="mono">Framing&lt;Frame&gt;</span>, <span class="mono">protocol.stream.event</span> is <span class="mono">Codec&lt;Event, Frame&gt;</span>—the two <span class="mono">Frame</span>s must be the same type for the compiler to pass. It's a beautiful constraint: the knobs can combine freely, but "the frame framing cuts out" and "the frame protocol expects to decode" must <strong>match in type</strong>. If SSE's frame is <span class="mono">string</span> (a data: JSON segment), the protocol pairing it must have <span class="mono">stream.event</span> of <span class="mono">Codec&lt;Event, string&gt;</span>; Bedrock's binary frame is a parsed object, so the protocol there must match. <strong>Orthogonal doesn't mean lawless</strong>: the six knobs combine freely, but the type system guards the seam, not letting you mis-pair a "framing that cuts string frames" with a "protocol expecting binary frames." Free composition + type backstop—that's the secret to the "building blocks" being both flexible and not falling apart.</p>
+  framing,             <span class="cm">// Framing&lt;Frame&gt;: bytes → frames (Route auto-builds the HTTP transport)</span>
+})
+<span class="cm">// for WebSocket: pass transport in place of framing (make's other overload; one xor the other)</span></pre>
+  <p>Note how the type parameter <span class="mono">Frame</span> <strong>quietly locks framing and protocol together</strong>: <span class="mono">framing</span> produces <span class="mono">Framing&lt;Frame&gt;</span>, <span class="mono">protocol.stream.event</span> is <span class="mono">Codec&lt;Event, Frame&gt;</span>—the two <span class="mono">Frame</span>s must be the same type for the compiler to pass. It's a beautiful constraint: the pieces can combine freely, but "the frame framing cuts out" and "the frame protocol expects to decode" must <strong>match in type</strong>. If SSE's frame is <span class="mono">string</span> (a data: JSON segment), the protocol pairing it must have <span class="mono">stream.event</span> of <span class="mono">Codec&lt;Event, string&gt;</span>; Bedrock's binary frame is a parsed object, so the protocol there must match. <strong>Orthogonal doesn't mean lawless</strong>: the four pieces combine freely, but the type system guards the seam, not letting you mis-pair a "framing that cuts string frames" with a "protocol expecting binary frames." Free composition + type backstop—that's the secret to the "building blocks" being both flexible and not falling apart.</p>
 </div>
 
 <div class="card key">
@@ -1245,7 +1243,7 @@ Route.<span class="fn">make</span>({
     <li><strong>The complete pipeline (Route.stream)</strong>: ①protocol.body.from encode → ②endpoint address → ③auth sign → ④transport to byte stream → ⑤framing cut frames → ⑥protocol.stream decode to LLMEvent. Lesson 29's "two-column form" now has its full context.</li>
     <li><strong>Two transports</strong>: HTTP (request/response, the vast majority); WebSocket (persistent bidirectional, <span class="mono">sendText</span>+<span class="mono">messages</span> stream). Only OpenAI Responses supports both, confirming lesson 31's "HTTP and WS share request-body shape."</li>
     <li><strong>framing = the byte-stream-shaped seam</strong> (<span class="mono">framing.ts</span>): <span class="mono">(bytes)=&gt;(frames)</span>, SSE (nearly all JSON HTTP providers) / AWS binary; "what's in the frame" is opaque to it, so SSE serves Anthropic/Gemini/OpenAI at once.</li>
-    <li><strong>Six orthogonal knobs</strong>: <span class="mono">Route.make({id,protocol,endpoint,auth,transport,framing})</span>. Prior lessons' reuses are all "turn one or two knobs" (compatible=change endpoint, Bedrock=change framing, Responses WS=change transport). The type parameter <span class="mono">Frame</span> forces framing↔protocol alignment at the seam—orthogonal but not lawless.</li>
+    <li><strong>Four orthogonal pieces + id</strong>: <span class="mono">Route.make({id, protocol, endpoint, auth, framing})</span> (the common HTTP form). Prior lessons' reuses are all "swap one or two pieces" (compatible=change endpoint, Bedrock=change framing, Responses WS=supply transport in place of framing). The type parameter <span class="mono">Frame</span> forces framing↔protocol alignment at the seam—orthogonal but not lawless.</li>
   </ul>
 </div>
 """,
@@ -1261,7 +1259,7 @@ LESSON_34 = {
 </div>
 
 <h2>回来的规范事件流：LLMEvent 的统一词汇</h2>
-<p>第 28 课我们说，反腐层有一进一出：出去的是 <span class="mono">LLMRequest</span>，回来的是 <span class="mono">LLMEvent</span> 流。前者第 28 课看过了，后者一直没正面展开——它就定义在 <span class="mono">schema/events.ts</span> 里。打开一看，<span class="mono">LLMEvent</span> 是一个<strong>有 17 个成员的标签联合</strong>，但它们其实归成几族，逻辑非常清晰：</p>
+<p>第 28 课我们说，反腐层有一进一出：出去的是 <span class="mono">LLMRequest</span>，回来的是 <span class="mono">LLMEvent</span> 流。前者第 28 课看过了，后者一直没正面展开——它就定义在 <span class="mono">schema/events.ts</span> 里。打开一看，<span class="mono">LLMEvent</span> 是一个<strong>有 16 个成员的标签联合</strong>，但它们其实归成几族，逻辑非常清晰：</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">step-start / step-finish</div><div class="c-txt">一个推理步骤的边界（呼应第 20 课的有界步数）</div></div>
   <div class="cell"><div class="c-tag">text-start / -delta / -end</div><div class="c-txt">正文文字：开始、一段段增量、结束</div></div>
@@ -1279,7 +1277,7 @@ LESSON_34 = {
   <div class="t-row"><span class="t-num">step-finish</span><span class="t-txt">本步结束（可能进入下一步）</span></div>
   <div class="t-row"><span class="t-num">finish</span><span class="t-txt">整轮结束，附 Usage（输入/输出/缓存 token）</span></div>
 </div>
-<p>关键认知：<strong>这 17 种事件，就是六种协议的「最大公约数」</strong>。Anthropic 的 <span class="mono">content_block_delta</span>、OpenAI 的 <span class="mono">choices[].delta</span>、Gemini 的流式 part、Bedrock 的二进制帧——千差万别，但 <span class="mono">stream.step</span> 最终都把它们翻译成<strong>这同一套 LLMEvent</strong>。于是楼上的 agent 循环（第 17 课）只需认识这 17 种事件，就能驱动任何一家模型。第 28 课画的那道「翻译墙」，出站一侧是 LLMRequest、入站一侧就是 LLMEvent——<strong>到这一课，墙的两面才算都看全了</strong>。墙内是清一色的规范事件，墙外是六种方言的喧哗，而那道墙，就是 <span class="mono">stream.step</span> 这台翻译机。也正因为楼上只认这 17 种事件，opencode 想接入「第七家、第八家」模型供应商时，agent 循环<strong>一行都不用改</strong>——新供应商只需把自己的流式输出翻译成这套既定词汇即可。统一的事件词汇，既是对内的契约，也是对外扩展的接口。</p>
+<p>关键认知：<strong>这 16 种事件，就是六种协议的「最大公约数」</strong>。Anthropic 的 <span class="mono">content_block_delta</span>、OpenAI 的 <span class="mono">choices[].delta</span>、Gemini 的流式 part、Bedrock 的二进制帧——千差万别，但 <span class="mono">stream.step</span> 最终都把它们翻译成<strong>这同一套 LLMEvent</strong>。于是楼上的 agent 循环（第 17 课）只需认识这 16 种事件，就能驱动任何一家模型。第 28 课画的那道「翻译墙」，出站一侧是 LLMRequest、入站一侧就是 LLMEvent——<strong>到这一课，墙的两面才算都看全了</strong>。墙内是清一色的规范事件，墙外是六种方言的喧哗，而那道墙，就是 <span class="mono">stream.step</span> 这台翻译机。也正因为楼上只认这 16 种事件，opencode 想接入「第七家、第八家」模型供应商时，agent 循环<strong>一行都不用改</strong>——新供应商只需把自己的流式输出翻译成这套既定词汇即可。统一的事件词汇，既是对内的契约，也是对外扩展的接口。</p>
 
 <h2>自动缓存：把那段「不变的开头」缓存住</h2>
 <p>第二个主题，是 <span class="mono">cache-policy.ts</span>——一个只有一百来行、却把好几课串起来的小文件。先回顾动机：第 30 课讲过 Anthropic 的提示缓存（在某些块上打 <span class="mono">cache_control</span>，缓存住从开头到该标记的前缀），还讲过「最多 4 个断点」的预算。但<strong>断点到底该打在哪几个位置？</strong>——这就是 cache-policy 要回答的。它的默认策略 <span class="mono">"auto"</span> 打三个断点：</p>
@@ -1334,18 +1332,18 @@ LESSON_34 = {
   <div class="tag">🗺️ 宏观图景</div>
   <p>这一课把 M6（乃至前几个 part）的几根线收成了扣：</p>
   <ul>
-    <li><strong>LLMEvent = 反腐层的入站半边</strong>（<span class="mono">schema/events.ts</span>，17 成员）：step / text / reasoning / tool-input 的 start-delta-end 三段式 + tool-call/result/error + finish(带 Usage) + provider-error。六种协议的 stream.step 全翻译成它，第 17 课 agent 循环只消费它。补全了第 28 课「翻译墙」的入站一面。</li>
+    <li><strong>LLMEvent = 反腐层的入站半边</strong>（<span class="mono">schema/events.ts</span>，16 成员）：step / text / reasoning / tool-input 的 start-delta-end 三段式 + tool-call/result/error + finish(带 Usage) + provider-error。六种协议的 stream.step 全翻译成它，第 17 课 agent 循环只消费它。补全了第 28 课「翻译墙」的入站一面。</li>
     <li><strong>自动缓存的 3 个断点</strong>（<span class="mono">cache-policy.ts</span> 的 "auto"）：最后一个工具定义 + 最后一段系统提示 + 最新用户消息——把「整回合不变的稳定前缀」缓存住。</li>
     <li><strong>接通第 24 课</strong>：断点打在「最新用户消息」边界，使回合内每次 assistant↔tool 往返都命中同一段缓存前缀；这正是 Context Epoch 死守「基线前缀稳定」的<strong>真正目的</strong>——稳定 = 可缓存 = 省钱。</li>
     <li><strong>缓存默认开</strong>：写 1.25x、读 0.1x，5 分钟内复用一次即回本，工具回合复用多次稳赚。各家机制不同（Anthropic/Bedrock 显式内联；OpenAI/Gemini 隐式，cache-policy 整段跳过）。</li>
   </ul>
-  <p>M6 至此只差最后一课。第 35 课讲<strong>模型解析与 GitHub Copilot provider</strong>：opencode 怎么从 models.dev 目录认出「某个模型该走哪条 Route、配哪组旋钮」，以及 Copilot 这个「既是供应商又自带认证体系」的特殊存在。讲完它，整个「core 说规范语 → 适配器翻方言 → 传输层送达 → 事件流回来 → 缓存省钱」的 LLM 闭环就彻底合龙了。</p>
+  <p>M6 至此只差最后一课。第 35 课讲<strong>模型解析与 GitHub Copilot provider</strong>：opencode 怎么从 models.dev 目录认出「某个模型该走哪条 Route、配齐哪几件」，以及 Copilot 这个「既是供应商又自带认证体系」的特殊存在。讲完它，整个「core 说规范语 → 适配器翻方言 → 传输层送达 → 事件流回来 → 缓存省钱」的 LLM 闭环就彻底合龙了。</p>
 </div>
 
 <div class="card key">
   <div class="tag">🎯 本课要点</div>
   <ul>
-    <li><strong>LLMEvent（<span class="mono">schema/events.ts</span>，17 成员）</strong>是反腐层的入站规范词汇：step-start/finish、text/reasoning/tool-input 各自的 start-delta-end 三段式、tool-call/result/error、finish（带 Usage）、provider-error。六种协议 stream.step 都翻译成它，agent 循环（L17）只消费它——补全第 28 课「翻译墙」的入站半边。</li>
+    <li><strong>LLMEvent（<span class="mono">schema/events.ts</span>，16 成员）</strong>是反腐层的入站规范词汇：step-start/finish、text/reasoning/tool-input 各自的 start-delta-end 三段式、tool-call/result/error、finish（带 Usage）、provider-error。六种协议 stream.step 都翻译成它，agent 循环（L17）只消费它——补全第 28 课「翻译墙」的入站半边。</li>
     <li><strong>三段式反映流式</strong>：会「一点点来」的内容（正文/推理/工具参数）都拆成 start→delta…→end，正是第 29 课状态机的吐出形态。</li>
     <li><strong>cache-policy.ts 的 "auto" 打 3 个断点</strong>：最后工具定义 + 最后系统提示 + 最新用户消息（<span class="mono">markLastTool/markLastSystem/markMessages</span>），缓存「整回合不变的稳定前缀」。</li>
     <li><strong>接通 Context Epoch（L24）</strong>：断点打在「最新用户消息」边界，回合内每次 assistant↔tool 往返都命中同一前缀；故 Context Epoch 死守「基线前缀稳定」的真正目的就是<strong>保住缓存命中</strong>。缓存默认开（写 1.25x/读 0.1x，5 分钟内一次复用即回本）。</li>
@@ -1363,7 +1361,7 @@ LESSON_34 = {
 </div>
 
 <h2>The canonical event stream back: LLMEvent's unified vocabulary</h2>
-<p>Lesson 28 said the anti-corruption layer has an out and a back: out goes <span class="mono">LLMRequest</span>, back comes the <span class="mono">LLMEvent</span> stream. We saw the former in lesson 28; the latter was never directly unfolded—it's defined in <span class="mono">schema/events.ts</span>. Open it and <span class="mono">LLMEvent</span> is a <strong>tagged union with 17 members</strong>, but they group into a few families, very cleanly:</p>
+<p>Lesson 28 said the anti-corruption layer has an out and a back: out goes <span class="mono">LLMRequest</span>, back comes the <span class="mono">LLMEvent</span> stream. We saw the former in lesson 28; the latter was never directly unfolded—it's defined in <span class="mono">schema/events.ts</span>. Open it and <span class="mono">LLMEvent</span> is a <strong>tagged union with 16 members</strong>, but they group into a few families, very cleanly:</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">step-start / step-finish</div><div class="c-txt">a reasoning step's boundary (echoing lesson 20's bounded steps)</div></div>
   <div class="cell"><div class="c-tag">text-start / -delta / -end</div><div class="c-txt">body text: start, segment-by-segment delta, end</div></div>
@@ -1381,7 +1379,7 @@ LESSON_34 = {
   <div class="t-row"><span class="t-num">step-finish</span><span class="t-txt">this step ends (may enter the next)</span></div>
   <div class="t-row"><span class="t-num">finish</span><span class="t-txt">whole turn ends, with Usage (input/output/cache tokens)</span></div>
 </div>
-<p>Key realization: <strong>these 17 events are the "greatest common divisor" of the six protocols</strong>. Anthropic's <span class="mono">content_block_delta</span>, OpenAI's <span class="mono">choices[].delta</span>, Gemini's streaming parts, Bedrock's binary frames—wildly different, but <span class="mono">stream.step</span> ultimately translates them all into <strong>this same LLMEvent set</strong>. So the agent loop upstairs (lesson 17) need only know these 17 events to drive any model. The "translation wall" lesson 28 drew has LLMRequest on the outbound side and LLMEvent on the inbound side—<strong>only by this lesson are both faces of the wall fully seen</strong>. Inside the wall is uniform canonical events, outside is the clamor of six dialects, and the wall itself is the translation machine <span class="mono">stream.step</span>. Precisely because upstairs knows only these 17 events, when opencode wants to add a "seventh, eighth" model provider, the agent loop <strong>doesn't change a line</strong>—a new provider need only translate its streaming output into this established vocabulary. A unified event vocabulary is both an internal contract and the interface for outward extension.</p>
+<p>Key realization: <strong>these 16 events are the "greatest common divisor" of the six protocols</strong>. Anthropic's <span class="mono">content_block_delta</span>, OpenAI's <span class="mono">choices[].delta</span>, Gemini's streaming parts, Bedrock's binary frames—wildly different, but <span class="mono">stream.step</span> ultimately translates them all into <strong>this same LLMEvent set</strong>. So the agent loop upstairs (lesson 17) need only know these 16 events to drive any model. The "translation wall" lesson 28 drew has LLMRequest on the outbound side and LLMEvent on the inbound side—<strong>only by this lesson are both faces of the wall fully seen</strong>. Inside the wall is uniform canonical events, outside is the clamor of six dialects, and the wall itself is the translation machine <span class="mono">stream.step</span>. Precisely because upstairs knows only these 16 events, when opencode wants to add a "seventh, eighth" model provider, the agent loop <strong>doesn't change a line</strong>—a new provider need only translate its streaming output into this established vocabulary. A unified event vocabulary is both an internal contract and the interface for outward extension.</p>
 
 <h2>Auto caching: cache that "unchanging opening"</h2>
 <p>The second theme is <span class="mono">cache-policy.ts</span>—a file of only a hundred-some lines that strings several lessons together. First recall the motive: lesson 30 covered Anthropic's prompt caching (mark some blocks with <span class="mono">cache_control</span>, caching the prefix from the start to that marker), and the "at most 4 breakpoints" budget. But <strong>where exactly should the breakpoints land?</strong>—that's what cache-policy answers. Its default policy <span class="mono">"auto"</span> places three breakpoints:</p>
@@ -1436,18 +1434,18 @@ LESSON_34 = {
   <div class="tag">🗺️ The Big Picture</div>
   <p>This lesson ties M6's (and earlier parts') several threads into knots:</p>
   <ul>
-    <li><strong>LLMEvent = the inbound half of the anti-corruption layer</strong> (<span class="mono">schema/events.ts</span>, 17 members): step / text / reasoning / tool-input start-delta-end triples + tool-call/result/error + finish(with Usage) + provider-error. All six protocols' stream.step translate into it, lesson 17's agent loop consumes only it. Completes the inbound face of lesson 28's "translation wall."</li>
+    <li><strong>LLMEvent = the inbound half of the anti-corruption layer</strong> (<span class="mono">schema/events.ts</span>, 16 members): step / text / reasoning / tool-input start-delta-end triples + tool-call/result/error + finish(with Usage) + provider-error. All six protocols' stream.step translate into it, lesson 17's agent loop consumes only it. Completes the inbound face of lesson 28's "translation wall."</li>
     <li><strong>Auto caching's 3 breakpoints</strong> (cache-policy.ts's "auto"): last tool definition + last system part + latest user message—caching the "stable prefix unchanged through the whole turn."</li>
     <li><strong>Connecting lesson 24</strong>: breakpoints at the "latest user message" boundary make every assistant↔tool round-trip within a turn hit the same cached prefix; this is the <strong>true purpose</strong> of Context Epoch guarding "baseline prefix stable"—stable = cacheable = money saved.</li>
     <li><strong>Caching on by default</strong>: write 1.25x, read 0.1x, one reuse within 5 minutes pays off, a tool turn reuses many times for a sure win. Mechanisms differ (Anthropic/Bedrock explicit inline; OpenAI/Gemini implicit, cache-policy skips the whole pass).</li>
   </ul>
-  <p>M6 now has just one lesson left. Lesson 35 covers <strong>model resolution and the GitHub Copilot provider</strong>: how opencode recognizes from the models.dev catalog "which Route a model should ride, which set of knobs to configure," and Copilot, that "both a provider and a self-contained auth system" special case. After it, the whole LLM loop—"core speaks canonical → adapters translate dialects → transport delivers → event stream comes back → caching saves money"—is fully closed.</p>
+  <p>M6 now has just one lesson left. Lesson 35 covers <strong>model resolution and the GitHub Copilot provider</strong>: how opencode recognizes from the models.dev catalog "which Route a model should ride, which pieces to configure," and Copilot, that "both a provider and a self-contained auth system" special case. After it, the whole LLM loop—"core speaks canonical → adapters translate dialects → transport delivers → event stream comes back → caching saves money"—is fully closed.</p>
 </div>
 
 <div class="card key">
   <div class="tag">🎯 Key Takeaways</div>
   <ul>
-    <li><strong>LLMEvent (<span class="mono">schema/events.ts</span>, 17 members)</strong> is the anti-corruption layer's inbound canonical vocabulary: step-start/finish, text/reasoning/tool-input each as start-delta-end triples, tool-call/result/error, finish (with Usage), provider-error. All six protocols' stream.step translate into it, the agent loop (L17) consumes only it—completing the inbound half of lesson 28's "translation wall."</li>
+    <li><strong>LLMEvent (<span class="mono">schema/events.ts</span>, 16 members)</strong> is the anti-corruption layer's inbound canonical vocabulary: step-start/finish, text/reasoning/tool-input each as start-delta-end triples, tool-call/result/error, finish (with Usage), provider-error. All six protocols' stream.step translate into it, the agent loop (L17) consumes only it—completing the inbound half of lesson 28's "translation wall."</li>
     <li><strong>The triple reflects streaming</strong>: content arriving "bit by bit" (body/reasoning/tool args) all split into start→delta…→end, exactly lesson 29's state-machine output shape.</li>
     <li><strong>cache-policy.ts's "auto" places 3 breakpoints</strong>: last tool definition + last system part + latest user message (<span class="mono">markLastTool/markLastSystem/markMessages</span>), caching the "stable prefix unchanged through the turn."</li>
     <li><strong>Connects Context Epoch (L24)</strong>: breakpoints at the "latest user message" boundary make every assistant↔tool round-trip in a turn hit the same prefix; so Context Epoch guarding "baseline prefix stable" is truly to <strong>preserve cache hits</strong>. Caching on by default (write 1.25x/read 0.1x, one reuse within 5 min pays off).</li>
@@ -1458,7 +1456,7 @@ LESSON_34 = {
 }
 LESSON_35 = {
     "zh": r"""
-<p class="lead">这是 M6 的<strong>收官之课</strong>。前面六课，我们从「反腐层」的总图（L28）一路走到协议骨架（L29）、四家方言（L30~32）、传输六旋钮（L33）、事件流与缓存（L34）。但有个最朴素的问题一直悬着没答：<strong>用户在界面上敲下一个模型名（比如 <span class="mono">anthropic/claude-sonnet</span>），opencode 是怎么从这个字符串，一路解析到「该走哪条 Route、配哪组旋钮、用什么价钱、上限多少」的？</strong>这一课就补上这条「从一个名字到一条配好的链路」的解析线。而压轴登场的，是 <strong>GitHub Copilot</strong>——一个把前六课所有伏笔都收齐的「终极样本」：它复用 OpenAI 的协议、却自带一套独特的认证，是「六旋钮架构」威力的最后一次、也是最漂亮的一次展示。</p>
+<p class="lead">这是 M6 的<strong>收官之课</strong>。前面六课，我们从「反腐层」的总图（L28）一路走到协议骨架（L29）、四家方言（L30~32）、传输积木（L33）、事件流与缓存（L34）。但有个最朴素的问题一直悬着没答：<strong>用户在界面上敲下一个模型名（比如 <span class="mono">anthropic/claude-sonnet</span>），opencode 是怎么从这个字符串，一路解析到「该走哪条 Route、配哪几件、用什么价钱、上限多少」的？</strong>这一课就补上这条「从一个名字到一条配好的链路」的解析线。而压轴登场的，是 <strong>GitHub Copilot</strong>——一个把前六课所有伏笔都收齐的「终极样本」：它复用 OpenAI 的协议（连 Route 都直接拿来用）、却自带一套独特的认证，是「积木式架构」威力的最后一次、也是最漂亮的一次展示。</p>
 <p>这一课会让你看清两件事。其一，opencode <strong>不把模型的事实写死在代码里</strong>，而是去<strong>拉取 models.dev 这个社区维护的「模型大全」</strong>——某模型支持不支持工具调用、上下文多大、输入输出多少钱、缓存读写各打几折……全来自这个外部目录。其二，<strong>catalog</strong> 把这份目录变成可查的内存结构，让「模型名 → 一条配好的 Route」这次解析得以发生。把这两件事看懂，整个「core 说规范语 → 适配器翻方言 → 传输送达 → 事件回来 → 缓存省钱」的 LLM 闭环，就<strong>彻底合龙</strong>了。</p>
 
 <div class="card analogy">
@@ -1494,49 +1492,48 @@ LESSON_35 = {
   <div class="f-arrow">catalog 查 →</div>
   <div class="f-node">ModelInfo<br><small>能力/成本/上限/走哪条 Route</small></div>
   <div class="f-arrow">→</div>
-  <div class="f-node">配好的 Route<br><small>第 33 课那六个旋钮</small></div>
+  <div class="f-node">配好的 Route<br><small>第 33 课那几个正交件</small></div>
 </div>
 <p>catalog 的核心是一个 <span class="mono">providers: Map&lt;ProviderID, ProviderRecord&gt;</span>，每个 <span class="mono">ProviderRecord</span> 里又有一个 <span class="mono">models: Map&lt;ModelID, ModelInfo&gt;</span>。于是「一个模型名」的解析，就是<strong>两次字典查找</strong>：先按 providerID 找到供应商、再按 modelID 找到具体模型信息。查不到？catalog 给了两个<strong>类型化的错误</strong>，把失败的两种情形分得清清楚楚：</p>
 <div class="cols">
   <div class="col"><h4>ProviderNotFoundError</h4><p>连供应商都没找到（比如模型名拼错了 provider 段）。第一层查找就失败。</p></div>
   <div class="col"><h4>ModelNotFoundError</h4><p>供应商有，但它名下没有这个模型。第二层查找失败，错误里带上 providerID + modelID。</p></div>
 </div>
-<p>注意这种设计的体贴：它<strong>不是返回一个含糊的 null 让上层去猜</strong>「到底哪一步出了错」，而是明确告诉你「是供应商没找到，还是供应商有、但这个模型没找到」。两种失败的修复方式截然不同——前者你得检查 provider 名、后者你得检查 model 名——把它们用不同的错误类型分开，上层就能给出精准的提示。这种把失败<strong>分得清清楚楚</strong>的设计，呼应了整本书反复出现的「让错误自己说清自己是谁」。这一步解析的产物 <span class="mono">ModelInfo</span>，正握着「这个模型该走哪条 Route」的钥匙——而 Route，就是第 33 课那个六旋钮的组合。<strong>至此，一个用户输入的模型名，终于接上了一条从协议到传输、配置完整的链路。</strong></p>
+<p>注意这种设计的体贴：它<strong>不是返回一个含糊的 null 让上层去猜</strong>「到底哪一步出了错」，而是明确告诉你「是供应商没找到，还是供应商有、但这个模型没找到」。两种失败的修复方式截然不同——前者你得检查 provider 名、后者你得检查 model 名——把它们用不同的错误类型分开，上层就能给出精准的提示。这种把失败<strong>分得清清楚楚</strong>的设计，呼应了整本书反复出现的「让错误自己说清自己是谁」。这一步解析的产物 <span class="mono">ModelInfo</span>，正握着「这个模型该走哪条 Route」的钥匙——而 Route，就是第 33 课那几个正交件的组合。<strong>至此，一个用户输入的模型名，终于接上了一条从协议到传输、配置完整的链路。</strong></p>
 
 <h2>Copilot：复用 OpenAI 协议，自带一套门禁</h2>
-<p>压轴的，是 GitHub Copilot 这个<strong>特殊供应商</strong>。它特殊在哪？翻开 <span class="mono">github-copilot/copilot-provider.ts</span>，第一眼你就会看到它 import 了 <span class="mono">OpenAICompatibleChatLanguageModel</span> 和 <span class="mono">OpenAIResponsesLanguageModel</span>——<strong>它的协议，整个复用了 OpenAI 那套</strong>（第 31 课的 Chat 与 Responses）！这意味着「请求怎么编码、响应怎么解码」，Copilot 一个字都不用重写。那它到底「特殊」在哪？特殊在<strong>认证</strong>：</p>
+<p>压轴的，是 GitHub Copilot 这个<strong>特殊供应商</strong>。它特殊在哪？翻开 <span class="mono">packages/llm/src/providers/github-copilot.ts</span>，第一眼你就会看到它 import 了 <span class="mono">OpenAIChat</span> 和 <span class="mono">OpenAIResponses</span> 两个协议模块，并<strong>直接复用它们现成的 <span class="mono">.route</span></strong>（第 31 课的 Chat 与 Responses）——连协议带整条 Route 整个拿来用！这意味着「请求怎么编码、响应怎么解码、字节怎么分帧」，Copilot 一个字都不用重写。那它到底「特殊」在哪？特殊在<strong>认证</strong>：</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">协议</span><span class="t-txt">复用 OpenAI Chat / Responses（第 31 课），零重写</span></div>
   <div class="t-row"><span class="t-num">端点</span><span class="t-txt">指向 Copilot 自己的 baseURL</span></div>
   <div class="t-row"><span class="t-num">认证</span><span class="t-txt">GitHub OAuth 工牌 → 换取短期 Copilot token → Bearer 头</span></div>
   <div class="t-row"><span class="t-num">头部</span><span class="t-txt">附加 Copilot 特有的自定义 headers</span></div>
 </div>
-<p>看出来了吗？Copilot 正是第 33 课「六个正交旋钮」的<strong>最后一次、也是最漂亮的一次实战演示</strong>：<span class="mono">protocol</span> 旋钮拨到「OpenAI 兼容」（复用）、<span class="mono">endpoint</span> 旋钮拨到 Copilot 的地址、<span class="mono">auth</span> 旋钮拨到「GitHub 换 token」这套独特流程。把它和 OpenAI 官方并排，哪几个旋钮变了、哪几个没动，一目了然：</p>
+<p>看出来了吗？Copilot 正是第 33 课「正交件组合」的<strong>最后一次、也是最漂亮的一次实战演示</strong>：<span class="mono">protocol</span> 件拨到「OpenAI 兼容」（复用）、<span class="mono">endpoint</span> 件拨到 Copilot 的地址、<span class="mono">auth</span> 件拨到「GitHub 换 token」这套独特流程。把它和 OpenAI 官方并排，哪几件变了、哪几件没动，一目了然：</p>
 <table class="t">
-  <tr><th>旋钮</th><th>OpenAI 官方</th><th>GitHub Copilot</th></tr>
+  <tr><th>件</th><th>OpenAI 官方</th><th>GitHub Copilot</th></tr>
   <tr><td>protocol</td><td>openai-chat / responses</td><td>同上（整套复用！）</td></tr>
   <tr><td>endpoint</td><td>api.openai.com</td><td>Copilot 自己的 baseURL</td></tr>
   <tr><td>auth</td><td>固定 API key</td><td>GitHub 工牌换短期 token</td></tr>
   <tr><td>transport / framing</td><td>HTTP / SSE</td><td>同上</td></tr>
 </table>
-<p>它和第 31 课的「openai-compatible 只改端点」是同一招的升级版——这次不光改端点，还<strong>换了一套认证</strong>，但<strong>协议依然原封不动地复用</strong>。Copilot 的认证比一般的 API key 复杂：你不能直接拿一个固定密钥，而要先用 GitHub 的 OAuth 工牌，去<strong>换取一个有时效的 Copilot 专用 token</strong>，再用它做 Bearer 认证。正因为 <span class="mono">auth</span> 早被设计成一个独立旋钮，这套「先换证、再进门」的特殊流程，才能<strong>整个塞进 auth 旋钮里、丝毫不惊动协议层</strong>。假如当初认证逻辑和协议编解码缠在一起，Copilot 这种「同协议、异认证」的家伙就会逼你把 OpenAI 协议又抄一遍——而正交分解让它优雅地化解于无形。<strong>用一个最棘手的真实供应商，给整个 M6 的设计哲学盖了章。</strong></p>
-<p>为什么要绕这么一圈「先换证、再进门」？因为这套<strong>令牌交换</strong>背后是一种更安全的设计：你的 GitHub OAuth 凭证是长期的、贵重的，不该被反复发到推理端点上；而换来的 Copilot token 是<strong>短期、限定用途</strong>的，即便泄露，危害也被时效和权限死死框住。这正是「最小权限 + 短时效凭证」的安全惯例。opencode 要做的，无非是把这套交换流程封装进 auth 旋钮——上层只管说「我要用 Copilot」，底下「拿工牌换通行证」的来回，被 auth 这一层<strong>悄悄消化掉</strong>，协议层和 agent 循环全程无感。安全性的复杂，被恰当地隔离在了它该待的那一层，没有渗进别处。</p>
+<p>它和第 31 课的「openai-compatible 只改端点」是同一招的升级版——这次不光改端点，还<strong>换了一套认证</strong>，但<strong>协议依然原封不动地复用</strong>。Copilot 的认证比一般的 API key 复杂：你不能直接拿一个固定密钥，而要先用 GitHub 的 OAuth 工牌，去<strong>换取一个有时效的 Copilot 专用 token</strong>，再用它做 Bearer 认证。正因为 <span class="mono">auth</span> 早被设计成独立的一件，这套「先换证、再进门」的特殊流程，才能<strong>整个塞进 auth 这一件里、丝毫不惊动协议层</strong>。假如当初认证逻辑和协议编解码缠在一起，Copilot 这种「同协议、异认证」的家伙就会逼你把 OpenAI 协议又抄一遍——而正交分解让它优雅地化解于无形。<strong>用一个最棘手的真实供应商，给整个 M6 的设计哲学盖了章。</strong></p>
+<p>为什么要绕这么一圈「先换证、再进门」？因为这套<strong>令牌交换</strong>背后是一种更安全的设计：你的 GitHub OAuth 凭证是长期的、贵重的，不该被反复发到推理端点上；而换来的 Copilot token 是<strong>短期、限定用途</strong>的，即便泄露，危害也被时效和权限死死框住。这正是「最小权限 + 短时效凭证」的安全惯例。opencode 要做的，无非是把这套交换流程封装进 auth 这一件——上层只管说「我要用 Copilot」，底下「拿工牌换通行证」的来回，被 auth 这一层<strong>悄悄消化掉</strong>，协议层和 agent 循环全程无感。安全性的复杂，被恰当地隔离在了它该待的那一层，没有渗进别处。</p>
 
 <div class="card detail">
   <div class="tag">🔬 源码细节</div>
-  <p>Copilot 复用 OpenAI 模型、只换认证头的痕迹，在 <span class="mono">copilot-provider.ts</span> 里清晰可见：</p>
-  <pre class="code"><span class="cm">// 简化自 github-copilot/copilot-provider.ts</span>
-<span class="kw">import</span> { OpenAICompatibleChatLanguageModel } <span class="kw">from</span> <span class="st">"./chat/..."</span>
-<span class="kw">import</span> { OpenAIResponsesLanguageModel } <span class="kw">from</span> <span class="st">"./responses/..."</span>
+  <p>Copilot 直接复用 OpenAI 的两条 <span class="mono">Route</span>、只用 <span class="mono">.with(...)</span> 覆盖 endpoint 与 auth 的痕迹，在 <span class="mono">providers/github-copilot.ts</span> 里清晰可见：</p>
+  <pre class="code"><span class="cm">// 简化自 packages/llm/src/providers/github-copilot.ts</span>
+<span class="kw">import</span> * <span class="kw">as</span> OpenAIChat <span class="kw">from</span> <span class="st">"../protocols/openai-chat"</span>
+<span class="kw">import</span> * <span class="kw">as</span> OpenAIResponses <span class="kw">from</span> <span class="st">"../protocols/openai-responses"</span>
 
-<span class="cm">// 协议复用 OpenAI；只在 headers 上做文章</span>
-<span class="kw">const</span> headers = {
-  ...(apiKey &amp;&amp; { Authorization: <span class="st">`Bearer ${'$'}{apiKey}`</span> }),  <span class="cm">// 换来的 Copilot token</span>
-  ...options.headers,                                  <span class="cm">// Copilot 特有头</span>
-}
-provider.chat = createChatModel        <span class="cm">// ← 仍是 OpenAI Chat 那套</span>
-provider.responses = createResponsesModel  <span class="cm">// ← 仍是 OpenAI Responses 那套</span></pre>
-  <p>整个文件做的事，本质上就是「<strong>拿 OpenAI 的两个语言模型，套一层自己的 headers 和 baseURL</strong>」。<span class="mono">chat</span> 和 <span class="mono">responses</span> 两个方法直接指向 OpenAI 兼容的实现——协议层完全没动。所有「Copilot 味」都浓缩在 <span class="mono">headers</span> 和 <span class="mono">baseURL</span> 这两处<strong>配置</strong>里，而非<strong>代码逻辑</strong>里。这是一个极好的「<strong>差异应该体现为配置、而非分支</strong>」的范例：Copilot 与 OpenAI 的不同，没有变成散落在协议代码里的一堆 <span class="mono">if (isCopilot)</span>，而是收敛成「换一组 headers、换一个 baseURL」这样干净的配置差异。把差异关进配置的笼子，协议代码才能永远只有一份。</p>
+<span class="cm">// 直接拿 OpenAI 现成的两条 route，用 .with(...) 只覆盖 endpoint + auth</span>
+<span class="kw">const</span> chatRoute = OpenAIChat.route.<span class="fn">with</span>({ provider: id })
+<span class="kw">const</span> configuredChat = chatRoute.<span class="fn">with</span>({
+  endpoint: { baseURL: options.baseURL },     <span class="cm">// ← Copilot 自己的地址</span>
+  auth: AuthOptions.<span class="fn">bearer</span>(options, []),       <span class="cm">// ← 换来的 token 作 Bearer</span>
+})</pre>
+  <p>整个文件做的事，本质上就是「<strong>拿 OpenAI 现成的两条 Route，用 <span class="mono">.with(...)</span> 只覆盖 endpoint 和 auth</strong>」。<span class="mono">chat</span> 和 <span class="mono">responses</span> 两条路由直接复用 <span class="mono">OpenAIChat.route</span> / <span class="mono">OpenAIResponses.route</span>——协议、framing 全没动。所有「Copilot 味」都浓缩在 <span class="mono">endpoint</span>（baseURL）和 <span class="mono">auth</span>（bearer token）这两件<strong>配置</strong>里，而非<strong>代码逻辑</strong>里。这是一个极好的「<strong>差异应该体现为配置、而非分支</strong>」的范例：Copilot 与 OpenAI 的不同，没有变成散落在协议代码里的一堆 <span class="mono">if (isCopilot)</span>，而是收敛成「换一个 baseURL、换一种 auth」这样干净的配置差异。把差异关进配置的笼子，协议代码才能永远只有一份。</p>
 </div>
 
 <div class="card macro">
@@ -1546,11 +1543,11 @@ provider.responses = createResponsesModel  <span class="cm">// ← 仍是 OpenAI
     <li><strong>L28 反腐层</strong>：core 只说规范语（LLMRequest 出 / LLMEvent 回），适配器砌一道翻译墙。</li>
     <li><strong>L29 协议骨架</strong>：每个协议都填同一张「两栏表」（body 请求侧 + stream 响应侧状态机）。</li>
     <li><strong>L30~32 四家方言</strong>：Anthropic（块+缓存预算）、OpenAI（Chat/Responses 双协议 + 24 行白嫖生态）、Gemini+Bedrock（改名方言 + 二进制传输/套娃状态机）。</li>
-    <li><strong>L33 传输六旋钮</strong>：Route = id/protocol/endpoint/auth/transport/framing，正交可组合。</li>
+    <li><strong>L33 传输与积木</strong>：Route 由四个正交件（protocol/endpoint/auth/framing）+ id 拼成，正交可组合（传输 HTTP/WS 是 framing 维的延伸）。</li>
     <li><strong>L34 事件与缓存</strong>：LLMEvent（入站规范词汇，补全翻译墙）+ cache-policy（把稳定前缀缓存住，接通 Context Epoch）。</li>
-    <li><strong>L35 解析与 Copilot</strong>：models.dev（外置的模型大全，事实地基）→ catalog（模型名→配好的 Route）；Copilot 复用 OpenAI 协议、只换 endpoint+auth，给六旋钮架构盖章。</li>
+    <li><strong>L35 解析与 Copilot</strong>：models.dev（外置的模型大全，事实地基）→ catalog（模型名→配好的 Route）；Copilot 复用 OpenAI 的 Route、只换 endpoint+auth，给这套积木式架构盖章。</li>
   </ul>
-  <p>一句话串起来：<strong>用户敲一个模型名，catalog 凭 models.dev 的事实把它解析成一条配好六旋钮的 Route；core 用规范语发请求，Route 的协议把它翻成方言、传输送上线、framing 切帧、协议再把响应解码回规范 LLMEvent 流交给 agent 循环，全程的缓存则靠 cache-policy 与 Context Epoch 联手压低成本。</strong>七课走下来，你会发现整个 LLM 层没有一处是「为了炫技」，每一层抽象都在解一个真实的痛点——这正是值得反复回味的工程之美。下一个 part（M7）将转向<strong>工具系统</strong>——agent 循环手里那些真正「干活」的工具（读写文件、跑命令、搜索……）是怎么定义、执行、隔离的。LLM 是 agent 的「嘴和脑」，工具则是它的「手」。</p>
+  <p>一句话串起来：<strong>用户敲一个模型名，catalog 凭 models.dev 的事实把它解析成一条配好各件的 Route；core 用规范语发请求，Route 的协议把它翻成方言、传输送上线、framing 切帧、协议再把响应解码回规范 LLMEvent 流交给 agent 循环，全程的缓存则靠 cache-policy 与 Context Epoch 联手压低成本。</strong>七课走下来，你会发现整个 LLM 层没有一处是「为了炫技」，每一层抽象都在解一个真实的痛点——这正是值得反复回味的工程之美。下一个 part（M7）将转向<strong>工具系统</strong>——agent 循环手里那些真正「干活」的工具（读写文件、跑命令、搜索……）是怎么定义、执行、隔离的。LLM 是 agent 的「嘴和脑」，工具则是它的「手」。</p>
 </div>
 
 <div class="card key">
@@ -1558,14 +1555,14 @@ provider.responses = createResponsesModel  <span class="cm">// ← 仍是 OpenAI
   <ul>
     <li><strong>models.dev = 外置的社区模型目录</strong>（<span class="mono">models-dev.ts</span> 经 HTTP 拉取、缓存、发 <span class="mono">models-dev.refreshed</span>）：每个 Model 记录能力（attachment/reasoning/tool_call…）、<span class="mono">cost</span>（输入/输出/缓存读写单价，第 34 课算账的数据源）、<span class="mono">limit</span>（上下文/输入/输出上限）、modalities。把易变的模型事实挡在代码之外，新模型常常零改动即可识别。</li>
     <li><strong>catalog（<span class="mono">catalog.ts</span> CatalogV2）= 解析器</strong>：<span class="mono">providers: Map&lt;ProviderID, {provider, models: Map&lt;ModelID, ModelInfo&gt;}&gt;</span>。模型名经两次字典查找 → ModelInfo（含走哪条 Route）；查不到给类型化的 <span class="mono">ProviderNotFoundError</span> / <span class="mono">ModelNotFoundError</span>。</li>
-    <li><strong>解析全链路</strong>：模型名 → 拆 providerID+modelID → catalog 查到 ModelInfo → 第 33 课的六旋钮 Route → 可发起 stream。</li>
-    <li><strong>Copilot = 六旋钮架构的终极演示</strong>（<span class="mono">github-copilot/copilot-provider.ts</span>）：<strong>协议整套复用 OpenAI</strong>（Chat+Responses，零重写），只拨动 <span class="mono">endpoint</span>（Copilot baseURL）和 <span class="mono">auth</span>（GitHub OAuth 工牌 → 换短期 Copilot token → Bearer + 自定义头）两个旋钮。</li>
-    <li><strong>差异是配置、不是分支</strong>：Copilot 与 OpenAI 的不同收敛成「换 headers + baseURL」的配置差异，而非协议代码里的 <span class="mono">if (isCopilot)</span>。正因 auth 早被设计成独立旋钮，「先换证再进门」的特殊认证才能不惊动协议层。M6 闭环至此合龙，下一站 M7 工具系统。</li>
+    <li><strong>解析全链路</strong>：模型名 → 拆 providerID+modelID → catalog 查到 ModelInfo → 第 33 课的积木式 Route → 可发起 stream。</li>
+    <li><strong>Copilot = 积木式架构的终极演示</strong>（<span class="mono">packages/llm/src/providers/github-copilot.ts</span>）：<strong>直接复用 OpenAI 的 Route</strong>（<span class="mono">OpenAIChat.route</span>/<span class="mono">OpenAIResponses.route</span>，零重写），只用 <span class="mono">.with(...)</span> 覆盖 <span class="mono">endpoint</span>（Copilot baseURL）和 <span class="mono">auth</span>（<span class="mono">AuthOptions.bearer</span>，token 由 GitHub OAuth 换取）两件。</li>
+    <li><strong>差异是配置、不是分支</strong>：Copilot 与 OpenAI 的不同收敛成「换 headers + baseURL」的配置差异，而非协议代码里的 <span class="mono">if (isCopilot)</span>。正因 auth 早被设计成独立的一件，「先换证再进门」的特殊认证才能不惊动协议层。M6 闭环至此合龙，下一站 M7 工具系统。</li>
   </ul>
 </div>
 """,
     "en": r"""
-<p class="lead">This is M6's <strong>finale</strong>. Over the prior six lessons, we walked from the "anti-corruption layer" overview (L28) through the protocol skeleton (L29), four dialects (L30–32), transport's six knobs (L33), event stream and caching (L34). But one plain question lingered unanswered: <strong>when a user types a model name in the UI (say <span class="mono">anthropic/claude-sonnet</span>), how does opencode resolve that string all the way to "which Route to ride, which knobs to set, what price, what limits"?</strong> This lesson fills in that "from a name to a configured pipeline" resolution thread. And taking the final bow is <strong>GitHub Copilot</strong>—an "ultimate sample" that collects all six prior lessons' threads: it reuses OpenAI's protocol yet brings its own distinctive auth, the last and most beautiful display of the "six-knob architecture"'s power.</p>
+<p class="lead">This is M6's <strong>finale</strong>. Over the prior six lessons, we walked from the "anti-corruption layer" overview (L28) through the protocol skeleton (L29), four dialects (L30–32), transport's building blocks (L33), event stream and caching (L34). But one plain question lingered unanswered: <strong>when a user types a model name in the UI (say <span class="mono">anthropic/claude-sonnet</span>), how does opencode resolve that string all the way to "which Route to ride, which pieces to set, what price, what limits"?</strong> This lesson fills in that "from a name to a configured pipeline" resolution thread. And taking the final bow is <strong>GitHub Copilot</strong>—an "ultimate sample" that collects all six prior lessons' threads: it reuses OpenAI's protocol (even its very Route) yet brings its own distinctive auth, the last and most beautiful display of the "building-block architecture"'s power.</p>
 <p>This lesson clarifies two things. One, opencode <strong>doesn't hardcode model facts in code</strong>, but <strong>fetches models.dev, a community-maintained "model encyclopedia"</strong>—whether a model supports tool calling, how big its context is, the price of input/output, the discount on cache read/write… all from this external catalog. Two, <strong>catalog</strong> turns this directory into a queryable in-memory structure, enabling the "model name → a configured Route" resolution. Understand these two and the whole LLM loop—"core speaks canonical → adapters translate dialects → transport delivers → events come back → caching saves money"—is <strong>fully closed</strong>.</p>
 
 <div class="card analogy">
@@ -1601,24 +1598,24 @@ provider.responses = createResponsesModel  <span class="cm">// ← 仍是 OpenAI
   <div class="f-arrow">catalog lookup →</div>
   <div class="f-node">ModelInfo<br><small>capabilities/cost/limits/which Route</small></div>
   <div class="f-arrow">→</div>
-  <div class="f-node">configured Route<br><small>lesson 33's six knobs</small></div>
+  <div class="f-node">configured Route<br><small>lesson 33's orthogonal pieces</small></div>
 </div>
 <p>catalog's core is a <span class="mono">providers: Map&lt;ProviderID, ProviderRecord&gt;</span>, each <span class="mono">ProviderRecord</span> holding a <span class="mono">models: Map&lt;ModelID, ModelInfo&gt;</span>. So resolving "a model name" is <strong>two dictionary lookups</strong>: first find the provider by providerID, then the specific model info by modelID. Not found? catalog gives two <strong>typed errors</strong> that cleanly separate the two failure cases:</p>
 <div class="cols">
   <div class="col"><h4>ProviderNotFoundError</h4><p>even the provider isn't found (e.g. the provider segment of the model name is misspelled). The first lookup fails.</p></div>
   <div class="col"><h4>ModelNotFoundError</h4><p>the provider exists but has no such model. The second lookup fails, the error carrying providerID + modelID.</p></div>
 </div>
-<p>Note this design's thoughtfulness: it <strong>doesn't return a vague null</strong> leaving the upper layer to guess "which step failed," but tells you clearly "is it the provider not found, or the provider exists but this model not found." The two failures' fixes differ entirely—the former you check the provider name, the latter the model name—and separating them with different error types lets the upper layer give precise hints. This design of <strong>cleanly separating failures</strong> echoes the book's recurring "let errors say who they are." This resolution step's output <span class="mono">ModelInfo</span> holds the key to "which Route this model should ride"—and a Route is lesson 33's six-knob composition. <strong>Now a user-entered model name finally connects to a complete, configured pipeline from protocol to transport.</strong></p>
+<p>Note this design's thoughtfulness: it <strong>doesn't return a vague null</strong> leaving the upper layer to guess "which step failed," but tells you clearly "is it the provider not found, or the provider exists but this model not found." The two failures' fixes differ entirely—the former you check the provider name, the latter the model name—and separating them with different error types lets the upper layer give precise hints. This design of <strong>cleanly separating failures</strong> echoes the book's recurring "let errors say who they are." This resolution step's output <span class="mono">ModelInfo</span> holds the key to "which Route this model should ride"—and a Route is lesson 33's composition of orthogonal pieces. <strong>Now a user-entered model name finally connects to a complete, configured pipeline from protocol to transport.</strong></p>
 
 <h2>Copilot: reuse the OpenAI protocol, bring your own gate</h2>
-<p>Taking the final bow is GitHub Copilot, a <strong>special provider</strong>. Special how? Open <span class="mono">github-copilot/copilot-provider.ts</span> and at first glance you'll see it imports <span class="mono">OpenAICompatibleChatLanguageModel</span> and <span class="mono">OpenAIResponsesLanguageModel</span>—<strong>its protocol reuses OpenAI's entirely</strong> (lesson 31's Chat and Responses)! Meaning "how requests encode, how responses decode," Copilot rewrites not a word. So where is it "special"? In <strong>auth</strong>:</p>
+<p>Taking the final bow is GitHub Copilot, a <strong>special provider</strong>. Special how? Open <span class="mono">packages/llm/src/providers/github-copilot.ts</span> and at first glance you'll see it imports the <span class="mono">OpenAIChat</span> and <span class="mono">OpenAIResponses</span> protocol modules and <strong>reuses their ready-made <span class="mono">.route</span></strong> (lesson 31's Chat and Responses)—protocol and whole Route taken wholesale! Meaning "how requests encode, how responses decode, how bytes are framed," Copilot rewrites not a word. So where is it "special"? In <strong>auth</strong>:</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">protocol</span><span class="t-txt">reuse OpenAI Chat / Responses (lesson 31), zero rewrite</span></div>
   <div class="t-row"><span class="t-num">endpoint</span><span class="t-txt">points to Copilot's own baseURL</span></div>
   <div class="t-row"><span class="t-num">auth</span><span class="t-txt">GitHub OAuth badge → exchange for a short-lived Copilot token → Bearer header</span></div>
   <div class="t-row"><span class="t-num">headers</span><span class="t-txt">attach Copilot-specific custom headers</span></div>
 </div>
-<p>See it? Copilot is the <strong>last and most beautiful field demonstration</strong> of lesson 33's "six orthogonal knobs": the <span class="mono">protocol</span> knob turned to "OpenAI-compatible" (reused), the <span class="mono">endpoint</span> knob to Copilot's address, the <span class="mono">auth</span> knob to the distinctive "GitHub exchanges a token" flow. Lay it next to OpenAI official and which knobs changed, which didn't, is plain:</p>
+<p>See it? Copilot is the <strong>last and most beautiful field demonstration</strong> of lesson 33's orthogonal pieces: the <span class="mono">protocol</span> piece turned to "OpenAI-compatible" (reused), the <span class="mono">endpoint</span> piece to Copilot's address, the <span class="mono">auth</span> piece to the distinctive "GitHub exchanges a token" flow. Lay it next to OpenAI official and which pieces changed, which didn't, is plain:</p>
 <table class="t">
   <tr><th>Knob</th><th>OpenAI official</th><th>GitHub Copilot</th></tr>
   <tr><td>protocol</td><td>openai-chat / responses</td><td>same (entirely reused!)</td></tr>
@@ -1626,24 +1623,23 @@ provider.responses = createResponsesModel  <span class="cm">// ← 仍是 OpenAI
   <tr><td>auth</td><td>fixed API key</td><td>GitHub badge exchanges short-lived token</td></tr>
   <tr><td>transport / framing</td><td>HTTP / SSE</td><td>same</td></tr>
 </table>
-<p>It's an upgraded version of lesson 31's "openai-compatible only changes the endpoint"—this time not only the endpoint but <strong>a whole new auth</strong>, yet the <strong>protocol is still reused untouched</strong>. Copilot's auth is more complex than a plain API key: you can't just hold a fixed secret, but must first use GitHub's OAuth badge to <strong>exchange for a time-limited Copilot-specific token</strong>, then use it for Bearer auth. Precisely because <span class="mono">auth</span> was designed early as an independent knob, this special "exchange first, then enter" flow can be <strong>stuffed entirely into the auth knob, disturbing the protocol layer not at all</strong>. Had auth logic been entangled with protocol codec, a "same-protocol, different-auth" creature like Copilot would force you to copy the OpenAI protocol again—and orthogonal decomposition dissolves it elegantly into nothing. <strong>Using one of the trickiest real providers, it stamps a seal on all of M6's design philosophy.</strong></p>
-<p>Why the whole roundabout "exchange first, then enter"? Because this <strong>token exchange</strong> reflects a more secure design: your GitHub OAuth credential is long-lived and precious, and shouldn't be repeatedly sent to inference endpoints; while the exchanged Copilot token is <strong>short-lived and purpose-limited</strong>, so even if leaked, the damage is tightly bounded by expiry and scope. This is the "least privilege + short-lived credential" security convention. All opencode does is encapsulate this exchange flow into the auth knob—the upper layer just says "I want Copilot," and the underlying "badge-for-pass" round trip is <strong>quietly digested</strong> by the auth layer, the protocol layer and agent loop oblivious throughout. The complexity of security is properly isolated in the layer where it belongs, without seeping elsewhere.</p>
+<p>It's an upgraded version of lesson 31's "openai-compatible only changes the endpoint"—this time not only the endpoint but <strong>a whole new auth</strong>, yet the <strong>protocol is still reused untouched</strong>. Copilot's auth is more complex than a plain API key: you can't just hold a fixed secret, but must first use GitHub's OAuth badge to <strong>exchange for a time-limited Copilot-specific token</strong>, then use it for Bearer auth. Precisely because <span class="mono">auth</span> was designed early as an independent piece, this special "exchange first, then enter" flow can be <strong>stuffed entirely into the auth piece, disturbing the protocol layer not at all</strong>. Had auth logic been entangled with protocol codec, a "same-protocol, different-auth" creature like Copilot would force you to copy the OpenAI protocol again—and orthogonal decomposition dissolves it elegantly into nothing. <strong>Using one of the trickiest real providers, it stamps a seal on all of M6's design philosophy.</strong></p>
+<p>Why the whole roundabout "exchange first, then enter"? Because this <strong>token exchange</strong> reflects a more secure design: your GitHub OAuth credential is long-lived and precious, and shouldn't be repeatedly sent to inference endpoints; while the exchanged Copilot token is <strong>short-lived and purpose-limited</strong>, so even if leaked, the damage is tightly bounded by expiry and scope. This is the "least privilege + short-lived credential" security convention. All opencode does is encapsulate this exchange flow into the auth piece—the upper layer just says "I want Copilot," and the underlying "badge-for-pass" round trip is <strong>quietly digested</strong> by the auth layer, the protocol layer and agent loop oblivious throughout. The complexity of security is properly isolated in the layer where it belongs, without seeping elsewhere.</p>
 
 <div class="card detail">
   <div class="tag">🔬 Source Detail</div>
-  <p>The trace of Copilot reusing OpenAI models and only swapping auth headers is clear in <span class="mono">copilot-provider.ts</span>:</p>
-  <pre class="code"><span class="cm">// simplified from github-copilot/copilot-provider.ts</span>
-<span class="kw">import</span> { OpenAICompatibleChatLanguageModel } <span class="kw">from</span> <span class="st">"./chat/..."</span>
-<span class="kw">import</span> { OpenAIResponsesLanguageModel } <span class="kw">from</span> <span class="st">"./responses/..."</span>
+  <p>The trace of Copilot reusing OpenAI's two <span class="mono">Route</span>s and only <span class="mono">.with(...)</span>-overriding endpoint + auth is clear in <span class="mono">providers/github-copilot.ts</span>:</p>
+  <pre class="code"><span class="cm">// simplified from packages/llm/src/providers/github-copilot.ts</span>
+<span class="kw">import</span> * <span class="kw">as</span> OpenAIChat <span class="kw">from</span> <span class="st">"../protocols/openai-chat"</span>
+<span class="kw">import</span> * <span class="kw">as</span> OpenAIResponses <span class="kw">from</span> <span class="st">"../protocols/openai-responses"</span>
 
-<span class="cm">// protocol reuses OpenAI; only the headers are touched</span>
-<span class="kw">const</span> headers = {
-  ...(apiKey &amp;&amp; { Authorization: <span class="st">`Bearer ${'$'}{apiKey}`</span> }),  <span class="cm">// the exchanged Copilot token</span>
-  ...options.headers,                                  <span class="cm">// Copilot-specific headers</span>
-}
-provider.chat = createChatModel        <span class="cm">// ← still the OpenAI Chat set</span>
-provider.responses = createResponsesModel  <span class="cm">// ← still the OpenAI Responses set</span></pre>
-  <p>What the whole file does is essentially "<strong>take OpenAI's two language models, wrap them in its own headers and baseURL</strong>." The <span class="mono">chat</span> and <span class="mono">responses</span> methods point directly to the OpenAI-compatible implementations—the protocol layer untouched. All the "Copilot flavor" is concentrated in the two pieces of <strong>configuration</strong> <span class="mono">headers</span> and <span class="mono">baseURL</span>, not in <strong>code logic</strong>. It's an excellent example of "<strong>differences should manifest as configuration, not branches</strong>": Copilot's difference from OpenAI didn't become a pile of <span class="mono">if (isCopilot)</span> scattered through protocol code, but converged into clean config differences like "swap a set of headers, swap a baseURL." Cage the difference in configuration, and the protocol code can forever stay single-copy.</p>
+<span class="cm">// take OpenAI's ready-made routes, .with(...) overriding only endpoint + auth</span>
+<span class="kw">const</span> chatRoute = OpenAIChat.route.<span class="fn">with</span>({ provider: id })
+<span class="kw">const</span> configuredChat = chatRoute.<span class="fn">with</span>({
+  endpoint: { baseURL: options.baseURL },     <span class="cm">// ← Copilot's own address</span>
+  auth: AuthOptions.<span class="fn">bearer</span>(options, []),       <span class="cm">// ← the exchanged token as Bearer</span>
+})</pre>
+  <p>What the whole file does is essentially "<strong>take OpenAI's ready-made routes and <span class="mono">.with(...)</span>-override only endpoint and auth</strong>." The <span class="mono">chat</span> and <span class="mono">responses</span> routes directly reuse <span class="mono">OpenAIChat.route</span> / <span class="mono">OpenAIResponses.route</span>—protocol and framing untouched. All the "Copilot flavor" is concentrated in the two pieces of <strong>configuration</strong> <span class="mono">endpoint</span> (baseURL) and <span class="mono">auth</span> (bearer token), not in <strong>code logic</strong>. It's an excellent example of "<strong>differences should manifest as configuration, not branches</strong>": Copilot's difference from OpenAI didn't become a pile of <span class="mono">if (isCopilot)</span> scattered through protocol code, but converged into clean config differences like "swap a baseURL, swap an auth." Cage the difference in configuration, and the protocol code can forever stay single-copy.</p>
 </div>
 
 <div class="card macro">
@@ -1653,11 +1649,11 @@ provider.responses = createResponsesModel  <span class="cm">// ← still the Ope
     <li><strong>L28 anti-corruption layer</strong>: core speaks only canonical (LLMRequest out / LLMEvent back), adapters wall off with translation.</li>
     <li><strong>L29 protocol skeleton</strong>: every protocol fills the same "two-column form" (body request side + stream response-side state machine).</li>
     <li><strong>L30–32 four dialects</strong>: Anthropic (blocks + cache budget), OpenAI (Chat/Responses dual protocol + 24-line ecosystem free-ride), Gemini+Bedrock (renamed dialect + binary transport / nesting-doll state machine).</li>
-    <li><strong>L33 transport six knobs</strong>: Route = id/protocol/endpoint/auth/transport/framing, orthogonal and composable.</li>
+    <li><strong>L33 transport & building blocks</strong>: a Route is assembled from four orthogonal pieces (protocol/endpoint/auth/framing) + id, orthogonal and composable (the HTTP/WS transport choice is an extension of the framing axis).</li>
     <li><strong>L34 events and caching</strong>: LLMEvent (inbound canonical vocabulary, completing the translation wall) + cache-policy (cache the stable prefix, connecting Context Epoch).</li>
-    <li><strong>L35 resolution and Copilot</strong>: models.dev (externalized model encyclopedia, factual bedrock) → catalog (model name → configured Route); Copilot reuses the OpenAI protocol, swapping only endpoint+auth, sealing the six-knob architecture.</li>
+    <li><strong>L35 resolution and Copilot</strong>: models.dev (externalized model encyclopedia, factual bedrock) → catalog (model name → configured Route); Copilot reuses OpenAI's Route, swapping only endpoint+auth, sealing this building-block architecture.</li>
   </ul>
-  <p>In one sentence: <strong>the user types a model name, catalog resolves it via models.dev's facts into a six-knob-configured Route; core sends a request in canonical, the Route's protocol translates it into dialect, transport puts it on the wire, framing cuts frames, the protocol decodes the response back into a canonical LLMEvent stream for the agent loop, and caching throughout is kept cheap by cache-policy and Context Epoch joining forces.</strong> Seven lessons in, you'll find not one part of the LLM layer is "for showing off"—every layer of abstraction solves a real pain point, which is exactly the engineering beauty worth savoring repeatedly. The next part (M7) turns to the <strong>tool system</strong>—how the tools the agent loop wields to actually "do work" (read/write files, run commands, search…) are defined, executed, isolated. The LLM is the agent's "mouth and brain," tools its "hands."</p>
+  <p>In one sentence: <strong>the user types a model name, catalog resolves it via models.dev's facts into a Route with its pieces configured; core sends a request in canonical, the Route's protocol translates it into dialect, transport puts it on the wire, framing cuts frames, the protocol decodes the response back into a canonical LLMEvent stream for the agent loop, and caching throughout is kept cheap by cache-policy and Context Epoch joining forces.</strong> Seven lessons in, you'll find not one part of the LLM layer is "for showing off"—every layer of abstraction solves a real pain point, which is exactly the engineering beauty worth savoring repeatedly. The next part (M7) turns to the <strong>tool system</strong>—how the tools the agent loop wields to actually "do work" (read/write files, run commands, search…) are defined, executed, isolated. The LLM is the agent's "mouth and brain," tools its "hands."</p>
 </div>
 
 <div class="card key">
@@ -1665,9 +1661,9 @@ provider.responses = createResponsesModel  <span class="cm">// ← still the Ope
   <ul>
     <li><strong>models.dev = an externalized community model catalog</strong> (<span class="mono">models-dev.ts</span> fetches via HTTP, caches, emits <span class="mono">models-dev.refreshed</span>): each Model records capabilities (attachment/reasoning/tool_call…), <span class="mono">cost</span> (input/output/cache-read/write prices, lesson 34's reckoning data source), <span class="mono">limit</span> (context/input/output caps), modalities. Blocking volatile model facts out of the code, a new model is often recognized with zero changes.</li>
     <li><strong>catalog (<span class="mono">catalog.ts</span> CatalogV2) = the resolver</strong>: <span class="mono">providers: Map&lt;ProviderID, {provider, models: Map&lt;ModelID, ModelInfo&gt;}&gt;</span>. A model name via two dictionary lookups → ModelInfo (incl. which Route); not found gives typed <span class="mono">ProviderNotFoundError</span> / <span class="mono">ModelNotFoundError</span>.</li>
-    <li><strong>The full resolution chain</strong>: model name → split providerID+modelID → catalog finds ModelInfo → lesson 33's six-knob Route → ready to stream.</li>
-    <li><strong>Copilot = the ultimate six-knob demo</strong> (<span class="mono">github-copilot/copilot-provider.ts</span>): <strong>protocol entirely reuses OpenAI</strong> (Chat+Responses, zero rewrite), turning only the <span class="mono">endpoint</span> (Copilot baseURL) and <span class="mono">auth</span> (GitHub OAuth badge → exchange short-lived Copilot token → Bearer + custom headers) knobs.</li>
-    <li><strong>Difference is configuration, not branches</strong>: Copilot's difference from OpenAI converges into "swap headers + baseURL" config, not <span class="mono">if (isCopilot)</span> in protocol code. Because auth was designed early as an independent knob, the special "exchange first, then enter" auth disturbs the protocol layer not at all. M6's loop now closes; next stop M7, the tool system.</li>
+    <li><strong>The full resolution chain</strong>: model name → split providerID+modelID → catalog finds ModelInfo → lesson 33's building-block Route → ready to stream.</li>
+    <li><strong>Copilot = the ultimate building-block demo</strong> (<span class="mono">packages/llm/src/providers/github-copilot.ts</span>): <strong>directly reuses OpenAI's Route</strong> (<span class="mono">OpenAIChat.route</span>/<span class="mono">OpenAIResponses.route</span>, zero rewrite), <span class="mono">.with(...)</span>-overriding only the <span class="mono">endpoint</span> (Copilot baseURL) and <span class="mono">auth</span> (<span class="mono">AuthOptions.bearer</span>, token obtained via GitHub OAuth exchange) pieces.</li>
+    <li><strong>Difference is configuration, not branches</strong>: Copilot's difference from OpenAI converges into "swap headers + baseURL" config, not <span class="mono">if (isCopilot)</span> in protocol code. Because auth was designed early as an independent piece, the special "exchange first, then enter" auth disturbs the protocol layer not at all. M6's loop now closes; next stop M7, the tool system.</li>
   </ul>
 </div>
 """,

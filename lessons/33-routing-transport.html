@@ -330,7 +330,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   </div>
   <div class="lang-zh">
 <p class="lead">第 29~32 课，我们把六种协议的「方言」摸了个遍。但你有没有注意到一件事：<strong>协议从头到尾，没碰过一次网络</strong>。它只管「把请求编码成什么样、把响应解码成什么」——纯粹是<strong>语言层面</strong>的活儿。可话总得真的发出去、字节总得真的收回来吧？这一课的主角，就是协议脚下那条<strong>真正搬运字节的传送带</strong>：传输（transport）、分帧（framing）、端点（endpoint）、认证（auth）。它们和协议一起，被 <span class="mono">Route</span> 拼成一条完整的流水线。读完这一课，第 29 课那张「两栏表」会第一次<strong>接上电、转起来</strong>——你会看见一个请求从规范对象出发，经过编码、寻址、签名、上线、分帧、解码，最终变回一串规范事件的<strong>全程</strong>。</p>
-<p>更重要的是，这一课会揭示 opencode 这套设计的<strong>最终形态</strong>：一个 <span class="mono">Route</span> 不是铁板一块，而是<strong>六个正交旋钮</strong>拼出来的——协议、端点、认证、传输、分帧，外加一个 id。每个旋钮都能独立替换。正因如此，第 31 课的「OpenAI 兼容只改端点」、第 32 课的「Bedrock 只换分帧」，才都能用「<strong>只拧一个旋钮、其余照旧</strong>」这么轻巧的方式实现。这一课，就是把这六个旋钮一字排开，让你看清这套<strong>积木式</strong>架构的全貌。</p>
+<p>更重要的是，这一课会揭示 opencode 这套设计的<strong>最终形态</strong>：一个 <span class="mono">Route</span> 不是铁板一块，而是由源码所谓的<strong>四个正交件</strong>——协议、端点、认证、分帧——<strong>外加一个 id</strong> 拼出来的。每一件都能独立替换。（「传输方式」HTTP/WebSocket 不是另一个独立件，而是分帧这一维的延伸：常见的 HTTP 情形你只填 <span class="mono">framing</span>、Route 自动据它建一个 HTTP 传输；要走 WebSocket，就直接给一个 <span class="mono">transport</span> 顶替 framing。）正因如此，第 31 课的「OpenAI 兼容只改端点」、第 32 课的「Bedrock 只换分帧」，才都能用「<strong>只换一件、其余照旧</strong>」这么轻巧的方式实现。这一课，就是把这几件一字排开，让你看清这套<strong>积木式</strong>架构的全貌。</p>
 
 <div class="card analogy">
   <div class="tag">🚚 生活类比</div>
@@ -360,8 +360,8 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="col"><h4>HTTP（货车往返）</h4><p>经典的请求/响应：POST 一个请求体出去，把响应体当作<strong>一个字节流</strong>拉回来，本轮就结束。简单、universal，<strong>绝大多数供应商都走这条</strong>。一来一回，干净利落。</p></div>
   <div class="col"><h4>WebSocket（常开热线）</h4><p>一条<strong>持久的双向连接</strong>：连上后，可以不断 <span class="mono">sendText</span> 发消息、从 <span class="mono">messages</span> 流里收消息。适合低延迟、实时、需要双向互动的场景。</p></div>
 </div>
-<p>谁会用 WebSocket？翻遍 <span class="mono">protocols/</span>，你会发现<strong>唯一同时支持两种传输的，是 OpenAI Responses</strong>——它既给了 <span class="mono">httpTransport</span>，也给了 <span class="mono">webSocketTransport</span>。这正好接上第 31 课埋的伏笔：Responses 的请求体被设计成「HTTP 和 WebSocket 共享同一套形状」，HTTP 版多个 <span class="mono">stream:true</span>、WebSocket 版多个 <span class="mono">type:"response.create"</span>。同一份协议编解码，<strong>底下换一种传输照样能用</strong>——这又是「协议与传输正交」的活证据：Responses 的方言只写一遍，HTTP 和 WebSocket 两条腿都能走。其余各家（Anthropic、Gemini、OpenAI Chat、Bedrock）目前都只走 HTTP，但「想加 WebSocket 只需配一个 transport 旋钮、不动协议」这件事，本身就是这套架构留好的余地。</p>
-<p>为什么 HTTP 几乎一统天下、WebSocket 只是个别选项？因为对「发一个请求、流式收一段回复」这件事，HTTP 的「货车往返」已经够用且最省心：一次 POST、一个响应体流、结束，无状态、无需维护长连接、被所有网络设施友好对待。WebSocket 的「常开热线」更强，但也更重——要管理连接的建立、保活、断线重连，代价不小。它真正的价值在<strong>双向、实时、低延迟</strong>的场景：比如你想在模型生成途中插话、或要求毫秒级的来回。OpenAI Responses 之所以两种都备，正是因为它面向那些<strong>需要实时互动</strong>的高级用法。换句话说，opencode 没有「为了时髦而上 WebSocket」，而是<strong>哪种传输划算就用哪种</strong>，并把选择权做成一个可随时拨动的旋钮——这本身就是工程上的清醒。</p>
+<p>谁会用 WebSocket？翻遍 <span class="mono">protocols/</span>，你会发现<strong>唯一同时支持两种传输的，是 OpenAI Responses</strong>——它既给了 <span class="mono">httpTransport</span>，也给了 <span class="mono">webSocketTransport</span>。这正好接上第 31 课埋的伏笔：Responses 的请求体被设计成「HTTP 和 WebSocket 共享同一套形状」，HTTP 版多个 <span class="mono">stream:true</span>、WebSocket 版多个 <span class="mono">type:"response.create"</span>。同一份协议编解码，<strong>底下换一种传输照样能用</strong>——这又是「协议与传输正交」的活证据：Responses 的方言只写一遍，HTTP 和 WebSocket 两条腿都能走。其余各家（Anthropic、Gemini、OpenAI Chat、Bedrock）目前都只走 HTTP，但「想加 WebSocket 只需配一个 transport（顶替 framing）、不动协议」这件事，本身就是这套架构留好的余地。</p>
+<p>为什么 HTTP 几乎一统天下、WebSocket 只是个别选项？因为对「发一个请求、流式收一段回复」这件事，HTTP 的「货车往返」已经够用且最省心：一次 POST、一个响应体流、结束，无状态、无需维护长连接、被所有网络设施友好对待。WebSocket 的「常开热线」更强，但也更重——要管理连接的建立、保活、断线重连，代价不小。它真正的价值在<strong>双向、实时、低延迟</strong>的场景：比如你想在模型生成途中插话、或要求毫秒级的来回。OpenAI Responses 之所以两种都备，正是因为它面向那些<strong>需要实时互动</strong>的高级用法。换句话说，opencode 没有「为了时髦而上 WebSocket」，而是<strong>哪种传输划算就用哪种</strong>，并把选择权做成一个可随时切换的选项——这本身就是工程上的清醒。</p>
 
 <h2>framing：传输与协议之间的那道缝</h2>
 <p>第⑤步「分帧」值得单独说，因为它是<strong>整套设计里最精妙的一道接缝</strong>。<span class="mono">framing.ts</span> 的注释把它定义得很美：「<strong>Framing 是传输与协议之间、字节流形状的那道缝</strong>」。它的接口简单到只有一个函数：<span class="mono">frame: (字节流) =&gt; 帧流</span>。</p>
@@ -374,17 +374,16 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 </div>
 <p>opencode 内置两种 framing。<strong>SSE</strong>（<span class="mono">Framing.sse</span>）：把字节按 UTF-8 解码，跑一遍 SSE 通道解码器，丢掉空行和 <span class="mono">[DONE]</span> 这种保活信号，每一帧就是一个事件的 <span class="mono">data:</span> JSON 负载——<strong>几乎所有 JSON 流式 HTTP 供应商都用它</strong>。<strong>AWS 二进制事件流</strong>：就是第 32 课你已经见过的那套带长度前缀和 CRC 校验的二进制帧。关键在注释最后一句：「<strong>帧的类型对这一层是不透明的</strong>」——framing 只负责「把字节切成一份一份」，至于每一份里装的是什么，它<strong>一概不管</strong>，那是协议 <span class="mono">stream.event</span> 解码该操心的事。正因为 framing 对「帧里是什么」保持无知，它才能<strong>被任意协议复用</strong>：SSE 这一种分帧方式，同时服务着 Anthropic、Gemini、OpenAI 三套完全不同的方言。一道划得恰到好处的缝，换来了上下两层各自的自由。反过来想，假如当初没有 framing 这道缝，而是让每个协议自己从字节流里抠帧，那么「按 data: 空行切」这段逻辑就得在 Anthropic、Gemini、OpenAI 里<strong>各抄一遍</strong>——又是第 28 课最忌讳的重复。framing 把「字节→帧」这件三家共通的脏活<strong>提取成一个独立、可复用的零件</strong>，正是「找出共性、抽到一处」这条贯穿全书的智慧，在传输层的又一次现身。</p>
 
-<h2>六个正交旋钮：积木式的 Route</h2>
-<p>把这一课和前几课合起来，opencode LLM 层的<strong>最终形态</strong>就清晰了：一个 <span class="mono">Route</span> 由<strong>六个可独立替换的旋钮</strong>拼成。</p>
+<h2>四个正交件：积木式的 Route</h2>
+<p>把这一课和前几课合起来，opencode LLM 层的<strong>最终形态</strong>就清晰了——<span class="mono">Route.make</span> 的源码注释把它说得明明白白：一个 <span class="mono">Route</span> 由<strong>四个正交件</strong>拼成，外加一个 id。</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">id</div><div class="c-txt">路由标识，用于诊断与解析</div></div>
   <div class="cell"><div class="c-tag">protocol</div><div class="c-txt">方言编解码（body.from + stream.step）</div></div>
   <div class="cell"><div class="c-tag">endpoint</div><div class="c-txt">打哪个 URL</div></div>
   <div class="cell"><div class="c-tag">auth</div><div class="c-txt">怎么签名/认证</div></div>
-  <div class="cell"><div class="c-tag">transport</div><div class="c-txt">HTTP 还是 WebSocket</div></div>
-  <div class="cell"><div class="c-tag">framing</div><div class="c-txt">SSE 还是二进制分帧</div></div>
+  <div class="cell"><div class="c-tag">framing</div><div class="c-txt">怎么把响应字节流切成帧（SSE / 二进制）；走 WS 时以 transport 顶替</div></div>
 </div>
-<p>把各家供应商按这几个旋钮的取值排开，你会立刻看懂前几课那些「轻巧复用」到底是怎么回事：</p>
+<p>注意源码的克制：<span class="mono">make</span> 的注释只认这「四件 + id」，并特意说「若新 Route 不合这四轴模型，就<strong>另写一个专用构造器</strong>，而非预先把公共接口面撑大」。而「传输方式」之所以不算第五件，是因为它和 framing 是<strong>同一维的两种写法</strong>：<span class="mono">make</span> 有两个重载——常见情形传 <span class="mono">framing</span>，Route 自动 <span class="mono">HttpTransport.httpJson({framing})</span> 给你建好 HTTP 传输；要 WebSocket 就传 <span class="mono">transport</span> 顶替 framing（二者只能传其一）。把各家供应商按这几件的取值排开，你会立刻看懂前几课那些「轻巧复用」到底是怎么回事：</p>
 <table class="t">
   <tr><th>供应商</th><th>protocol</th><th>transport</th><th>framing</th></tr>
   <tr><td>Anthropic</td><td>anthropic-messages</td><td>HTTP</td><td>SSE</td></tr>
@@ -394,7 +393,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <tr><td>OpenAI Responses</td><td>openai-responses</td><td>HTTP 或 WS</td><td>SSE</td></tr>
   <tr><td>Bedrock</td><td>bedrock-converse</td><td>HTTP</td><td>二进制事件流</td></tr>
 </table>
-<p>这张表把前几课的「魔法」全祛魅了：「OpenAI 兼容」只是把 protocol 旋钮拨到 <span class="mono">openai-chat</span>、改个 endpoint（第 31 课的 24 行）；「Bedrock」只是把 framing 旋钮从 SSE 拨到二进制、其余尽量沿用 Anthropic 那套（第 32 课）；「Responses 上 WebSocket」只是把 transport 旋钮从 HTTP 拨到 WS。<strong>每一个看似聪明的复用，本质都是「只拧一两个旋钮、其余照旧」</strong>。这就是正交分解的复利：六个旋钮各管一维，组合空间却覆盖了所有现实供应商，而新增一家的成本，往往只是<strong>给六个旋钮挑一组合适的取值</strong>。</p>
+<p>这张表把前几课的「魔法」全祛魅了：「OpenAI 兼容」只是把 protocol 件拨到 <span class="mono">openai-chat</span>、改个 endpoint（第 31 课的 24 行）；「Bedrock」只是把 framing 件从 SSE 换成二进制、其余尽量沿用 Anthropic 那套（第 32 课）；「Responses 上 WebSocket」只是把 framing 这一维改用 transport、走 WS。<strong>每一个看似聪明的复用，本质都是「只换一两件、其余照旧」</strong>。这就是正交分解的复利：四件各管一维，组合空间却覆盖了所有现实供应商，而新增一家的成本，往往只是<strong>给这几件挑一组合适的取值</strong>。</p>
 
 <div class="card macro">
   <div class="tag">🗺️ 宏观图景</div>
@@ -404,24 +403,24 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <li><strong>完整流水线</strong>：①body.from 编码 → ②endpoint 寻址 → ③auth 签名 → ④transport 上线取字节流 → ⑤framing 切帧 → ⑥protocol.stream 解码成 LLMEvent。第 29 课的表至此「通上电」。</li>
     <li><strong>两种传输</strong>：HTTP（请求/响应，绝大多数走这条）vs WebSocket（持久双向，唯 OpenAI Responses 两者皆支持，印证第 31 课共享请求体形状）。</li>
     <li><strong>framing 是字节流形状的缝</strong>：<span class="mono">(字节流)=&gt;(帧流)</span>，SSE / 二进制两种；「帧里是什么」对它不透明，故能被任意协议复用（SSE 同时服务 Anthropic/Gemini/OpenAI）。</li>
-    <li><strong>六个正交旋钮</strong>：id/protocol/endpoint/auth/transport/framing 拼成一个 Route，各自独立替换。前几课的「轻巧复用」本质都是「只拧一两个旋钮」。</li>
+    <li><strong>四个正交件 + id</strong>：源码注释明言 Route 由 protocol/endpoint/auth/framing「四个正交件」加 id 拼成，各自独立替换。前几课的「轻巧复用」本质都是「只换一两件」。（「传输」HTTP/WebSocket 不是第五件，而是 framing 这一维的延伸。）</li>
   </ul>
   <p>M6 到此，LLM 协议层的全貌已在你眼前：core 说一种规范语（L28），协议适配器把它翻成各家方言（L29 骨架 → L30~32 具体方言），传输层再把翻好的话真正送达（L33）。还剩两课收尾 M6：第 34 课深入<strong>流式事件与提示缓存</strong>（把 LLMEvent 流和第 24 课 Context Epoch 的基线前缀彻底打通），第 35 课讲<strong>模型解析与 GitHub Copilot provider</strong>（models.dev 目录、Copilot 这个特殊供应商）。骨架已立，剩下的是把两个最值得玩味的细节补全。</p>
 </div>
 
 <div class="card detail">
   <div class="tag">🔬 源码细节</div>
-  <p>六个旋钮是怎么「拼」成一个 Route 的？看 <span class="mono">Route.make</span> 的签名（简化自 client.ts）：</p>
-  <pre class="code"><span class="cm">// 一个 Route = 六个零件的组合</span>
+  <p>这四件是怎么「拼」成一个 Route 的？看 <span class="mono">Route.make</span> 的常见签名（简化自 client.ts）：</p>
+  <pre class="code"><span class="cm">// 常见情形：一个 Route = 四个正交件 + id（传 framing，走 HTTP）</span>
 Route.<span class="fn">make</span>({
   id,                  <span class="cm">// 路由标识</span>
   protocol,            <span class="cm">// Protocol&lt;Body, Frame, Event, State&gt;</span>
   endpoint,            <span class="cm">// 打哪个 URL</span>
   auth,                <span class="cm">// 怎么认证</span>
-  transport,           <span class="cm">// HttpTransport / WebSocketTransport</span>
-  framing,             <span class="cm">// Framing&lt;Frame&gt;：bytes → frames</span>
-})</pre>
-  <p>注意类型参数 <span class="mono">Frame</span> 是怎么<strong>把 framing 和 protocol 悄悄锁在一起</strong>的：<span class="mono">framing</span> 产出 <span class="mono">Framing&lt;Frame&gt;</span>，<span class="mono">protocol.stream.event</span> 是 <span class="mono">Codec&lt;Event, Frame&gt;</span>——两者的 <span class="mono">Frame</span> 必须是同一个类型，编译器才放行。这是个很漂亮的约束：旋钮虽然能自由组合，但「framing 切出来的帧」和「protocol 期望解码的帧」必须<strong>类型对得上</strong>。比如 SSE 的帧是 <span class="mono">string</span>（一段 data: JSON），那配它的 protocol 的 <span class="mono">stream.event</span> 就得是 <span class="mono">Codec&lt;Event, string&gt;</span>；Bedrock 二进制帧是解析后的对象，protocol 那边就得对得上。<strong>正交不等于放任</strong>：六个旋钮能自由组合，但类型系统在接缝处守着，不让你把「切出 string 帧的 framing」错配给「期望二进制帧的 protocol」。自由组合 + 类型兜底，这才是「积木」既灵活又不散架的秘密。</p>
+  framing,             <span class="cm">// Framing&lt;Frame&gt;：bytes → frames（Route 自动据它建 HTTP 传输）</span>
+})
+<span class="cm">// 走 WebSocket：用 transport 顶替 framing（make 的另一个重载，二者只传其一）</span></pre>
+  <p>注意类型参数 <span class="mono">Frame</span> 是怎么<strong>把 framing 和 protocol 悄悄锁在一起</strong>的：<span class="mono">framing</span> 产出 <span class="mono">Framing&lt;Frame&gt;</span>，<span class="mono">protocol.stream.event</span> 是 <span class="mono">Codec&lt;Event, Frame&gt;</span>——两者的 <span class="mono">Frame</span> 必须是同一个类型，编译器才放行。这是个很漂亮的约束：这几件虽然能自由组合，但「framing 切出来的帧」和「protocol 期望解码的帧」必须<strong>类型对得上</strong>。比如 SSE 的帧是 <span class="mono">string</span>（一段 data: JSON），那配它的 protocol 的 <span class="mono">stream.event</span> 就得是 <span class="mono">Codec&lt;Event, string&gt;</span>；Bedrock 二进制帧是解析后的对象，protocol 那边就得对得上。<strong>正交不等于放任</strong>：四件能自由组合，但类型系统在接缝处守着，不让你把「切出 string 帧的 framing」错配给「期望二进制帧的 protocol」。自由组合 + 类型兜底，这才是「积木」既灵活又不散架的秘密。</p>
 </div>
 
 <div class="card key">
@@ -431,7 +430,7 @@ Route.<span class="fn">make</span>({
     <li><strong>完整流水线（Route.stream）</strong>：①protocol.body.from 编码 → ②endpoint 寻址 → ③auth 签名 → ④transport 取字节流 → ⑤framing 切帧 → ⑥protocol.stream 解码成 LLMEvent。第 29 课的「两栏表」至此接上完整上下文。</li>
     <li><strong>两种 transport</strong>：HTTP（请求/响应，绝大多数）；WebSocket（持久双向，<span class="mono">sendText</span>+<span class="mono">messages</span> 流）。唯 OpenAI Responses 同时支持两者，印证第 31 课「HTTP 与 WS 共享请求体形状」。</li>
     <li><strong>framing = 字节流形状的缝</strong>（<span class="mono">framing.ts</span>）：<span class="mono">(bytes)=&gt;(frames)</span>，SSE（几乎所有 JSON HTTP 供应商）/ AWS 二进制两种；「帧里是什么」对它不透明，故 SSE 可同时服务 Anthropic/Gemini/OpenAI。</li>
-    <li><strong>六个正交旋钮</strong>：<span class="mono">Route.make({id,protocol,endpoint,auth,transport,framing})</span>。前几课的复用本质都是「只拧一两个旋钮」（兼容=改 endpoint、Bedrock=改 framing、Responses WS=改 transport）。类型参数 <span class="mono">Frame</span> 在 framing↔protocol 接缝处强制对齐，正交但不放任。</li>
+    <li><strong>四个正交件 + id</strong>：<span class="mono">Route.make({id, protocol, endpoint, auth, framing})</span>（常见的 HTTP 写法）。前几课的复用本质都是「只换一两件」（兼容=改 endpoint、Bedrock=改 framing、Responses WS=以 transport 顶替 framing）。类型参数 <span class="mono">Frame</span> 在 framing↔protocol 接缝处强制对齐，正交但不放任。</li>
   </ul>
 </div>
 <div class="selftest">
@@ -463,29 +462,29 @@ Route.<span class="fn">make</span>({
   </details>
 </div>
 <div class="quiz">
-  <div class="qn">3. 为什么说一个 Route 是「六个正交旋钮」拼出来的？这对新增供应商意味着什么？</div>
+  <div class="qn">3. 为什么说一个 Route 是由几个「正交件」拼出来的？这对新增供应商意味着什么？</div>
   <ol class="opts">
     <li>旋钮越多说明设计越糟</li>
-    <li>Route.make 由 id/protocol/endpoint/auth/transport/framing 六个可独立替换的零件组成；新增一家常常只是「给六个旋钮挑一组取值」，复用本质是「只拧一两个旋钮」</li>
+    <li>Route.make 注释明言由四个正交件 protocol/endpoint/auth/framing 加一个 id 组成（transport 是 framing 维在非 HTTP 时的替换）；新增一家常常只是「给这几件挑一组取值」，复用本质是「只换一两件」</li>
     <li>Route 是铁板一块，新增供应商要从头重写</li>
-    <li>六个旋钮必须一起改，不能单独动</li>
+    <li>这几件必须一起改，不能单独动</li>
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。六个旋钮各管一维、可独立替换，组合空间却覆盖所有现实供应商。这把前几课的「魔法」全祛魅了：OpenAI 兼容=拨 protocol 到 openai-chat+改 endpoint；Bedrock=把 framing 从 SSE 拨到二进制；Responses WS=把 transport 从 HTTP 拨到 WS。每个聪明复用都是「只拧一两个旋钮、其余照旧」。而类型参数 Frame 在 framing↔protocol 接缝强制对齐——正交但不放任，自由组合+类型兜底。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。源码 Route.make 注释明言「four orthogonal pieces」=protocol/endpoint/auth/framing，加一个 id，各管一维、可独立替换，组合空间却覆盖所有现实供应商。这把前几课的「魔法」全祛魅了：OpenAI 兼容=拨 protocol 到 openai-chat+改 endpoint；Bedrock=把 framing 从 SSE 拨到二进制；Responses WS=以 transport 顶替 framing 走 WS（transport 与 framing 是同一维两种写法，二者传其一）。每个聪明复用都是「只换一两件、其余照旧」。而类型参数 Frame 在 framing↔protocol 接缝强制对齐——正交但不放任，自由组合+类型兜底。</div></div></div>
   </details>
 </div>
 <div class="card spark">
   <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
   <ul>
     <li>课里把 OpenAI Responses 同时支持 HTTP 与 WebSocket，解释为「哪种传输划算就用哪种，并把选择做成一个可拨动的旋钮」，而不是「为了时髦上 WebSocket」。结合 HTTP（无状态、省心、universal）与 WebSocket（双向、实时、但要管连接保活/重连）的权衡，谈谈你会在什么场景选 WebSocket、什么场景坚持 HTTP？把传输做成「旋钮」而非写死，给未来留下了什么样的余地？</li>
-    <li>课里强调「正交不等于放任」：六个旋钮能自由组合，但类型参数 Frame 在 framing 和 protocol 的接缝处强制对齐（SSE 切出 string 帧，配它的 protocol.stream.event 就得是 Codec<Event, string>）。请谈谈「用类型系统在模块接缝处设防」相比「靠文档约定/代码评审来防止错配」的优势；你能想到自己项目里哪个接缝，也值得用类型（而非口头约定）来强制对齐？</li>
+    <li>课里强调「正交不等于放任」：这几个正交件能自由组合，但类型参数 Frame 在 framing 和 protocol 的接缝处强制对齐（SSE 切出 string 帧，配它的 protocol.stream.event 就得是 Codec<Event, string>）。请谈谈「用类型系统在模块接缝处设防」相比「靠文档约定/代码评审来防止错配」的优势；你能想到自己项目里哪个接缝，也值得用类型（而非口头约定）来强制对齐？</li>
   </ul>
 </div>
 </div></div>
   <div class="lang-en">
 <p class="lead">Lessons 29–32, we walked through all six protocols' "dialects." But did you notice something: <strong>from start to finish, a protocol never touches the network</strong>. It only handles "what to encode the request into, what to decode the response into"—purely <strong>language-layer</strong> work. But the message has to actually go out, the bytes have to actually come back, right? This lesson's star is the <strong>conveyor belt that actually carries bytes</strong> beneath the protocol: transport, framing, endpoint, auth. Together with the protocol, they're assembled by <span class="mono">Route</span> into one complete pipeline. After this lesson, lesson 29's "two-column form" gets <strong>powered up and spinning</strong> for the first time—you'll see a request's <strong>full journey</strong> from canonical object through encoding, addressing, signing, going on the wire, framing, decoding, finally back into a stream of canonical events.</p>
-<p>More importantly, this lesson reveals the <strong>final form</strong> of opencode's design: a <span class="mono">Route</span> isn't monolithic but assembled from <strong>six orthogonal knobs</strong>—protocol, endpoint, auth, transport, framing, plus an id. Each knob is independently swappable. That's exactly why lesson 31's "OpenAI-compatible only changes the endpoint" and lesson 32's "Bedrock only swaps framing" could be done so lightly, as "<strong>turn one knob, leave the rest</strong>." This lesson lays the six knobs out in a row to show you the full picture of this <strong>building-block</strong> architecture.</p>
+<p>More importantly, this lesson reveals the <strong>final form</strong> of opencode's design: a <span class="mono">Route</span> isn't monolithic but assembled from what the source calls the <strong>four orthogonal pieces</strong>—protocol, endpoint, auth, framing—<strong>plus an id</strong>. Each piece is independently swappable. (The "transport" HTTP/WebSocket choice isn't a separate fifth piece but an extension of the framing axis: in the common HTTP case you pass only <span class="mono">framing</span> and the Route builds an HTTP transport from it; for WebSocket you supply a <span class="mono">transport</span> in place of framing.) That's exactly why lesson 31's "OpenAI-compatible only changes the endpoint" and lesson 32's "Bedrock only swaps framing" could be done so lightly, as "<strong>swap one piece, leave the rest</strong>." This lesson lays these pieces out in a row to show you the full picture of this <strong>building-block</strong> architecture.</p>
 
 <div class="card analogy">
   <div class="tag">🚚 Analogy</div>
@@ -515,8 +514,8 @@ Route.<span class="fn">make</span>({
   <div class="col"><h4>HTTP (truck round-trip)</h4><p>Classic request/response: POST a request body out, haul the response body back as <strong>one byte stream</strong>, and the turn is done. Simple, universal, <strong>the vast majority of providers ride this</strong>. One round trip, clean.</p></div>
   <div class="col"><h4>WebSocket (always-on hotline)</h4><p>A <strong>persistent bidirectional connection</strong>: once connected, you can keep <span class="mono">sendText</span>-ing messages and receiving from the <span class="mono">messages</span> stream. Fits low-latency, real-time, bidirectional-interaction scenarios.</p></div>
 </div>
-<p>Who uses WebSocket? Search all of <span class="mono">protocols/</span> and you'll find <strong>the only one supporting both transports is OpenAI Responses</strong>—it provides both <span class="mono">httpTransport</span> and <span class="mono">webSocketTransport</span>. This picks up lesson 31's planted seed: Responses' request body is designed so "HTTP and WebSocket share one shape," the HTTP version adds <span class="mono">stream:true</span>, the WebSocket version adds <span class="mono">type:"response.create"</span>. The same protocol codec <strong>works just as well with a different transport underneath</strong>—more living proof of "protocol and transport are orthogonal": Responses' dialect is written once, walking on both HTTP and WebSocket legs. The others (Anthropic, Gemini, OpenAI Chat, Bedrock) currently ride only HTTP, but "to add WebSocket just configure a transport knob, untouching the protocol" is itself the headroom this architecture left.</p>
-<p>Why does HTTP nearly dominate while WebSocket is just an occasional option? Because for "send one request, stream back one reply," HTTP's "truck round-trip" is enough and most carefree: one POST, one response-body stream, done—stateless, no long connection to maintain, treated kindly by all network infrastructure. WebSocket's "always-on hotline" is more powerful but also heavier—you must manage connection setup, keepalive, reconnect on drop, no small cost. Its real value is in <strong>bidirectional, real-time, low-latency</strong> scenarios: e.g. interjecting mid-generation, or demanding millisecond round-trips. OpenAI Responses keeps both precisely because it targets those <strong>real-time-interaction</strong> advanced uses. In other words, opencode doesn't "adopt WebSocket to be trendy," but <strong>uses whichever transport is worthwhile</strong>, making the choice a knob you can turn anytime—itself engineering clarity.</p>
+<p>Who uses WebSocket? Search all of <span class="mono">protocols/</span> and you'll find <strong>the only one supporting both transports is OpenAI Responses</strong>—it provides both <span class="mono">httpTransport</span> and <span class="mono">webSocketTransport</span>. This picks up lesson 31's planted seed: Responses' request body is designed so "HTTP and WebSocket share one shape," the HTTP version adds <span class="mono">stream:true</span>, the WebSocket version adds <span class="mono">type:"response.create"</span>. The same protocol codec <strong>works just as well with a different transport underneath</strong>—more living proof of "protocol and transport are orthogonal": Responses' dialect is written once, walking on both HTTP and WebSocket legs. The others (Anthropic, Gemini, OpenAI Chat, Bedrock) currently ride only HTTP, but "to add WebSocket just supply a transport (in place of framing), untouching the protocol" is itself the headroom this architecture left.</p>
+<p>Why does HTTP nearly dominate while WebSocket is just an occasional option? Because for "send one request, stream back one reply," HTTP's "truck round-trip" is enough and most carefree: one POST, one response-body stream, done—stateless, no long connection to maintain, treated kindly by all network infrastructure. WebSocket's "always-on hotline" is more powerful but also heavier—you must manage connection setup, keepalive, reconnect on drop, no small cost. Its real value is in <strong>bidirectional, real-time, low-latency</strong> scenarios: e.g. interjecting mid-generation, or demanding millisecond round-trips. OpenAI Responses keeps both precisely because it targets those <strong>real-time-interaction</strong> advanced uses. In other words, opencode doesn't "adopt WebSocket to be trendy," but <strong>uses whichever transport is worthwhile</strong>, making the choice a switch you can flip anytime—itself engineering clarity.</p>
 
 <h2>framing: the seam between transport and protocol</h2>
 <p>Step ⑤ "framing" deserves its own section, because it's <strong>the most exquisite seam in the whole design</strong>. <span class="mono">framing.ts</span>'s comment defines it beautifully: "<strong>Framing is the byte-stream-shaped seam between transport and protocol</strong>." Its interface is as simple as one function: <span class="mono">frame: (byte stream) =&gt; frame stream</span>.</p>
@@ -529,17 +528,16 @@ Route.<span class="fn">make</span>({
 </div>
 <p>opencode builds in two framings. <strong>SSE</strong> (<span class="mono">Framing.sse</span>): UTF-8 decode the bytes, run the SSE channel decoder, drop empty lines and <span class="mono">[DONE]</span> keep-alive signals, and each frame is one event's <span class="mono">data:</span> JSON payload—<strong>nearly every JSON-streaming HTTP provider uses it</strong>. <strong>AWS binary event stream</strong>: exactly the length-prefixed, CRC-checksummed binary frames you saw in lesson 32. The key is the comment's last line: "<strong>the frame type is opaque to this layer</strong>"—framing only "cuts bytes into portions," and as for what each portion holds, it <strong>doesn't care at all</strong>—that's the protocol <span class="mono">stream.event</span> decode's worry. Precisely because framing stays ignorant of "what's in the frame," it can be <strong>reused by any protocol</strong>: the single SSE framing serves Anthropic, Gemini, and OpenAI's three completely different dialects at once. A seam cut just right buys both layers their respective freedom. Conversely, had there been no framing seam, with each protocol clawing frames from the byte stream itself, then "cut by data: blank line" logic would have to be <strong>copied into each of</strong> Anthropic, Gemini, OpenAI—again the duplication lesson 28 most abhors. framing extracts the "byte→frame" dirty work common to all three into <strong>one independent, reusable part</strong>—exactly "find the commonality, factor it out," the wisdom running through this whole book, making another appearance at the transport layer.</p>
 
-<h2>Six orthogonal knobs: the building-block Route</h2>
-<p>Combine this lesson with the prior ones and the <strong>final form</strong> of opencode's LLM layer is clear: a <span class="mono">Route</span> is assembled from <strong>six independently-swappable knobs</strong>.</p>
+<h2>Four orthogonal pieces: the building-block Route</h2>
+<p>Combine this lesson with the prior ones and the <strong>final form</strong> of opencode's LLM layer is clear—<span class="mono">Route.make</span>'s source comment spells it out: a <span class="mono">Route</span> is assembled from <strong>four orthogonal pieces</strong>, plus an id.</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">id</div><div class="c-txt">route identity, for diagnostics & resolution</div></div>
   <div class="cell"><div class="c-tag">protocol</div><div class="c-txt">dialect codec (body.from + stream.step)</div></div>
   <div class="cell"><div class="c-tag">endpoint</div><div class="c-txt">which URL to hit</div></div>
   <div class="cell"><div class="c-tag">auth</div><div class="c-txt">how to sign/authenticate</div></div>
-  <div class="cell"><div class="c-tag">transport</div><div class="c-txt">HTTP or WebSocket</div></div>
-  <div class="cell"><div class="c-tag">framing</div><div class="c-txt">SSE or binary framing</div></div>
+  <div class="cell"><div class="c-tag">framing</div><div class="c-txt">how to cut the response byte stream into frames (SSE / binary); supply transport instead for WS</div></div>
 </div>
-<p>Lay each vendor out by these knobs' values and you'll instantly understand what those "light reuses" in prior lessons really were:</p>
+<p>Note the source's restraint: <span class="mono">make</span>'s comment recognizes only these "four pieces + id," and pointedly says "if a new route doesn't fit this four-axis model, <strong>add a purpose-built constructor</strong> rather than widening the public surface preemptively." And "transport" isn't a fifth piece because it and framing are <strong>two spellings of the same axis</strong>: <span class="mono">make</span> has two overloads—the common case takes <span class="mono">framing</span> and the Route auto-builds <span class="mono">HttpTransport.httpJson({framing})</span> for you; for WebSocket you pass a <span class="mono">transport</span> in place of framing (you pass one xor the other). Lay each vendor out by these pieces' values and you'll instantly understand what those "light reuses" in prior lessons really were:</p>
 <table class="t">
   <tr><th>Vendor</th><th>protocol</th><th>transport</th><th>framing</th></tr>
   <tr><td>Anthropic</td><td>anthropic-messages</td><td>HTTP</td><td>SSE</td></tr>
@@ -549,7 +547,7 @@ Route.<span class="fn">make</span>({
   <tr><td>OpenAI Responses</td><td>openai-responses</td><td>HTTP or WS</td><td>SSE</td></tr>
   <tr><td>Bedrock</td><td>bedrock-converse</td><td>HTTP</td><td>binary event stream</td></tr>
 </table>
-<p>This table demystifies all the prior lessons' "magic": "OpenAI-compatible" just turns the protocol knob to <span class="mono">openai-chat</span> and changes the endpoint (lesson 31's 24 lines); "Bedrock" just turns the framing knob from SSE to binary, reusing Anthropic's set as much as possible (lesson 32); "Responses on WebSocket" just turns the transport knob from HTTP to WS. <strong>Every seemingly-clever reuse is essentially "turn one or two knobs, leave the rest."</strong> That's the compounding of orthogonal decomposition: six knobs each own one dimension, yet the combination space covers all real-world providers, and the cost of adding one is often just <strong>picking a fitting set of values for the six knobs</strong>.</p>
+<p>This table demystifies all the prior lessons' "magic": "OpenAI-compatible" just turns the protocol piece to <span class="mono">openai-chat</span> and changes the endpoint (lesson 31's 24 lines); "Bedrock" just swaps the framing piece from SSE to binary, reusing Anthropic's set as much as possible (lesson 32); "Responses on WebSocket" just supplies a transport in place of framing on that axis. <strong>Every seemingly-clever reuse is essentially "swap one or two pieces, leave the rest."</strong> That's the compounding of orthogonal decomposition: four pieces each own one dimension, yet the combination space covers all real-world providers, and the cost of adding one is often just <strong>picking a fitting set of values for these pieces</strong>.</p>
 
 <div class="card macro">
   <div class="tag">🗺️ The Big Picture</div>
@@ -559,24 +557,24 @@ Route.<span class="fn">make</span>({
     <li><strong>The complete pipeline</strong>: ①body.from encode → ②endpoint address → ③auth sign → ④transport on-wire to byte stream → ⑤framing cut frames → ⑥protocol.stream decode to LLMEvent. Lesson 29's form is now "powered up."</li>
     <li><strong>Two transports</strong>: HTTP (request/response, the vast majority) vs WebSocket (persistent bidirectional, only OpenAI Responses supports both, confirming lesson 31's shared request-body shape).</li>
     <li><strong>framing is the byte-stream-shaped seam</strong>: <span class="mono">(byte stream)=&gt;(frame stream)</span>, SSE / binary; "what's in the frame" is opaque to it, so it's reusable by any protocol (SSE serves Anthropic/Gemini/OpenAI at once).</li>
-    <li><strong>Six orthogonal knobs</strong>: id/protocol/endpoint/auth/transport/framing assemble a Route, each independently swappable. The prior lessons' "light reuses" are all "turn one or two knobs."</li>
+    <li><strong>Four orthogonal pieces + id</strong>: the source comment states a Route is assembled from "four orthogonal pieces" protocol/endpoint/auth/framing plus an id, each independently swappable. The prior lessons' "light reuses" are all "swap one or two pieces." ("transport" HTTP/WebSocket isn't a fifth piece but an extension of the framing axis.)</li>
   </ul>
   <p>With M6 here, the LLM protocol layer's full picture is before you: core speaks one canonical language (L28), protocol adapters translate it into each dialect (L29 skeleton → L30–32 concrete dialects), the transport layer actually delivers the translated message (L33). Two lessons remain to wrap up M6: lesson 34 dives into <strong>streaming events and prompt caching</strong> (fully connecting the LLMEvent stream to lesson 24's Context Epoch baseline prefix), lesson 35 covers <strong>model resolution and the GitHub Copilot provider</strong> (the models.dev catalog, Copilot as a special provider). The skeleton stands; what remains is filling in the two most intriguing details.</p>
 </div>
 
 <div class="card detail">
   <div class="tag">🔬 Source Detail</div>
-  <p>How do the six knobs "assemble" into a Route? Look at <span class="mono">Route.make</span>'s signature (simplified from client.ts):</p>
-  <pre class="code"><span class="cm">// one Route = a composition of six parts</span>
+  <p>How do these four pieces "assemble" into a Route? Look at <span class="mono">Route.make</span>'s common signature (simplified from client.ts):</p>
+  <pre class="code"><span class="cm">// common case: a Route = four orthogonal pieces + id (pass framing, ride HTTP)</span>
 Route.<span class="fn">make</span>({
   id,                  <span class="cm">// route identity</span>
   protocol,            <span class="cm">// Protocol&lt;Body, Frame, Event, State&gt;</span>
   endpoint,            <span class="cm">// which URL to hit</span>
   auth,                <span class="cm">// how to authenticate</span>
-  transport,           <span class="cm">// HttpTransport / WebSocketTransport</span>
-  framing,             <span class="cm">// Framing&lt;Frame&gt;: bytes → frames</span>
-})</pre>
-  <p>Note how the type parameter <span class="mono">Frame</span> <strong>quietly locks framing and protocol together</strong>: <span class="mono">framing</span> produces <span class="mono">Framing&lt;Frame&gt;</span>, <span class="mono">protocol.stream.event</span> is <span class="mono">Codec&lt;Event, Frame&gt;</span>—the two <span class="mono">Frame</span>s must be the same type for the compiler to pass. It's a beautiful constraint: the knobs can combine freely, but "the frame framing cuts out" and "the frame protocol expects to decode" must <strong>match in type</strong>. If SSE's frame is <span class="mono">string</span> (a data: JSON segment), the protocol pairing it must have <span class="mono">stream.event</span> of <span class="mono">Codec&lt;Event, string&gt;</span>; Bedrock's binary frame is a parsed object, so the protocol there must match. <strong>Orthogonal doesn't mean lawless</strong>: the six knobs combine freely, but the type system guards the seam, not letting you mis-pair a "framing that cuts string frames" with a "protocol expecting binary frames." Free composition + type backstop—that's the secret to the "building blocks" being both flexible and not falling apart.</p>
+  framing,             <span class="cm">// Framing&lt;Frame&gt;: bytes → frames (Route auto-builds the HTTP transport)</span>
+})
+<span class="cm">// for WebSocket: pass transport in place of framing (make's other overload; one xor the other)</span></pre>
+  <p>Note how the type parameter <span class="mono">Frame</span> <strong>quietly locks framing and protocol together</strong>: <span class="mono">framing</span> produces <span class="mono">Framing&lt;Frame&gt;</span>, <span class="mono">protocol.stream.event</span> is <span class="mono">Codec&lt;Event, Frame&gt;</span>—the two <span class="mono">Frame</span>s must be the same type for the compiler to pass. It's a beautiful constraint: the pieces can combine freely, but "the frame framing cuts out" and "the frame protocol expects to decode" must <strong>match in type</strong>. If SSE's frame is <span class="mono">string</span> (a data: JSON segment), the protocol pairing it must have <span class="mono">stream.event</span> of <span class="mono">Codec&lt;Event, string&gt;</span>; Bedrock's binary frame is a parsed object, so the protocol there must match. <strong>Orthogonal doesn't mean lawless</strong>: the four pieces combine freely, but the type system guards the seam, not letting you mis-pair a "framing that cuts string frames" with a "protocol expecting binary frames." Free composition + type backstop—that's the secret to the "building blocks" being both flexible and not falling apart.</p>
 </div>
 
 <div class="card key">
@@ -586,7 +584,7 @@ Route.<span class="fn">make</span>({
     <li><strong>The complete pipeline (Route.stream)</strong>: ①protocol.body.from encode → ②endpoint address → ③auth sign → ④transport to byte stream → ⑤framing cut frames → ⑥protocol.stream decode to LLMEvent. Lesson 29's "two-column form" now has its full context.</li>
     <li><strong>Two transports</strong>: HTTP (request/response, the vast majority); WebSocket (persistent bidirectional, <span class="mono">sendText</span>+<span class="mono">messages</span> stream). Only OpenAI Responses supports both, confirming lesson 31's "HTTP and WS share request-body shape."</li>
     <li><strong>framing = the byte-stream-shaped seam</strong> (<span class="mono">framing.ts</span>): <span class="mono">(bytes)=&gt;(frames)</span>, SSE (nearly all JSON HTTP providers) / AWS binary; "what's in the frame" is opaque to it, so SSE serves Anthropic/Gemini/OpenAI at once.</li>
-    <li><strong>Six orthogonal knobs</strong>: <span class="mono">Route.make({id,protocol,endpoint,auth,transport,framing})</span>. Prior lessons' reuses are all "turn one or two knobs" (compatible=change endpoint, Bedrock=change framing, Responses WS=change transport). The type parameter <span class="mono">Frame</span> forces framing↔protocol alignment at the seam—orthogonal but not lawless.</li>
+    <li><strong>Four orthogonal pieces + id</strong>: <span class="mono">Route.make({id, protocol, endpoint, auth, framing})</span> (the common HTTP form). Prior lessons' reuses are all "swap one or two pieces" (compatible=change endpoint, Bedrock=change framing, Responses WS=supply transport in place of framing). The type parameter <span class="mono">Frame</span> forces framing↔protocol alignment at the seam—orthogonal but not lawless.</li>
   </ul>
 </div>
 <div class="selftest">
@@ -618,23 +616,23 @@ Route.<span class="fn">make</span>({
   </details>
 </div>
 <div class="quiz">
-  <div class="qn">3. Why is a Route said to be assembled from "six orthogonal knobs"? What does this mean for adding a provider?</div>
+  <div class="qn">3. Why is a Route said to be assembled from a few "orthogonal pieces"? What does this mean for adding a provider?</div>
   <ol class="opts">
     <li>More knobs means worse design</li>
-    <li>Route.make is six independently-swappable parts: id/protocol/endpoint/auth/transport/framing; adding one is often just "pick a set of values for the six knobs," reuse is essentially "turn one or two knobs"</li>
+    <li>Route.make’s comment states four orthogonal pieces protocol/endpoint/auth/framing plus an id (transport is framing’s alternative for non-HTTP); adding one is often just "pick a set of values for these pieces," reuse is essentially "swap one or two pieces"</li>
     <li>Route is monolithic; adding a provider means rewriting from scratch</li>
-    <li>All six knobs must change together, none alone</li>
+    <li>All the pieces must change together, none alone</li>
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Six knobs each own one dimension, independently swappable, yet the combination space covers all real providers. This demystifies prior lessons' "magic": OpenAI-compatible = turn protocol to openai-chat + change endpoint; Bedrock = turn framing from SSE to binary; Responses WS = turn transport from HTTP to WS. Each clever reuse is "turn one or two knobs, leave the rest." And the type parameter Frame forces framing↔protocol alignment at the seam — orthogonal but not lawless, free composition + type backstop.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. The source Route.make comment states "four orthogonal pieces" = protocol/endpoint/auth/framing, plus an id, each owning one dimension, independently swappable, yet the combination space covers all real providers. This demystifies prior lessons' "magic": OpenAI-compatible = turn protocol to openai-chat + change endpoint; Bedrock = turn framing from SSE to binary; Responses WS = supply transport in place of framing for WS (transport and framing are two spellings of one axis, you pass one xor the other). Each clever reuse is "swap one or two pieces, leave the rest." And the type parameter Frame forces framing↔protocol alignment at the seam — orthogonal but not lawless, free composition + type backstop.</div></div></div>
   </details>
 </div>
 <div class="card spark">
   <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
   <ul>
     <li>The lesson explains OpenAI Responses supporting both HTTP and WebSocket as "use whichever transport is worthwhile, making the choice a turnable knob," not "adopt WebSocket to be trendy." Weighing HTTP (stateless, carefree, universal) against WebSocket (bidirectional, real-time, but must manage keepalive/reconnect), discuss when you'd choose WebSocket and when you'd stick with HTTP. Making transport a "knob" rather than hardcoded leaves what headroom for the future?</li>
-    <li>The lesson stresses "orthogonal doesn't mean lawless": the six knobs combine freely, but the type parameter Frame forces alignment at the framing/protocol seam (SSE cuts string frames, so its protocol.stream.event must be Codec<Event, string>). Discuss the advantage of "guarding a module seam with the type system" over "preventing mismatches via documentation/code review." Which seam in your own project also deserves type-enforced (not verbal) alignment?</li>
+    <li>The lesson stresses "orthogonal doesn't mean lawless": the orthogonal pieces combine freely, but the type parameter Frame forces alignment at the framing/protocol seam (SSE cuts string frames, so its protocol.stream.event must be Codec<Event, string>). Discuss the advantage of "guarding a module seam with the type system" over "preventing mismatches via documentation/code review." Which seam in your own project also deserves type-enforced (not verbal) alignment?</li>
   </ul>
 </div>
 </div></div>

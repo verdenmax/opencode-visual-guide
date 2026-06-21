@@ -343,7 +343,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="cell"><div class="c-tag">text</div><div class="c-txt">文本片段</div></div>
   <div class="cell"><div class="c-tag">functionCall</div><div class="c-txt">工具调用（camelCase！不是 tool_use 也不是 tool_calls）</div></div>
   <div class="cell"><div class="c-tag">functionResponse</div><div class="c-txt">工具结果回传</div></div>
-  <div class="cell"><div class="c-tag">inline_data</div><div class="c-txt">内联图片等多模态数据</div></div>
+  <div class="cell"><div class="c-tag">inlineData</div><div class="c-txt">内联图片等多模态数据</div></div>
   <div class="cell"><div class="c-tag">thought + thoughtSignature</div><div class="c-txt">标记为思考的 part，带「思考签名」</div></div>
 </div>
 <p>看到 <span class="mono">thoughtSignature</span> 了吗？这就是本课第一个「会心一笑」的点。回顾一下：让模型跨轮信任自己上一轮的推理，第 30 课 Anthropic 叫 <span class="mono">signature</span>，第 31 课 OpenAI Responses 叫 <span class="mono">encrypted_content</span>，到了 Gemini 这儿叫 <span class="mono">thoughtSignature</span>——<strong>同一个概念，三家三个名字</strong>。明明是一回事，偏偏没人愿意跟别人叫一样的名字。把它们并排一放，「协议即方言」这五个字就再不抽象了：</p>
@@ -492,7 +492,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="cell"><div class="c-tag">text</div><div class="c-txt">text fragment</div></div>
   <div class="cell"><div class="c-tag">functionCall</div><div class="c-txt">tool call (camelCase! not tool_use, not tool_calls)</div></div>
   <div class="cell"><div class="c-tag">functionResponse</div><div class="c-txt">tool result returned</div></div>
-  <div class="cell"><div class="c-tag">inline_data</div><div class="c-txt">inline image and other multimodal data</div></div>
+  <div class="cell"><div class="c-tag">inlineData</div><div class="c-txt">inline image and other multimodal data</div></div>
   <div class="cell"><div class="c-tag">thought + thoughtSignature</div><div class="c-txt">a part marked as thought, with a "thought signature"</div></div>
 </div>
 <p>See <span class="mono">thoughtSignature</span>? This is the lesson's first "knowing smile." Recall: to let the model trust its own prior reasoning across turns, lesson 30's Anthropic calls it <span class="mono">signature</span>, lesson 31's OpenAI Responses calls it <span class="mono">encrypted_content</span>, and here in Gemini it's <span class="mono">thoughtSignature</span>—<strong>the same concept, three vendors, three names</strong>. Lay them side by side and the five words "protocol = dialect" stop being abstract:</p>
