@@ -211,7 +211,217 @@ Schema.<span class="fn">decodeUnknownEffect</span>(config.input)(call.input).pip
 </div>
 """,
 }
-LESSON_37 = wip('工具注册表', 'The tool registry')
+LESSON_37 = {
+    "zh": r"""
+<p class="lead">上一课我们学会了「<strong>定义</strong>一个工具」（<span class="mono">Tool.make</span> 那张表）。可定义出来的工具，怎么<strong>被收集起来、变成模型真正能看到、能调用的一份清单</strong>？这就是<strong>工具注册表（ToolRegistry）</strong>的活儿。它是一座桥：一头连着「<strong>一堆零散定义好的工具</strong>」（L36），一头连着「<strong>这一轮对话，模型该看到哪些工具、点了能派给谁干</strong>」（第 17 课 agent 循环要用的东西）。注册表把这座桥拆成两个动作：<strong>register（登记）</strong>——工具来报到；<strong>materialize（物化）</strong>——按当下情形，现场印出一份「<strong>今日菜单</strong>」交给模型。</p>
+<p>读这一课，你会强烈地想起第 23 课「System Context 注册表」——它俩几乎是<strong>同一种智慧的两次现身</strong>：都用 <strong>Scope（作用域）绑定</strong>来管理「谁在、谁走」，作用域一关、登记自动撤销，绝不留幽灵。但工具注册表多了两手更精巧的设计：<strong>「同名工具叠成一摞、最新的盖在最上面」</strong>（支持覆盖与自动恢复），以及<strong>「物化时按权限筛、还盖个防伪章」</strong>（被禁的工具压根不进菜单、防止「点了张过期的菜」）。把这两手看懂，你就懂了 opencode 怎么在「插件随时来去、权限随时变」的动态世界里，仍给模型递上一份<strong>干净、当下、可信</strong>的工具清单。</p>
+
+<div class="card analogy">
+  <div class="tag">🍽️ 生活类比</div>
+  把注册表想象成一家餐厅的<strong>前台花名册 + 今日菜单机</strong>。厨师（工具）上岗要<strong>打卡报到</strong>（register）——但打卡是<strong>「绑定班次」</strong>的：你这一班在，名字就在花名册上；班次一结束，<strong>自动消失</strong>，不用谁记得去划掉。要是两个厨师<strong>重名</strong>（比如一个「招牌版」盖住「基础版」），花名册把他们<strong>叠成一摞</strong>，永远<strong>最新打卡的那位顶班</strong>；他下班了，下面那位<strong>自动顶上来</strong>。每当一桌客人（模型）落座，前台就现场<strong>印一份「今日菜单」</strong>（materialize）：它扫一遍当前花名册，把<strong>今天被禁的菜划掉</strong>（权限过滤），印成两样东西——一份<strong>给客人看的菜单</strong>（definitions），一个<strong>派单台</strong>（settle，客人点了菜就派给对应厨师）。而且菜单上每道菜都<strong>盖了今日防伪章</strong>：万一客人拿着旧菜单来点、而那厨师早已下班换了人，派单台一看章对不上，当即拦下——「<strong>这是张过期的菜</strong>」。
+</div>
+
+<h2>register：打卡报到，绑定作用域</h2>
+<p>先看 <span class="mono">register(tools)</span>——把一批工具（一个 <span class="mono">{名字: 工具}</span> 的字典）登记进来。它的实现处处是第 23 课的影子，但更见功力：</p>
+<div class="flow">
+  <div class="f-node">register(tools)</div>
+  <div class="f-arrow">①校验 →</div>
+  <div class="f-node">validateName<br><small>每个名字合规</small></div>
+  <div class="f-arrow">②入摞 →</div>
+  <div class="f-node">local[name].push(&#123;token, 工具&#125;)<br><small>同名叠成一摞</small></div>
+  <div class="f-arrow">③登记善后 →</div>
+  <div class="f-node">addFinalizer<br><small>作用域关→按 token 撤销</small></div>
+</div>
+<p>三步看似平常，细节全是讲究。其一，<strong>每个名字先过 <span class="mono">validateName</span></strong>（第 36 课那个 <span class="mono">/^[A-Za-z]...{0,63}$/</span> 的规矩）——不合规的名字进不来，从源头保证菜单干净。其二，<span class="mono">local</span> 不是 <span class="mono">Map&lt;名字, 工具&gt;</span>，而是 <span class="mono">Map&lt;名字, 工具数组&gt;</span>——<strong>同一个名字底下是一摞登记</strong>。为什么要叠成摞？因为这样就支持<strong>覆盖</strong>：一个插件想用自己的 <span class="mono">read</span> 盖掉内置的 <span class="mono">read</span>，只需再登记一个同名工具压在摞顶；取用时永远取 <span class="mono">.at(-1)</span>（摞顶、最新那个）。其三，也是最关键的——<strong><span class="mono">Effect.addFinalizer</span> 绑定作用域</strong>：登记时生成一个唯一 <span class="mono">token = {}</span>，作用域关闭时，finalizer 按这个 token <strong>精准地把自己那次登记从摞里抽走</strong>。抽走后若摞空了就删掉这个名字，若摞里还有（被它盖住的那个）就<strong>自动浮上来顶班</strong>。</p>
+<p>这套「叠摞 + 按 token 撤销」合起来，给出一个极优雅的性质：<strong>工具的「存在」与它的作用域同生共死，且覆盖可自动恢复</strong>。插件在它的 scope 里登记一个 <span class="mono">read</span> 覆盖内置版，插件卸载（scope 关）的一刻，覆盖<strong>自动消失</strong>、内置版<strong>自动复位</strong>——没有任何手动「记得去注销」的负担，也不可能出现「插件走了、它的工具还赖着」的幽灵。这正是第 23 课 <span class="mono">acquireRelease</span> 思想的延伸：<strong>把「清理」焊死在「获取」上，让生命周期自己管自己。</strong></p>
+
+<h2>materialize：现印一份「今日菜单」</h2>
+<p>当一轮对话要开始，agent 循环需要「<strong>这一轮模型能用哪些工具</strong>」。这就是 <span class="mono">materialize(permissions)</span> 干的事——它<strong>不是</strong>返回那个随时在变的 <span class="mono">local</span>，而是<strong>在此刻拍一张快照</strong>，加工成一份当下可用的清单：</p>
+<div class="flow">
+  <div class="f-node">applications<br><small>应用级常驻工具</small></div>
+  <div class="f-arrow">叠上 local 摞顶 →</div>
+  <div class="f-node">当前全量工具<br><small>各名字取最新</small></div>
+  <div class="f-arrow">按权限筛 →</div>
+  <div class="f-node">删掉 whollyDisabled<br><small>被禁的不进菜单</small></div>
+  <div class="f-arrow">产出 →</div>
+  <div class="f-node">&#123;definitions, settle&#125;</div>
+</div>
+<p>三步走：先把<strong>应用级常驻工具</strong>（<span class="mono">applications</span>）和 <span class="mono">local</span> 各名字的<strong>摞顶</strong>合并，得到「此刻全部工具」；再用传入的<strong>权限规则集</strong>过一遍，把 <span class="mono">whollyDisabled</span>（被彻底禁用）的工具<strong>从清单里删掉</strong>；最后产出两样东西：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">definitions</div><div class="c-txt">每个存活工具的 ToolDefinition（JSON Schema + description）——这就是发给模型的「菜单」</div></div>
+  <div class="cell"><div class="c-tag">settle</div><div class="c-txt">一个派单函数：模型点了某工具，按名字找到它、派去执行</div></div>
+</div>
+<p>这里有个容易滑过、却很重要的设计点：<strong>权限过滤发生在「菜单」这一层</strong>。一个被策略彻底禁掉的工具，<strong>根本不会出现在发给模型的 definitions 里</strong>——模型连「有这么个工具」都不知道，自然不会去点。这比「让模型点了再拒绝」干净得多：<strong>最好的拒绝，是让它压根不知道有这个选项</strong>（第 41 课权限系统会深入这条线）。另一面，<span class="mono">materialize</span> 产出的是一份<strong>快照</strong>——它把「此刻有哪些工具、各自的身份」定格下来，与还在随作用域变动的 <span class="mono">local</span> <strong>解耦</strong>。<strong>register 管「有哪些工具」（可变、带作用域），materialize 管「这一轮看见哪些」（不可变快照）</strong>，两者分得清清楚楚：</p>
+<div class="cols">
+  <div class="col"><h4>register · 注册表（可变）</h4><p>随插件、Location 作用域<strong>不断增删</strong>的「活」状态；同名叠摞、最新顶班；问的是「<strong>当前世界上有哪些工具</strong>」。</p></div>
+  <div class="col"><h4>materialize · 物化（不可变）</h4><p>某一刻拍下的<strong>快照</strong> + 权限过滤 + 身份定格；问的是「<strong>这一轮，模型该看见、能调用哪些</strong>」。一旦印出，本轮不再变。</p></div>
+</div>
+
+<h2>派单与防伪：settle 的「过期菜」拦截</h2>
+<p>菜单印好了，模型点了一道菜（发起一次工具调用），<span class="mono">settle</span> 就负责<strong>派单 + 执行 + 善后</strong>。这条链把前面几课的伏笔都收了起来：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">①找人</span><span class="t-txt">按 call.name 找到摞顶的登记（或 applications 里的）</span></div>
+  <div class="t-row"><span class="t-num">②验章</span><span class="t-txt">物化时记下的 identity 与当前是否一致？不一致→「Stale tool call」</span></div>
+  <div class="t-row"><span class="t-num">③执行</span><span class="t-txt">settle(tool, call, context)：第 36 课那条 decode→execute→encode</span></div>
+  <div class="t-row"><span class="t-num">④收错</span><span class="t-txt">catch ToolFailure → 变成 &#123;type:error, value:消息&#125; 回传模型</span></div>
+  <div class="t-row"><span class="t-num">⑤截断</span><span class="t-txt">resources.bound(...)：大输出截断/外溢（第 42 课）</span></div>
+</div>
+<p>第 <span class="mono">②</span> 步「验章」最见匠心。从「模型看到菜单」到「模型点这道菜」之间，是有<strong>时间差</strong>的——这期间，那个工具的登记完全可能变了（它的作用域关了、或被重新登记成了别的东西）。怎么保证模型点的，<strong>正是它当初在菜单上看到的那一个</strong>？靠的是每次登记都带的一个唯一 <span class="mono">identity = {}</span> 对象：<span class="mono">materialize</span> 把它一并记进菜单，<span class="mono">settle</span> 执行前核对「<strong>当前这个名字下的 identity，还是不是菜单上那个</strong>」。对不上，就果断报「<span class="mono">Stale tool call</span>（过期的工具调用）」，绝不<strong>张冠李戴</strong>地把调用派给一个名字相同、身份已换的工具。这是个微妙却重要的正确性保证——在一个工具能动态来去的系统里，它守住了「<strong>所见即所调</strong>」。设想没有这道验章会怎样：模型读到菜单上的 <span class="mono">read</span>（内置版）、正准备调用，恰在此刻一个插件登记了自己的 <span class="mono">read</span> 压上摞顶；若不验身份，模型这次调用就会<strong>悄悄被派给插件那个它从没见过的工具</strong>——行为对不上模型的预期，且毫无察觉。验章把这种「名字相同、人已换」的错配，变成一个<strong>明确、可观测的错误</strong>，而不是一桩无声的灵异事件。</p>
+<p>第 <span class="mono">④⑤</span> 两步则是与后面课程的接口：<strong>④ 把工具的 <span class="mono">ToolFailure</span> 收成一个「错误结果值」</strong>回传模型（让模型自己看错、重试），而不是让异常炸穿循环——上层（第 17 课 agent 循环）拿到的永远是个规规矩矩的结果。<strong>⑤ 把执行结果交给 <span class="mono">ToolOutputStore</span> 做「有界化」</strong>：一个 grep 可能吐出几万行，直接塞回对话会撑爆上下文，于是这里截断、把全文外溢到一个托管文件（第 42 课的主角）。注册表，就是这两条横切关注点（权限、有界输出）<strong>挂载到工具执行流上的那个点</strong>。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>工具注册表是「定义好的工具」与「agent 循环用的工具」之间的<strong>桥</strong>：</p>
+  <ul>
+    <li><strong>register（登记，可变·带作用域）</strong>：<span class="mono">validateName</span> → 同名<strong>叠成一摞</strong>（最新顶班）→ <span class="mono">addFinalizer</span> 按 token 撤销。作用域一关、登记自动消失、被覆盖者自动复位。是第 23 课 <span class="mono">acquireRelease</span> 思想的延伸。</li>
+    <li><strong>materialize（物化，不可变·快照）</strong>：applications + local 摞顶 → 按权限删掉 <span class="mono">whollyDisabled</span> → 产出 <span class="mono">{definitions（给模型的菜单）, settle（派单台）}</span>。<strong>权限过滤在菜单层</strong>：被禁的工具模型根本看不见。</li>
+    <li><strong>settle（派单·防伪·善后）</strong>：按名找人 → <strong>验 identity 防「过期菜」</strong>（Stale tool call）→ 第 36 课的 decode/execute/encode → catch <span class="mono">ToolFailure</span> 成错误值 → <span class="mono">ToolOutputStore.bound</span> 截断大输出。</li>
+    <li><strong>builtins.locationLayer</strong>：用 <span class="mono">Layer.mergeAll</span> 把内置工具（read/write/edit/bash/glob/grep/question/todowrite/webfetch/websearch/skill/apply-patch）的 layer 组合起来，各自 Location-作用域地自我登记。</li>
+  </ul>
+  <p>register/materialize 这条线，把「哪些工具存在」和「这一轮看见哪些」干净地切开，让权限（第 41 课）与有界输出（第 42 课）有了明确的挂载点。那这些内置工具又是从哪「报到」的？答案是 <span class="mono">builtins.ts</span> 里的 <span class="mono">locationLayer</span>——它用 <span class="mono">Layer.mergeAll</span> 把所有出厂内置工具的 layer 合成一个，每个工具的 layer 在自己被装配时<strong>自我登记</strong>进注册表：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">文件类</div><div class="c-txt">read / write / edit / apply-patch（第 38 课）</div></div>
+  <div class="cell"><div class="c-tag">搜索执行</div><div class="c-txt">glob / grep / bash（第 39 课）</div></div>
+  <div class="cell"><div class="c-tag">其他</div><div class="c-txt">webfetch / websearch / question / todowrite（第 40 课）</div></div>
+  <div class="cell"><div class="c-tag">Skills</div><div class="c-txt">skill（第 43 课，经权限化的特殊工具）</div></div>
+</div>
+<p>注意 <span class="mono">locationLayer</span> 这个名字里的 <strong>Location</strong>——这些工具是<strong>按 Location（工作区/文件系统作用域）登记的</strong>。这正好和前面「register 绑定作用域」对上了：每个 Location 有自己的一套工具登记，Location 的生命周期一到头，这套工具也随之退场。<strong>「工具随 Location 来去」，是 register 作用域机制在内置工具上的直接兑现。</strong></p>
+<p>下一课起（第 38~40 课）我们就钻进<strong>一个个具体工具</strong>：read/write/edit/apply-patch（文件）、glob/grep/bash（搜索与执行）、webfetch/websearch/question/todowrite（其他）——它们全是第 36 课那张 <span class="mono">Config</span> 表的不同填法，而它们能被模型看见、调用，靠的全是这一课的注册表。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">register</span> 的「叠摞 + 按 token 撤销」是这套优雅的核心（简化自 registry.ts）：</p>
+  <pre class="code"><span class="cm">// 登记：同名压栈；作用域关闭时按 token 精准撤走</span>
+<span class="kw">const</span> token = {}
+<span class="kw">for</span> (<span class="kw">const</span> [name, tool] <span class="kw">of</span> entries)
+  local.set(name, [...(local.get(name) ?? []), { token, registration: { identity: {}, tool } }])
+
+Effect.<span class="fn">addFinalizer</span>(() =&gt; {
+  <span class="kw">for</span> (<span class="kw">const</span> [name] <span class="kw">of</span> entries) {
+    <span class="kw">const</span> rest = local.get(name)?.filter(r =&gt; r.token !== token) ?? []
+    rest.length &gt; 0 ? local.set(name, rest) : local.delete(name)  <span class="cm">// 空了就删，剩的自动顶上</span>
+  }
+})</pre>
+  <p>注意两个不同的空对象：<span class="mono">token</span> 标识「<strong>哪一次 register 调用</strong>」（用于撤销时精准定位本次登记的那些条目），<span class="mono">identity</span> 标识「<strong>哪一个具体登记</strong>」（用于 settle 时验防伪章）。用空对象 <span class="mono">{}</span> 做唯一标识是个老练的小技巧——<strong>对象的引用天生唯一</strong>，<span class="mono">{} !== {}</span>，不用生成 UUID、不会撞，比较还快（一个引用相等判断）。整段还裹在 <span class="mono">Effect.uninterruptible</span> 里：登记「压栈」和「装 finalizer」必须<strong>原子地一起完成</strong>，绝不能压了栈却因中断没装上撤销钩子——否则就漏了一个永远撤不掉的幽灵登记。<strong>连「注册」这种小事，都被 Effect 的中断语义认真对待。</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>注册表是「定义好的工具」与「agent 循环用的工具」之间的桥</strong>（<span class="mono">core/src/tool/registry.ts</span>），两个动作：register（登记）+ materialize（物化）。</li>
+    <li><strong>register</strong>：<span class="mono">validateName</span> 校验 → <span class="mono">local: Map&lt;名字, 登记数组&gt;</span> <strong>同名叠成一摞、<span class="mono">.at(-1)</span> 最新顶班</strong> → <span class="mono">Effect.addFinalizer</span> 按唯一 <span class="mono">token</span> 撤销。作用域关→登记自动消失、被覆盖者自动复位（第 23 课 <span class="mono">acquireRelease</span> 延伸）。压栈+装 finalizer 裹在 <span class="mono">uninterruptible</span> 里原子完成。</li>
+    <li><strong>materialize(permissions)</strong>：applications + local 摞顶合并 → 删掉 <span class="mono">whollyDisabled</span> 的工具 → 产出 <span class="mono">{definitions, settle}</span>。<strong>权限过滤在菜单层</strong>——被禁工具不进 definitions，模型根本看不见（优于「点了再拒」）。是<strong>不可变快照</strong>，与可变的 local 解耦。</li>
+    <li><strong>settle 派单</strong>：按 call.name 找登记 → <strong>验 <span class="mono">identity</span> 防「Stale tool call」</strong>（保证「所见即所调」）→ 第 36 课 decode/execute/encode → catch <span class="mono">ToolFailure</span> 成错误值回传 → <span class="mono">resources.bound</span> 截断大输出（第 42 课）。</li>
+    <li><strong>builtins.locationLayer</strong>：<span class="mono">Layer.mergeAll</span> 组合内置工具的 layer，各自 Location-作用域自我登记。<span class="mono">token</span>=标识本次 register；<span class="mono">identity</span>=标识单个登记（验防伪）；空对象 <span class="mono">{}</span> 作天然唯一标识。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Last lesson we learned to <strong>define</strong> a tool (that <span class="mono">Tool.make</span> form). But how do defined tools get <strong>collected, turned into a list the model can actually see and call</strong>? That's the <strong>tool registry (ToolRegistry)</strong>'s job. It's a bridge: one end to "<strong>a pile of scattered defined tools</strong>" (L36), the other to "<strong>which tools this conversation turn should show the model, and who an order gets dispatched to</strong>" (what lesson 17's agent loop uses). The registry splits this bridge into two actions: <strong>register</strong>—tools check in; <strong>materialize</strong>—print, on the spot per current conditions, a "<strong>today's menu</strong>" for the model.</p>
+<p>Reading this lesson, you'll strongly recall lesson 23's "System Context Registry"—they're almost <strong>the same wisdom appearing twice</strong>: both use <strong>Scope binding</strong> to manage "who's in, who's out," the scope closing auto-revokes the registration, never leaving ghosts. But the tool registry adds two more refined designs: <strong>"same-named tools stack up, the latest on top"</strong> (supporting override and auto-restore), and <strong>"at materialize time, filter by permission and stamp an anti-forgery seal"</strong> (banned tools don't even enter the menu; preventing "ordering a stale dish"). Grasp these two and you understand how opencode, in a dynamic world where "plugins come and go anytime, permissions change anytime," still hands the model a <strong>clean, current, trustworthy</strong> tool list.</p>
+
+<div class="card analogy">
+  <div class="tag">🍽️ Analogy</div>
+  Picture the registry as a restaurant's <strong>front-desk roster + today's-menu machine</strong>. A cook (tool) coming on duty must <strong>clock in</strong> (register)—but clocking in is <strong>"shift-bound"</strong>: while your shift is on, your name's on the roster; the shift ends and it <strong>vanishes automatically</strong>, no one needing to remember to cross it off. If two cooks <strong>share a name</strong> (a "signature edition" covering the "basic edition"), the roster <strong>stacks them</strong>, and the <strong>latest clock-in always works the shift</strong>; when they clock out, the one beneath <strong>auto-resurfaces</strong>. Whenever a table of guests (the model) is seated, the front desk prints "today's menu" on the spot (materialize): it scans the current roster, <strong>crosses off today's banned dishes</strong> (permission filter), and prints two things—a <strong>menu for the guests</strong> (definitions) and a <strong>dispatch desk</strong> (settle, an order routed to the right cook). And every dish on the menu is <strong>stamped with today's anti-forgery seal</strong>: should a guest order off an old menu while that cook has long clocked out and been replaced, the dispatch desk sees the seal mismatch and stops it cold—"<strong>this is a stale dish.</strong>"
+</div>
+
+<h2>register: clock in, bound to scope</h2>
+<p>First <span class="mono">register(tools)</span>—register a batch of tools (a <span class="mono">{name: tool}</span> dict). Its implementation is full of lesson 23's shadow, but with more finesse:</p>
+<div class="flow">
+  <div class="f-node">register(tools)</div>
+  <div class="f-arrow">①validate →</div>
+  <div class="f-node">validateName<br><small>each name conforms</small></div>
+  <div class="f-arrow">②stack →</div>
+  <div class="f-node">local[name].push(&#123;token, tool&#125;)<br><small>same name stacks up</small></div>
+  <div class="f-arrow">③cleanup →</div>
+  <div class="f-node">addFinalizer<br><small>scope closes→revoke by token</small></div>
+</div>
+<p>Three plain-looking steps, all detail. One, <strong>each name first passes <span class="mono">validateName</span></strong> (lesson 36's <span class="mono">/^[A-Za-z]...{0,63}$/</span> rule)—non-conforming names don't get in, keeping the menu clean at the source. Two, <span class="mono">local</span> isn't <span class="mono">Map&lt;name, tool&gt;</span> but <span class="mono">Map&lt;name, tool array&gt;</span>—<strong>under one name is a stack of registrations</strong>. Why a stack? Because it supports <strong>override</strong>: a plugin wanting to cover the built-in <span class="mono">read</span> with its own just registers another same-named tool pressed on top; retrieval always takes <span class="mono">.at(-1)</span> (top of stack, the latest). Three, and most crucial—<strong><span class="mono">Effect.addFinalizer</span> binds the scope</strong>: registration generates a unique <span class="mono">token = {}</span>, and when the scope closes, the finalizer <strong>precisely pulls its own registration out of the stack</strong> by that token. After pulling, if the stack is empty delete the name, if there's still (the one it covered) it <strong>auto-resurfaces to work the shift</strong>.</p>
+<p>This "stack + revoke-by-token" combo yields an elegant property: <strong>a tool's "existence" lives and dies with its scope, and overrides auto-restore</strong>. A plugin registers a <span class="mono">read</span> override in its scope; the moment the plugin unloads (scope closes), the override <strong>vanishes automatically</strong> and the built-in <strong>auto-restores</strong>—no manual "remember to unregister" burden, and no possibility of "plugin's gone but its tool lingers" ghosts. This is exactly the extension of lesson 23's <span class="mono">acquireRelease</span> thinking: <strong>weld "cleanup" onto "acquisition," letting the lifecycle manage itself.</strong></p>
+
+<h2>materialize: print a "today's menu" on the spot</h2>
+<p>When a conversation turn is about to begin, the agent loop needs "<strong>which tools the model can use this turn</strong>." That's what <span class="mono">materialize(permissions)</span> does—it <strong>doesn't</strong> return the ever-changing <span class="mono">local</span>, but <strong>takes a snapshot right now</strong>, processed into a currently-usable list:</p>
+<div class="flow">
+  <div class="f-node">applications<br><small>app-level resident tools</small></div>
+  <div class="f-arrow">overlay local tops →</div>
+  <div class="f-node">all current tools<br><small>each name's latest</small></div>
+  <div class="f-arrow">filter by permission →</div>
+  <div class="f-node">remove whollyDisabled<br><small>banned not in menu</small></div>
+  <div class="f-arrow">produce →</div>
+  <div class="f-node">&#123;definitions, settle&#125;</div>
+</div>
+<p>Three steps: first merge <strong>app-level resident tools</strong> (<span class="mono">applications</span>) with each name's <strong>stack top</strong> in <span class="mono">local</span>, getting "all tools right now"; then run the passed <strong>permission ruleset</strong> over them, <strong>removing</strong> <span class="mono">whollyDisabled</span> (fully-disabled) tools from the list; finally produce two things:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">definitions</div><div class="c-txt">each surviving tool's ToolDefinition (JSON Schema + description)—this is the "menu" sent to the model</div></div>
+  <div class="cell"><div class="c-tag">settle</div><div class="c-txt">a dispatch function: the model orders a tool, find it by name, dispatch to execute</div></div>
+</div>
+<p>Here's an easy-to-skip but important design point: <strong>permission filtering happens at the "menu" layer</strong>. A tool fully banned by policy <strong>doesn't even appear in the definitions sent to the model</strong>—the model doesn't even know "such a tool exists," so naturally won't order it. This is far cleaner than "let the model order then refuse": <strong>the best refusal is to not let it know the option exists</strong> (lesson 41's permission system goes deep on this). On the other side, <span class="mono">materialize</span> produces a <strong>snapshot</strong>—it freezes "which tools exist right now, and each one's identity," <strong>decoupled</strong> from the still-scope-changing <span class="mono">local</span>. <strong>register owns "which tools exist" (mutable, scoped), materialize owns "which this turn sees" (immutable snapshot)</strong>, cleanly separated:</p>
+<div class="cols">
+  <div class="col"><h4>register · registry (mutable)</h4><p>The "live" state <strong>constantly added/removed</strong> with plugins and Location scopes; same-name stacking, latest on shift; it asks "<strong>which tools exist in the world right now</strong>."</p></div>
+  <div class="col"><h4>materialize · materialization (immutable)</h4><p>A <strong>snapshot</strong> taken at one moment + permission filter + identity freeze; it asks "<strong>this turn, which the model should see and can call</strong>." Once printed, unchanging this turn.</p></div>
+</div>
+
+<h2>Dispatch & anti-forgery: settle's "stale dish" interception</h2>
+<p>The menu's printed, the model orders a dish (initiates a tool call), and <span class="mono">settle</span> handles <strong>dispatch + execution + cleanup</strong>. This chain collects all the prior lessons' planted seeds:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">①find</span><span class="t-txt">by call.name find the stack-top registration (or in applications)</span></div>
+  <div class="t-row"><span class="t-num">②verify seal</span><span class="t-txt">does the identity recorded at materialize match the current? mismatch→"Stale tool call"</span></div>
+  <div class="t-row"><span class="t-num">③execute</span><span class="t-txt">settle(tool, call, context): lesson 36's decode→execute→encode</span></div>
+  <div class="t-row"><span class="t-num">④catch error</span><span class="t-txt">catch ToolFailure → becomes &#123;type:error, value:message&#125; back to the model</span></div>
+  <div class="t-row"><span class="t-num">⑤bound</span><span class="t-txt">resources.bound(...): large output truncated/spilled (lesson 42)</span></div>
+</div>
+<p>Step <span class="mono">②</span> "verify seal" shows the most craft. Between "the model saw the menu" and "the model orders this dish," there's a <strong>time gap</strong>—during which that tool's registration may well have changed (its scope closed, or it was re-registered into something else). How to guarantee what the model orders is <strong>exactly the one it saw on the menu</strong>? Via a unique <span class="mono">identity = {}</span> object each registration carries: <span class="mono">materialize</span> records it into the menu, and <span class="mono">settle</span> before executing checks "<strong>is the identity under this name still the one on the menu</strong>." Mismatch → decisively report "<span class="mono">Stale tool call</span>," never <strong>misattributing</strong> the call to a same-named tool whose identity has changed. This is a subtle but important correctness guarantee—in a system where tools come and go dynamically, it preserves "<strong>what you see is what you call</strong>." Imagine without this seal check: the model reads the menu's <span class="mono">read</span> (built-in), about to call it, and right then a plugin registers its own <span class="mono">read</span> pressed on top; without identity verification, this call would <strong>silently get dispatched to the plugin's tool the model never saw</strong>—behavior mismatching the model's expectation, with no awareness. The seal turns this "same name, different person" mismatch into an <strong>explicit, observable error</strong>, not a silent uncanny event.</p>
+<p>Steps <span class="mono">④⑤</span> are the interfaces to later lessons: <strong>④ collects the tool's <span class="mono">ToolFailure</span> into an "error result value"</strong> back to the model (let it see the error and retry), rather than an exception blasting the loop—the upper layer (lesson 17's agent loop) always receives a well-behaved result. <strong>⑤ hands the execution result to <span class="mono">ToolOutputStore</span> for "bounding"</strong>: a grep might spit tens of thousands of lines, and stuffing it straight back into the conversation would blow the context, so here it's truncated, with the full text spilled to a managed file (lesson 42's star). The registry is the point where these two cross-cutting concerns (permissions, bounded output) <strong>mount onto the tool-execution flow</strong>.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>The tool registry is the <strong>bridge</strong> between "defined tools" and "tools the agent loop uses":</p>
+  <ul>
+    <li><strong>register (mutable·scoped)</strong>: <span class="mono">validateName</span> → same-name <strong>stacks up</strong> (latest on shift) → <span class="mono">addFinalizer</span> revokes by token. Scope closes→registration auto-vanishes, the covered one auto-restores. An extension of lesson 23's <span class="mono">acquireRelease</span> thinking.</li>
+    <li><strong>materialize (immutable·snapshot)</strong>: applications + local stack-tops → remove <span class="mono">whollyDisabled</span> by permission → produce <span class="mono">{definitions (menu for the model), settle (dispatch desk)}</span>. <strong>Permission filtering at the menu layer</strong>: a banned tool is invisible to the model.</li>
+    <li><strong>settle (dispatch·anti-forgery·cleanup)</strong>: find by name → <strong>verify identity against "stale dish"</strong> (Stale tool call) → lesson 36's decode/execute/encode → catch <span class="mono">ToolFailure</span> into an error value → <span class="mono">ToolOutputStore.bound</span> truncates large output.</li>
+    <li><strong>builtins.locationLayer</strong>: uses <span class="mono">Layer.mergeAll</span> to compose the built-in tools' (read/write/edit/bash/glob/grep/question/todowrite/webfetch/websearch/skill/apply-patch) layers, each self-registering Location-scoped.</li>
+  </ul>
+  <p>The register/materialize line cleanly cuts "which tools exist" from "which this turn sees," giving permissions (lesson 41) and bounded output (lesson 42) clear mount points. So where do these built-in tools "check in"? The answer is <span class="mono">locationLayer</span> in <span class="mono">builtins.ts</span>—it uses <span class="mono">Layer.mergeAll</span> to merge all shipped built-in tools' layers into one, each tool's layer <strong>self-registering</strong> into the registry as it's assembled:</p>
+  <div class="cellgroup">
+    <div class="cell"><div class="c-tag">file</div><div class="c-txt">read / write / edit / apply-patch (lesson 38)</div></div>
+    <div class="cell"><div class="c-tag">search & exec</div><div class="c-txt">glob / grep / bash (lesson 39)</div></div>
+    <div class="cell"><div class="c-tag">other</div><div class="c-txt">webfetch / websearch / question / todowrite (lesson 40)</div></div>
+    <div class="cell"><div class="c-tag">Skills</div><div class="c-txt">skill (lesson 43, a permissioned special tool)</div></div>
+  </div>
+  <p>Note the <strong>Location</strong> in <span class="mono">locationLayer</span>'s name—these tools are <strong>registered per Location (workspace/filesystem scope)</strong>. This lines up with "register binds to scope": each Location has its own set of tool registrations, and when the Location's lifecycle ends, this tool set exits with it. <strong>"Tools come and go with the Location" is register's scope mechanism cashed out directly on the built-in tools.</strong> From the next lesson (38–40) we dive into <strong>individual concrete tools</strong>—all different fillings of lesson 36's <span class="mono">Config</span> form, and their being seen and called by the model relies entirely on this lesson's registry.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p><span class="mono">register</span>'s "stack + revoke-by-token" is the core of this elegance (simplified from registry.ts):</p>
+  <pre class="code"><span class="cm">// register: same-name push; on scope close, precisely revoke by token</span>
+<span class="kw">const</span> token = {}
+<span class="kw">for</span> (<span class="kw">const</span> [name, tool] <span class="kw">of</span> entries)
+  local.set(name, [...(local.get(name) ?? []), { token, registration: { identity: {}, tool } }])
+
+Effect.<span class="fn">addFinalizer</span>(() =&gt; {
+  <span class="kw">for</span> (<span class="kw">const</span> [name] <span class="kw">of</span> entries) {
+    <span class="kw">const</span> rest = local.get(name)?.filter(r =&gt; r.token !== token) ?? []
+    rest.length &gt; 0 ? local.set(name, rest) : local.delete(name)  <span class="cm">// empty→delete, rest auto-surfaces</span>
+  }
+})</pre>
+  <p>Note two different empty objects: <span class="mono">token</span> identifies "<strong>which register call</strong>" (to precisely locate this call's entries on revoke), <span class="mono">identity</span> identifies "<strong>which specific registration</strong>" (to verify the anti-forgery seal at settle). Using an empty object <span class="mono">{}</span> as a unique identifier is a seasoned little trick—<strong>an object's reference is inherently unique</strong>, <span class="mono">{} !== {}</span>, no UUID generation needed, no collisions, and comparison is fast (one reference-equality check). The whole block is wrapped in <span class="mono">Effect.uninterruptible</span>: "pushing the stack" and "installing the finalizer" must <strong>complete atomically together</strong>, never pushing the stack but, due to an interrupt, failing to install the revoke hook—else you'd leak a ghost registration that can never be revoked. <strong>Even something as small as "registration" is taken seriously by Effect's interruption semantics.</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>The registry bridges "defined tools" and "tools the agent loop uses"</strong> (<span class="mono">core/src/tool/registry.ts</span>), two actions: register + materialize.</li>
+    <li><strong>register</strong>: <span class="mono">validateName</span> validates → <span class="mono">local: Map&lt;name, registration array&gt;</span> <strong>same-name stacks, <span class="mono">.at(-1)</span> latest on shift</strong> → <span class="mono">Effect.addFinalizer</span> revokes by unique <span class="mono">token</span>. Scope closes→registration auto-vanishes, the covered one auto-restores (extension of lesson 23's <span class="mono">acquireRelease</span>). Push+finalizer wrapped in <span class="mono">uninterruptible</span> for atomicity.</li>
+    <li><strong>materialize(permissions)</strong>: applications + local stack-tops merged → remove <span class="mono">whollyDisabled</span> tools → produce <span class="mono">{definitions, settle}</span>. <strong>Permission filtering at the menu layer</strong>—banned tools don't enter definitions, invisible to the model (better than "order then refuse"). It's an <strong>immutable snapshot</strong>, decoupled from the mutable local.</li>
+    <li><strong>settle dispatch</strong>: find registration by call.name → <strong>verify <span class="mono">identity</span> against "Stale tool call"</strong> (guaranteeing "what you see is what you call") → lesson 36's decode/execute/encode → catch <span class="mono">ToolFailure</span> into an error value back → <span class="mono">resources.bound</span> truncates large output (lesson 42).</li>
+    <li><strong>builtins.locationLayer</strong>: <span class="mono">Layer.mergeAll</span> composes built-in tools' layers, each self-registering Location-scoped. <span class="mono">token</span>=identifies this register call; <span class="mono">identity</span>=identifies a single registration (seal check); empty object <span class="mono">{}</span> as a natural unique identifier.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_38 = wip('文件工具', 'File tools')
 LESSON_39 = wip('搜索与执行工具', 'Search & exec tools')
 LESSON_40 = wip('其他内置工具', 'Other built-in tools')

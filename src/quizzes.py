@@ -1528,6 +1528,47 @@ QUIZZES = {
             {"zh": "Copilot 的认证用「令牌交换」：先拿长期的 GitHub OAuth 凭证，换一个短期、限定用途的 Copilot token，再拿它去认证。课里说这是「最小权限 + 短时效凭证」的安全惯例，且这套复杂流程被整个封装进 auth 这一件、不惊动协议层。请论证：为什么「不直接把长期凭证发给推理端点，而是换一个短期 token」更安全？把这种安全复杂性隔离在 auth 这一层（而非散落各处），对整个系统的可维护性和可审计性有什么好处？", "en": "Copilot's auth uses \"token exchange\": take the long-lived GitHub OAuth credential, exchange for a short-lived, purpose-limited Copilot token, then authenticate with it. The lesson calls this the \"least privilege + short-lived credential\" security convention, with the whole complex flow encapsulated into the auth piece, undisturbing the protocol layer. Argue: why is \"not sending the long-lived credential to inference endpoints, but exchanging for a short-lived token\" more secure? What does isolating this security complexity in the auth layer (rather than scattering it) do for the system's maintainability and auditability?"},
         ],
     },
+    "37-tool-registry.html": {
+        "mcq": [
+            {
+                "q": {"zh": "工具注册表的 register 怎么管理工具的「存在」？", "en": "How does the tool registry's register manage a tool's \"existence\"?"},
+                "opts": [
+                    {"zh": "Scope 绑定 + 同名叠成一摞：登记时装 addFinalizer，作用域关→按 token 自动撤销；同名取 .at(-1) 最新顶班，撤走后被覆盖者自动复位", "en": "Scope binding + same-name stacking: registration installs addFinalizer, scope close→auto-revoke by token; same-name takes .at(-1) latest on shift, the covered one auto-restores on revoke"},
+                    {"zh": "一个全局 Map<名字,工具>，新登记直接覆盖旧的、永不恢复", "en": "A global Map<name,tool>, new registration overwrites old, never restored"},
+                    {"zh": "把工具写进数据库，手动增删", "en": "Writes tools into a database, manually added/removed"},
+                    {"zh": "工具一旦登记就永久存在", "en": "Once registered a tool exists forever"},
+                ],
+                "answer": 0,
+                "why": {"zh": "local 是 Map<名字, 登记数组>——同名叠成一摞。register 生成唯一 token，把登记压栈，并 addFinalizer：作用域关闭时按 token 精准抽走本次登记，空了删名、剩的自动顶上。于是「工具的存在与作用域同生共死，覆盖可自动恢复」——插件卸载（scope 关）那一刻，它的覆盖自动消失、内置版自动复位，无需手动注销。这是第 23 课 acquireRelease「把清理焊在获取上」的延伸。压栈+装 finalizer 还裹在 uninterruptible 里原子完成。", "en": "local is Map<name, registration array> — same-name stacks up. register generates a unique token, pushes the registration, and addFinalizer: scope close precisely pulls this call's registration by token, deletes the name if empty, the rest auto-surfaces. So \"a tool's existence lives and dies with its scope, overrides auto-restore\" — the moment a plugin unloads (scope closes), its override vanishes and the built-in restores, no manual unregister. An extension of lesson 23's acquireRelease \"weld cleanup onto acquisition.\" Push+finalizer also wrapped in uninterruptible for atomicity."},
+            },
+            {
+                "q": {"zh": "一个被权限策略彻底禁用的工具，在 materialize 后会怎样？", "en": "What happens to a tool fully disabled by permission policy after materialize?"},
+                "opts": [
+                    {"zh": "根本不进 definitions——模型连「有这个工具」都不知道，自然不会去点（最好的拒绝是让它不知道有这个选项）", "en": "It doesn't even enter definitions — the model doesn't even know \"this tool exists,\" so won't order it (the best refusal is to not let it know the option exists)"},
+                    {"zh": "照样进菜单，模型点了再返回拒绝", "en": "Still enters the menu, the model orders then gets refused"},
+                    {"zh": "进菜单但标记为「禁用」", "en": "Enters the menu but marked \"disabled\""},
+                    {"zh": "导致 materialize 报错", "en": "Causes materialize to error"},
+                ],
+                "answer": 0,
+                "why": {"zh": "materialize 合并 applications + local 摞顶后，用传入的权限规则集过一遍，把 whollyDisabled 的工具从清单里删掉，再产出 {definitions, settle}。于是权限过滤发生在「菜单」这一层——被禁工具压根不出现在发给模型的 definitions 里，比「点了再拒」干净得多。materialize 是不可变快照，与还在随作用域变动的 local 解耦：register 管「有哪些工具」、materialize 管「这一轮看见哪些」。", "en": "materialize merges applications + local stack-tops, runs the passed permission ruleset over them, removes whollyDisabled tools, then produces {definitions, settle}. So permission filtering happens at the \"menu\" layer — a banned tool doesn't even appear in the definitions sent to the model, far cleaner than \"order then refuse.\" materialize is an immutable snapshot, decoupled from the scope-changing local: register owns \"which tools exist,\" materialize owns \"which this turn sees.\""},
+            },
+            {
+                "q": {"zh": "settle 执行前会核对每个登记的 identity（一个唯一空对象），不一致就报「Stale tool call」。这防的是什么？", "en": "settle before executing verifies each registration's identity (a unique empty object), reporting \"Stale tool call\" on mismatch. What does this prevent?"},
+                "opts": [
+                    {"zh": "防「名字相同、身份已换」的错配：从模型看到菜单到它点这道菜之间，该工具的登记可能变了；验章保证「所见即所调」，不把调用悄悄派给一个模型没见过的同名工具", "en": "Prevents \"same name, identity changed\" mismatch: between the model seeing the menu and ordering, the tool's registration may have changed; the seal guarantees \"what you see is what you call,\" not silently dispatching to a same-named tool the model never saw"},
+                    {"zh": "防止两个工具同名", "en": "Prevents two tools sharing a name"},
+                    {"zh": "防止 SQL 注入", "en": "Prevents SQL injection"},
+                    {"zh": "防止模型调用太频繁", "en": "Prevents the model calling too often"},
+                ],
+                "answer": 0,
+                "why": {"zh": "在工具能动态来去的系统里，「模型看到菜单」与「模型点这道菜」之间有时间差——这期间该工具的登记可能因作用域关闭或被重新登记而变了。每次登记带一个唯一 identity={}，materialize 把它记进菜单，settle 执行前核对「当前这个名字下的 identity 还是不是菜单上那个」，不一致即 Stale tool call。它把「名字相同、人已换」的错配变成一个明确可观测的错误，守住「所见即所调」，而非一桩无声的灵异事件。", "en": "In a system where tools come and go dynamically, there's a time gap between \"the model saw the menu\" and \"the model orders this dish\" — during which the tool's registration may have changed via scope close or re-registration. Each registration carries a unique identity={}, materialize records it into the menu, and settle before executing checks \"is the identity under this name still the menu's one,\" mismatch → Stale tool call. It turns the \"same name, different person\" mismatch into an explicit, observable error, preserving \"what you see is what you call,\" not a silent uncanny event."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说 register（可变·带作用域的「有哪些工具」）和 materialize（不可变·快照的「这一轮看见哪些」）被刻意切成两层。请论证：把「随时在变的注册表」和「某一刻定格的快照」分开，对正确性（如并发、重放）和可推理性各有什么好处？如果 agent 循环直接读那个随时在变的 local、而不先 materialize 一份快照，可能出什么乱子？", "en": "The lesson says register (mutable·scoped \"which tools exist\") and materialize (immutable·snapshot \"which this turn sees\") are deliberately split into two layers. Argue: separating \"the ever-changing registry\" from \"a snapshot frozen at one moment\" — what does it buy for correctness (concurrency, replay) and reasoning? If the agent loop read the ever-changing local directly instead of materializing a snapshot first, what could go wrong?"},
+            {"zh": "课里两次出现「空对象 {} 作唯一标识」：token 标识「哪次 register 调用」、identity 标识「哪个具体登记」，利用 {} !== {}（引用天生唯一）。请谈谈这个技巧相比「生成 UUID 字符串」的利弊（唯一性、性能、可序列化、跨进程）。它在什么场景适用、什么场景会失效（比如需要把标识写进日志或数据库时）？", "en": "The lesson twice uses \"an empty object {} as a unique identifier\": token identifies \"which register call,\" identity identifies \"which specific registration,\" leveraging {} !== {} (reference inherently unique). Discuss this trick's pros/cons versus \"generating a UUID string\" (uniqueness, performance, serializability, cross-process). Where does it fit, and where does it break down (e.g. when the identifier must be written to a log or database)?"},
+        ],
+    },
     "36-tool-definition.html": {
         "mcq": [
             {
