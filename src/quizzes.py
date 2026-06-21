@@ -954,6 +954,47 @@ QUIZZES = {
             {"zh": "课里说系统上下文是「特权」的，和用户的话不在一个层级。为什么对一个会动你文件、跑你命令的 agent 来说，分清「系统观察的事实」与「对话里的一面之词」如此重要？", "en": "The lesson says system context is \"privileged,\" not on the same level as user words. Why is distinguishing \"facts the system observed\" from \"one side of a conversation\" so important for an agent that touches your files and runs your commands?"},
         ],
     },
+    "22-context-source.html": {
+        "mcq": [
+            {
+                "q": {"zh": "一个 Source 的 codec 字段同时撑起哪三副担子？", "en": "What three burdens does a Source's codec field shoulder at once?"},
+                "opts": [
+                    {"zh": "encode(存快照)、decode(读快照)、equivalent(判等)——都从一个 Schema.Codec 派生", "en": "encode (store snapshot), decode (read snapshot), equivalent (compare) — all derived from one Schema.Codec"},
+                    {"zh": "加密、压缩、签名", "en": "encrypt, compress, sign"},
+                    {"zh": "渲染、路由、缓存", "en": "render, route, cache"},
+                    {"zh": "观察、执行、清理", "en": "observe, execute, clean up"},
+                ],
+                "answer": 0,
+                "why": {"zh": "源只声明「我的值长这样」(codec)，make 就白送三种能力：encode 值→JSON 存快照、decode 快照→值、Schema.toEquivalence 从结构自动推出判等。声明结构、判等自来，无需手写「日期/目录怎么比」这种易错逻辑。", "en": "A source declares just \"my value looks like this\" (codec), and make gives three abilities free: encode value→JSON for the snapshot, decode snapshot→value, and Schema.toEquivalence auto-derives equality from structure. Declare the structure, equality comes — no error-prone hand-written comparisons."},
+            },
+            {
+                "q": {"zh": "为什么 baseline 既渲染人类可读全文、又 encode 一份结构化快照？", "en": "Why does baseline both render human-readable full text and encode a structured snapshot?"},
+                "opts": [
+                    {"zh": "全文说给模型听(求可读)、快照记给系统(求精确比较)——沟通用散文、记忆用结构", "en": "The full text is spoken to the model (readability), the snapshot remembered by the system (precise comparison) — prose for communication, structure for memory"},
+                    {"zh": "为了双重备份", "en": "For double backup"},
+                    {"zh": "一份给中文、一份给英文", "en": "One for Chinese, one for English"},
+                    {"zh": "没有理由，冗余而已", "en": "No reason, just redundant"},
+                ],
+                "answer": 0,
+                "why": {"zh": "给模型的散文求可读，措辞可能变(「你在 X」vs「当前目录：X」)，拿文本比会误报变化。encode 的快照只记规范化的值，拿结构比结构，equivalent 才能干净回答「事实变没变」，不被表达抖动干扰。", "en": "The model's prose seeks readability and wording may vary (\"you're in X\" vs \"Current dir: X\"), so comparing text falsely reports change. The encoded snapshot records only the normalized value; comparing structure to structure, equivalent cleanly answers \"did the fact change,\" undisturbed by phrasing jitter."},
+            },
+            {
+                "q": {"zh": "compare 返回 Incompatible 意味着什么？", "en": "What does compare returning Incompatible mean?"},
+                "opts": [
+                    {"zh": "上次的快照连解码都解不出来(通常 codec 改过)——放弃增量、退回重 baseline", "en": "Last time's snapshot can't even be decoded (usually the codec changed) — abandon the increment, fall back to re-baseline"},
+                    {"zh": "值变大了", "en": "The value got bigger"},
+                    {"zh": "两个源冲突了", "en": "Two sources conflict"},
+                    {"zh": "模型拒绝了这个源", "en": "The model rejected this source"},
+                ],
+                "answer": 0,
+                "why": {"zh": "decode 用 Option：解不出走 onNone→Incompatible。通常因 codec 在两轮间升级、旧格式快照成天书。硬 diff 危险，明智做法是退回重 baseline——数据格式会变、旧数据不会自动跟着变。能优雅处理这点是系统从「能用」到「耐用」的标志。", "en": "decode uses Option: failing takes onNone→Incompatible. Usually the codec upgraded between rounds, making the old-format snapshot gibberish. Forcing a diff is dangerous; the wise move is re-baseline — data formats change, old data doesn't follow automatically. Handling this gracefully marks a system going from 'works' to 'lasts'."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说 Schema.toEquivalence 把判等「从人来写变成从结构推」，连根拔掉了「手写比较漏字段」这一类 bug。结合你写过的代码，回忆一次「两个对象该不该相等」判断出错（或差点出错）的经历。", "en": "The lesson says Schema.toEquivalence turns equality \"from human-written to structure-derived,\" uprooting the \"hand-written comparison misses a field\" bug class. From your own code, recall a time an \"are these two objects equal\" judgment went (or nearly went) wrong."},
+            {"zh": "看那条时间线：一个源绝大多数轮都在「沉默」，只有真变化的那轮才花 token。把这套「平时沉默、有变化才泛涟漪」的设计，和「每轮把全部环境信息重灌一遍」对比，在一个聊几小时的会话里差别有多大？", "en": "Look at that timeline: a source is silent most rounds, spending tokens only when it truly changes. Compare this \"silent normally, ripple only on change\" design with \"re-pour all environment info every round\" — how big is the difference in a session lasting hours?"},
+        ],
+    },
 }
 
 def render(fname, lang):

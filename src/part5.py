@@ -197,7 +197,212 @@ load: Effect.Effect&lt;A | Unavailable&gt;</pre>
 </div>
 """,
 }
-LESSON_22 = wip('Context Source', 'Context Sources')
+LESSON_22 = {
+    "zh": r"""
+<p class="lead">上一课我们俯瞰了系统上下文的全景——一套可组合的「源」，配一对 <span class="mono">baseline</span>/<span class="mono">update</span> 孪生渲染。这一课，我们把镜头怼到<strong>单个源</strong>身上，看它的一生：它怎么<strong>观察</strong>到自己当前的值，怎么把这个值<strong>快照</strong>下来留作记忆，又怎么在下一轮<strong>比较</strong>出「变了没、变了啥」，从而决定该闭嘴、该报差异、还是该从头说起。这套机制的精巧之处，全藏在一个叫 <span class="mono">codec</span> 的小字段里——它一个人，撑起了「序列化、反序列化、判等」三副担子。读懂单个源怎么转，你就摸清了整套上下文增量更新的发动机。</p>
+<p>为什么要花一课死磕「一个源怎么工作」？因为<strong>魔鬼全在细节里</strong>。「检测一个值变没变」听起来简单，可一旦较真，问题就冒出来：值的类型五花八门（日期、目录、字符串列表），怎么统一地比？存下来的旧值，万一格式都对不上了（源的 schema 改过）怎么办？「没读到」和「值变了」怎么区分？opencode 没有为每个源手写一套比较逻辑，而是用一个统一的 <span class="mono">codec</span>，把这些琐碎而易错的活<strong>一次性、类型安全地</strong>解决掉。这一课，就看它怎么做到的。</p>
+
+<div class="card analogy">
+  <div class="tag">📄 生活类比</div>
+  还记得上一课那本简报夹吗？这一课我们盯着<strong>其中一页</strong>看。这一页有一份<strong>「格式规范」</strong>（codec）——它规定了这页内容<strong>怎么落成白纸黑字</strong>（序列化）、<strong>怎么读懂一份旧的本页存档</strong>（反序列化）、以及<strong>怎么判断两份存档说的是不是一回事</strong>（判等）。每次要更新这页，简报官就照规范走三步：先把<strong>上次的存档</strong>读出来，和<strong>这次新观察到的</strong>比一比——<strong>一样？</strong>那就一个字都不写，省纸（Unchanged）；<strong>不一样？</strong>写一张「这次相比上次变了什么」的便签（Updated）；<strong>连旧存档都读不懂了？</strong>（比如格式规范升级过、旧档作废）那就别勉强比对，干脆重写一份完整的（Incompatible）。一份「格式规范」，就把这页的写、读、比三件事全管了——这就是 codec 的全部魔力。
+</div>
+
+<h2>codec：一个字段，三副担子</h2>
+<p>每个 <span class="mono">Source&lt;A&gt;</span> 都要提供一个 <span class="mono">codec</span>——一个描述「值类型 <span class="mono">A</span> 怎么和 JSON 互转」的 <span class="mono">Schema.Codec</span>。<span class="mono">make</span> 函数拿到它，<strong>立刻从它身上派生出三样工具</strong>：</p>
+<pre class="code"><span class="cm">// 简化自 system-context/index.ts 的 make()</span>
+<span class="kw">const</span> decode = Schema.<span class="fn">decodeUnknownOption</span>(source.codec)  <span class="cm">// 反序列化：旧存档 → 值</span>
+<span class="kw">const</span> encode = Schema.<span class="fn">encodeSync</span>(source.codec)          <span class="cm">// 序列化：值 → 可存的 JSON</span>
+<span class="kw">const</span> equivalent = Schema.<span class="fn">toEquivalence</span>(source.codec)    <span class="cm">// 判等：两个值一样吗</span></pre>
+<p>这是整套设计最优雅的一笔。源的作者<strong>只需声明一件事</strong>——「我的值长这样」（一个 codec），框架就<strong>白送</strong>了他三种能力：把值<strong>编码</strong>成能存进快照的 JSON、把存下的快照<strong>解码</strong>回值、以及<strong>判断</strong>两个值等不等。尤其那个 <span class="mono">toEquivalence</span>——它从「值的结构描述」里，<strong>自动推导出了「怎么比较两个这种值」</strong>。源的作者再也不用手写「日期怎么比、目录结构怎么比」这种又琐碎又容易写错的判等逻辑了：<strong>声明结构，判等自来。</strong></p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">encode</div><div class="v">值 → JSON：存进快照（Snapshot）留作记忆</div></div>
+  <div class="cell"><div class="k">decode</div><div class="v">JSON → 值：把上次的快照读回来（可能失败 → Option）</div></div>
+  <div class="cell"><div class="k">equivalent</div><div class="v">值 × 值 → 布尔：自动推导的判等，检测「变了没」，无需手写</div></div>
+</div>
+<div class="cols">
+  <div class="col"><h4>❌ 每个源手写判等</h4><p>日期源写「比年月日」、目录源写「逐字段比」、列表源写「逐项比」……N 个源 N 套比较逻辑，琐碎、重复、容易写错（漏比一个字段就漏报变化）。</p></div>
+  <div class="col"><h4>✅ 声明 codec，判等自来</h4><p>每个源只声明「值长这样」，<span class="mono">toEquivalence</span> 从结构自动推出判等。N 个源共享同一套推导，零手写、不漏比，省心又可靠。</p></div>
+</div>
+<p>别小看「判等自动推导」这件事的份量。在很多代码库里，「两个对象算不算相等」是 bug 的重灾区：有人忘了比某个新加的字段，有人把引用相等错当成值相等，有人在嵌套结构里比漏了一层。这些 bug 还特别隐蔽——它只在「值其实变了、却被误判为没变」时悄悄发作，表现为「模型怎么不知道我 cd 了」这种莫名其妙的现象。opencode 用 <span class="mono">Schema.toEquivalence(codec)</span> 把判等<strong>从「人来写」变成「从结构推」</strong>，等于把这一整类 bug 连根拔掉：只要你的 codec 如实描述了值的结构，判等就自动正确，再不会因为「手写比较时漏了一笔」而误判。<strong>让正确成为默认、而非靠每个人小心翼翼</strong>——这正是第 8 课工具箱那套「护栏」哲学，在上下文层的又一次现身。说到底，正确不该是某个人的功劳或疏忽，而该是结构本身带来的必然。</p>
+
+<h2>baseline：观察一次，留下记忆</h2>
+<p>一个源被纳入上下文时，先走 <span class="mono">load</span> 观察出当前值。若 <span class="mono">load</span> 返回 <span class="mono">unavailable</span>（上一课讲过：暂缺，非删除），就此打住、保住旧状态。若拿到了真实值，就产出一个 <span class="mono">baseline</span> 渲染——它做两件事：调 <span class="mono">source.baseline(value)</span> 得到<strong>给模型看的全文</strong>，同时把 <span class="mono">encode(value)</span> 的结果<strong>存进一个 <span class="mono">SourceSnapshot</span></strong>。</p>
+<div class="flow">
+  <div class="node">load<span class="sub">观察当前值</span></div>
+  <div class="arrow">unavailable? → 止</div>
+  <div class="node">baseline(value)<span class="sub">渲染全文</span></div>
+  <div class="arrow">+</div>
+  <div class="node">encode(value)<span class="sub">存进 Snapshot</span></div>
+</div>
+<p>这里「一说一记」的配合是关键：<span class="mono">baseline</span> 那段全文，是<strong>说给模型听</strong>的（进入它的上下文）；而那份 <span class="mono">encode</span> 出来的快照，是<strong>记给系统自己</strong>的（存着，下次比较用）。说给模型的是人类可读的散文（「你在 /home/proj，这是 git 仓库」），记给自己的是结构化的 JSON（<span class="mono">{"dir":"/home/proj","git":true}</span>）。<strong>同一次观察，渲染出两种形态：一种为了沟通，一种为了记忆。</strong>没有那份记忆，下一轮就无从知道「变了没」——快照，是整个增量机制的锚点。</p>
+<p>为什么不干脆拿「给模型的那段全文」当记忆、下次直接比文本？因为<strong>人话和机器记忆，要的东西正好相反</strong>。给模型的散文追求<strong>可读</strong>，可能这一版写「你在 /home/proj」、下一版心血来潮写成「当前工作目录：/home/proj」——文字变了，事实没变，若拿文本比就会误报一次「变化」。而 <span class="mono">encode</span> 出的结构化快照追求<strong>精确</strong>：它只记那个规范化的值（<span class="mono">{"dir":"/home/proj"}</span>），不掺任何措辞。拿结构比结构，<span class="mono">equivalent</span> 才能干净利落地回答「事实到底变没变」，不被表达方式的抖动干扰。<strong>沟通用散文、记忆用结构</strong>——把这两件事分开，是这个源能既「说得人话」又「比得精准」的根本。</p>
+
+<h2>compare：变了没？变了啥？</h2>
+<p>下一轮，这个源再次被观察。这次它手里多了一样东西：<strong>上一轮存下的快照</strong>。于是它走 <span class="mono">compare(previous)</span>，三步定乾坤：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">decode(previous)：把上次的快照解码回值。解不出来？→ Incompatible（schema 变过，旧档作废）</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">解出来了 → equivalent(旧值, 新值)：一样吗？</span></div>
+  <div class="t-row"><span class="t-num">3a</span><span class="t-txt">一样 → Unchanged：一个字都不发，省 token</span></div>
+  <div class="t-row"><span class="t-num">3b</span><span class="t-txt">不一样 → Updated：调 update(旧, 新) 渲染差异，并存下新快照</span></div>
+</div>
+<p>这三个结果，对应着一个值在两轮之间可能的全部命运。<strong>Unchanged</strong> 是最常见、也最省的情况——大多数轮，目录没变、日期没变，那就<strong>沉默</strong>，不浪费模型一个 token。<strong>Updated</strong> 是真有变化时的正路——渲染一份「差异」，并<strong>顺手更新快照</strong>（这样下下轮又能和这次比）。最微妙的是 <strong>Incompatible</strong>：它意味着<strong>连上次的快照都解码不出来了</strong>——通常是因为这个源的 <span class="mono">codec</span> 在两轮之间被改过（比如版本升级），旧格式的快照成了「天书」。这时候硬去 diff 是危险的，明智的做法是<strong>放弃增量、退回重来</strong>（重新 baseline）。这个分支看似冷门，却是一个长期演进的系统必须考虑的现实：<strong>数据的格式会变，而你存下的旧数据不会自动跟着变。</strong></p>
+<p><span class="mono">Incompatible</span> 这一分支，最能看出这套设计的成熟。一个只想着「跑通」的实现，根本不会去想「万一旧快照解不出来怎么办」——它会假设存下的东西永远读得回来，于是某天 codec 一升级，旧快照解码时直接抛个异常、循环崩在半路。opencode 偏偏正面接住了这种情况：解不出来？那是<strong>预料之中的一种结果</strong>，不是意外——退回去重新 baseline 就是了，模型顶多这一轮多收一份全文，绝不会因此崩溃。<strong>能优雅地处理「自己存的旧数据已经读不懂了」，是一个系统从『能用』走向『耐用』的标志</strong>：它默认了「我也会变，我的过去未必还认得我的现在」，并为这种自我演进预留了一条不慌不乱的退路。</p>
+<div class="cols">
+  <div class="col"><h4>Unchanged · 沉默</h4><p>值没变。一个 token 都不发。最常见、最省。</p></div>
+  <div class="col"><h4>Updated · 报差异</h4><p>值变了。渲染 update 差异文本，更新快照。</p></div>
+  <div class="col"><h4>Incompatible · 重来</h4><p>旧快照解不出（schema 变了）。放弃增量、退回重 baseline，绝不硬比。</p></div>
+</div>
+<p>把一个源在连续几轮里的遭遇连起来看，这套机制的节律就清楚了：</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">第 1 轮</span><span class="tl-desc">首次纳入 → baseline：发全文「你在 /home/proj，git 仓库」+ 存快照 {dir,git}</span></div>
+  <div class="tl-item"><span class="tl-time">第 2 轮</span><span class="tl-desc">compare：解出旧快照，equivalent 判定一样 → Unchanged → 沉默</span></div>
+  <div class="tl-item"><span class="tl-time">第 3 轮</span><span class="tl-desc">你 cd 了 → compare：不一样 → Updated「目录切到 /home/proj/src」+ 更新快照</span></div>
+  <div class="tl-item"><span class="tl-time">第 4 轮</span><span class="tl-desc">没再动 → compare：和第 3 轮的快照比 → Unchanged → 又沉默</span></div>
+</div>
+<p>看这条时间线，你会发现一个源<strong>绝大多数时候都在「沉默」</strong>——只有在它真正发生变化的那一轮，才花一份 token 说一句「我变成这样了」。这正是 baseline/update 这套设计的回报在微观层面的兑现：<strong>上下文不是每轮重新灌一遍，而是像水面一样，平时风平浪静、有波动才泛起一圈涟漪。</strong>一个聊几小时的会话，环境信息真正变化的次数屈指可数，于是这套机制省下的，是成百上千轮里本会被白白重复的 token。而每一次「涟漪」，又都靠着上一轮留下的那份快照做参照——<strong>记忆，让沉默成为可能。</strong></p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这一课把单个源的「一生」讲透了，它正是上一课那套代数的<strong>微观引擎</strong>：</p>
+  <ul>
+    <li><strong>codec 一肩三挑</strong>：从一个 <span class="mono">Schema.Codec</span> 派生出 encode（存快照）、decode（读快照）、equivalent（判变化）——声明结构，判等自来。</li>
+    <li><strong>baseline = 一说一记</strong>：渲染全文给模型 + encode 快照给自己。快照是增量机制的锚。</li>
+    <li><strong>compare = 三选一</strong>：Unchanged（沉默省 token）/ Updated（报差异 + 更新快照）/ Incompatible（旧档作废，退回重来）。</li>
+    <li>这套「观察→快照→下轮比对」的循环，让每个源都能<strong>独立地、增量地</strong>刷新自己。</li>
+  </ul>
+  <p>但有个问题还悬着：这些源是<strong>谁攒起来的</strong>？<span class="mono">core/date</span>、<span class="mono">core/environment</span>、还有插件可能贡献的源……它们怎么被收集、汇总成那个传给 <span class="mono">combine</span> 的列表？这就是下一课<strong>注册表（第 23 课）</strong>的活：一个让各路源「报到登记」的地方。源知道怎么刷新自己（本课），注册表知道有哪些源（下一课），两者合起来，系统上下文才真正运转起来。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">compare</span> 的三分支，在 <span class="mono">make</span> 里就是一段优雅的 <span class="mono">Option.match</span> + 判等：</p>
+  <pre class="code"><span class="cm">// 简化自 system-context/index.ts</span>
+compare: (previous) =&gt; Option.<span class="fn">match</span>(<span class="fn">decode</span>(previous), {
+  onNone: () =&gt; ({ _tag: <span class="st">"Incompatible"</span> }),        <span class="cm">// 解不出旧档</span>
+  onSome: (decoded) =&gt;
+    <span class="fn">equivalent</span>(decoded, value)
+      ? { _tag: <span class="st">"Unchanged"</span> }                       <span class="cm">// 一样 → 沉默</span>
+      : { _tag: <span class="st">"Updated"</span>, render: () =&gt; ({       <span class="cm">// 变了 → 渲染差异</span>
+          text: source.<span class="fn">update</span>(decoded, value),
+          snapshot: <span class="fn">snapshot</span>() }) },
+})</pre>
+  <p>注意 <span class="mono">decode</span> 返回的是 <span class="mono">Option</span>（用了 <span class="mono">decodeUnknownOption</span>，而不是会抛异常的版本）——解不出来不是「崩」，而是规规矩矩地走 <span class="mono">onNone</span> 分支，变成一个有名有姓的 <span class="mono">Incompatible</span> 结果。这又是第 5、8 课「错误是值、不靠异常」那套世界观的微观体现：连「旧快照读不出来」这种边角情况，都被收进了类型，成了 <span class="mono">Compared</span> 联合里一个明确的分支，而不是一个会半路炸出来的意外。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>codec 一肩三挑</strong>：源只需声明一个 <span class="mono">Schema.Codec</span>，<span class="mono">make</span> 就从它派生出 <strong>encode</strong>（存快照）、<strong>decode</strong>（读快照）、<strong>equivalent</strong>（判等）——声明结构，判等自来，无需手写比较逻辑。</li>
+    <li><strong>baseline = 一说一记</strong>：<span class="mono">source.baseline(value)</span> 渲染人类可读全文给模型，<span class="mono">encode(value)</span> 存结构化快照给系统——同一次观察、两种形态。</li>
+    <li><strong>快照是增量机制的锚</strong>：没有上轮存的快照，就无从比出「变了没」。</li>
+    <li><strong>compare 三选一</strong>：<span class="mono">Unchanged</span>（值没变→沉默省 token）/ <span class="mono">Updated</span>（变了→渲染差异+更新快照）/ <span class="mono">Incompatible</span>（旧快照解不出，schema 变过→退回重 baseline）。</li>
+    <li><span class="mono">decode</span> 用 Option（解不出走 onNone→Incompatible），把「旧档读不出」这种边角也收进类型——第 5、8 课「错误即值」的微观延续。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Last lesson we surveyed the panorama of system context — a set of composable "sources" with a twin <span class="mono">baseline</span>/<span class="mono">update</span> rendering. This lesson we zoom the lens onto a <strong>single source</strong> and watch its life: how it <strong>observes</strong> its current value, how it <strong>snapshots</strong> that value as memory, and how it <strong>compares</strong> next round to find "did it change, and what changed," thereby deciding to stay silent, report the diff, or start over. The cleverness of this mechanism all hides in a small field called <span class="mono">codec</span> — which, single-handedly, shoulders the three burdens of "serialize, deserialize, compare." Understand how a single source turns and you've grasped the engine of the whole context-incremental update.</p>
+<p>Why spend a lesson hammering on "how one source works"? Because <strong>the devil is all in the details</strong>. "Detect whether a value changed" sounds simple, but get serious and problems pop up: values come in all types (date, directory, string list), how to compare uniformly? The stored old value, what if its format no longer matches (the source's schema changed)? How to distinguish "couldn't read" from "value changed"? opencode doesn't hand-write a comparison for each source but uses one unified <span class="mono">codec</span> to solve these fiddly, error-prone chores <strong>once, type-safely</strong>. This lesson sees how.</p>
+
+<div class="card analogy">
+  <div class="tag">📄 Analogy</div>
+  Remember last lesson's briefing folder? This lesson we stare at <strong>one of its pages</strong>. This page has a <strong>"format spec"</strong> (codec) — defining how this page's content <strong>gets written down in black and white</strong> (serialize), <strong>how to read an old archived copy of this page</strong> (deserialize), and <strong>how to tell whether two copies say the same thing</strong> (compare). Each time the page needs updating, the briefing officer follows three steps by spec: read out <strong>last time's archive</strong>, compare with <strong>what's newly observed</strong> — <strong>same?</strong> write not a word, save paper (Unchanged); <strong>different?</strong> write a "what changed since last time" note (Updated); <strong>can't even read the old archive?</strong> (say the format spec was upgraded, the old archive void) then don't force a comparison, just rewrite a full one (Incompatible). One "format spec" handles all three — write, read, compare — for this page. That's all of codec's magic.
+</div>
+
+<h2>codec: one field, three burdens</h2>
+<p>Every <span class="mono">Source&lt;A&gt;</span> must provide a <span class="mono">codec</span> — a <span class="mono">Schema.Codec</span> describing "how value type <span class="mono">A</span> converts to and from JSON." The <span class="mono">make</span> function takes it and <strong>immediately derives three tools from it</strong>:</p>
+<pre class="code"><span class="cm">// simplified from make() in system-context/index.ts</span>
+<span class="kw">const</span> decode = Schema.<span class="fn">decodeUnknownOption</span>(source.codec)  <span class="cm">// deserialize: old archive → value</span>
+<span class="kw">const</span> encode = Schema.<span class="fn">encodeSync</span>(source.codec)          <span class="cm">// serialize: value → storable JSON</span>
+<span class="kw">const</span> equivalent = Schema.<span class="fn">toEquivalence</span>(source.codec)    <span class="cm">// compare: are two values the same</span></pre>
+<p>This is the design's most elegant stroke. The source author <strong>declares just one thing</strong> — "my value looks like this" (a codec) — and the framework <strong>gives for free</strong> three abilities: <strong>encode</strong> the value into JSON storable in a snapshot, <strong>decode</strong> the stored snapshot back into a value, and <strong>judge</strong> whether two values are equal. Especially that <span class="mono">toEquivalence</span> — it <strong>automatically derives "how to compare two such values"</strong> from "the value's structure description." The source author no longer hand-writes the fiddly, error-prone equality logic of "how to compare dates, how to compare directory structures": <strong>declare the structure, equality comes for free.</strong></p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">encode</div><div class="v">value → JSON: store in the Snapshot as memory</div></div>
+  <div class="cell"><div class="k">decode</div><div class="v">JSON → value: read back last time's snapshot (may fail → Option)</div></div>
+  <div class="cell"><div class="k">equivalent</div><div class="v">value × value → bool: auto-derived equality, detect "changed?", no hand-writing</div></div>
+</div>
+<div class="cols">
+  <div class="col"><h4>❌ hand-write equality per source</h4><p>The date source writes "compare Y/M/D," the directory source "compare field by field," the list source "compare item by item"… N sources, N comparison logics, fiddly, repetitive, error-prone (miss a field, miss a change).</p></div>
+  <div class="col"><h4>✅ declare a codec, equality comes</h4><p>Each source declares "the value looks like this," <span class="mono">toEquivalence</span> derives equality from structure. N sources share one derivation, zero hand-writing, no missed comparisons.</p></div>
+</div>
+<p>Don't underrate the weight of "auto-derived equality." In many codebases, "do two objects count as equal" is a bug hotspot: someone forgets a newly-added field, someone mistakes reference equality for value equality, someone misses a layer in a nested structure. These bugs are also especially sneaky — they fire only when "the value actually changed but was misjudged unchanged," showing up as baffling "why doesn't the model know I cd'd." opencode uses <span class="mono">Schema.toEquivalence(codec)</span> to turn equality <strong>from "a human writes it" into "derived from structure,"</strong> uprooting this whole class of bug: as long as your codec faithfully describes the value's structure, equality is automatically correct, never misjudging because "a hand-written comparison missed a stroke." <strong>Making correctness the default rather than relying on everyone's care</strong> — exactly Lesson 8's toolbox "guardrail" philosophy appearing again at the context layer.</p>
+
+<h2>baseline: observe once, leave a memory</h2>
+<p>When a source enters the context, it first runs <span class="mono">load</span> to observe the current value. If <span class="mono">load</span> returns <span class="mono">unavailable</span> (covered last lesson: temporarily missing, not removed), it stops there, preserving the old state. If it gets a real value, it produces a <span class="mono">baseline</span> rendering — doing two things: call <span class="mono">source.baseline(value)</span> for <strong>the full text for the model</strong>, and store the result of <span class="mono">encode(value)</span> <strong>into a <span class="mono">SourceSnapshot</span></strong>.</p>
+<div class="flow">
+  <div class="node">load<span class="sub">observe current value</span></div>
+  <div class="arrow">unavailable? → stop</div>
+  <div class="node">baseline(value)<span class="sub">render full text</span></div>
+  <div class="arrow">+</div>
+  <div class="node">encode(value)<span class="sub">store in Snapshot</span></div>
+</div>
+<p>The pairing of "speak once, remember once" is key: that <span class="mono">baseline</span> full text is <strong>spoken to the model</strong> (entering its context); while that <span class="mono">encode</span>d snapshot is <strong>remembered by the system itself</strong> (stored, for next comparison). What's spoken to the model is human-readable prose ("you're in /home/proj, it's a git repo"); what's remembered is structured JSON (<span class="mono">{"dir":"/home/proj","git":true}</span>). <strong>One observation, rendered into two forms: one for communication, one for memory.</strong> Without that memory, the next round can't know "changed?" — the snapshot is the anchor of the whole incremental mechanism.</p>
+<p>Why not just use "the full text for the model" as the memory and compare text next time? Because <strong>human words and machine memory want exactly opposite things</strong>. The prose for the model seeks <strong>readability</strong>, and this version might write "you're in /home/proj" while the next on a whim writes "Current working directory: /home/proj" — the words changed, the fact didn't, and comparing text would falsely report a "change." But the structured snapshot from <span class="mono">encode</span> seeks <strong>precision</strong>: it records only the normalized value (<span class="mono">{"dir":"/home/proj"}</span>), free of any wording. Comparing structure to structure, <span class="mono">equivalent</span> can cleanly answer "did the fact actually change," undisturbed by the jitter of phrasing. <strong>Prose for communication, structure for memory</strong> — separating these two is the root of how this source can both "speak human" and "compare precisely."</p>
+
+<h2>compare: changed? changed what?</h2>
+<p>Next round, this source is observed again. This time it holds one more thing: <strong>the snapshot stored last round</strong>. So it runs <span class="mono">compare(previous)</span>, settling things in three steps:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">decode(previous): decode last time's snapshot back to a value. Can't decode? → Incompatible (schema changed, old archive void)</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">decoded → equivalent(old value, new value): same?</span></div>
+  <div class="t-row"><span class="t-num">3a</span><span class="t-txt">same → Unchanged: send not a word, save tokens</span></div>
+  <div class="t-row"><span class="t-num">3b</span><span class="t-txt">different → Updated: call update(old, new) to render the diff, and store the new snapshot</span></div>
+</div>
+<p>These three outcomes cover all of a value's possible fates between two rounds. <strong>Unchanged</strong> is the most common and most frugal case — most rounds, the directory didn't change, the date didn't change, so <strong>stay silent</strong>, wasting not one token of the model. <strong>Updated</strong> is the main road when there's a real change — render a "diff" and <strong>update the snapshot in passing</strong> (so the round after can compare against this one). The most subtle is <strong>Incompatible</strong>: it means <strong>even last time's snapshot can't be decoded</strong> — usually because this source's <span class="mono">codec</span> was changed between rounds (say a version upgrade), making the old-format snapshot "gibberish." Forcing a diff then is dangerous, and the wise move is to <strong>abandon the increment and start over</strong> (re-baseline). This branch seems obscure but is a reality any long-evolving system must consider: <strong>data formats change, and the old data you stored won't change with them automatically.</strong></p>
+<p>The <span class="mono">Incompatible</span> branch most reveals this design's maturity. An implementation thinking only of "make it work" wouldn't even consider "what if the old snapshot can't be decoded" — it'd assume what's stored always reads back, so one day the codec upgrades, decoding the old snapshot throws, and the loop crashes mid-way. opencode squarely catches this case: can't decode? that's <strong>an expected outcome</strong>, not an accident — just fall back to re-baseline, the model at most gets one extra full text this round, never crashing. <strong>Handling gracefully "the old data I stored is no longer readable by me" is the mark of a system going from 'works' to 'lasts'</strong>: it presumes "I too will change, my past may not recognize my present," and reserves a calm fallback for that self-evolution.</p>
+<div class="cols">
+  <div class="col"><h4>Unchanged · silent</h4><p>Value didn't change. Send not a token. Most common, most frugal.</p></div>
+  <div class="col"><h4>Updated · report the diff</h4><p>Value changed. Render the update diff text, refresh the snapshot.</p></div>
+  <div class="col"><h4>Incompatible · start over</h4><p>Old snapshot can't decode (schema changed). Abandon the increment, re-baseline.</p></div>
+</div>
+<p>String together a source's experience over several consecutive rounds and the mechanism's rhythm becomes clear:</p>
+<div class="timeline">
+  <div class="tl-item"><span class="tl-time">round 1</span><span class="tl-desc">first inclusion → baseline: send full text "you're in /home/proj, git repo" + store snapshot {dir,git}</span></div>
+  <div class="tl-item"><span class="tl-time">round 2</span><span class="tl-desc">compare: decode the old snapshot, equivalent judges same → Unchanged → silent</span></div>
+  <div class="tl-item"><span class="tl-time">round 3</span><span class="tl-desc">you cd'd → compare: different → Updated "directory switched to /home/proj/src" + update snapshot</span></div>
+  <div class="tl-item"><span class="tl-time">round 4</span><span class="tl-desc">no more moves → compare: against round 3's snapshot → Unchanged → silent again</span></div>
+</div>
+<p>Look at this timeline and you'll find a source is <strong>silent the vast majority of the time</strong> — only in the round it truly changes does it spend a token to say "I became this." This is the payoff of the baseline/update design cashed out at the micro level: <strong>context isn't re-poured every round but, like a water surface, stays calm in normal times and ripples only when there's a disturbance.</strong> A session chatting for hours sees environment info truly change a countable few times, so what this mechanism saves is the tokens that would have been pointlessly repeated across hundreds of rounds. And each "ripple" references the snapshot left by the previous round — <strong>memory is what makes silence possible.</strong></p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture</div>
+  <p>This lesson covers a single source's "life" thoroughly — the <strong>micro-engine</strong> of last lesson's algebra:</p>
+  <ul>
+    <li><strong>codec shoulders three</strong>: from one <span class="mono">Schema.Codec</span> derive encode (store snapshot), decode (read snapshot), equivalent (judge change) — declare the structure, equality comes free.</li>
+    <li><strong>baseline = speak once, remember once</strong>: render full text for the model + encode a snapshot for itself. The snapshot is the increment's anchor.</li>
+    <li><strong>compare = one of three</strong>: Unchanged (silent, save tokens) / Updated (report diff + update snapshot) / Incompatible (old archive void, start over).</li>
+    <li>This loop of "observe → snapshot → compare next round" lets each source <strong>refresh itself independently and incrementally</strong>.</li>
+  </ul>
+  <p>But one question still hangs: who <strong>gathers</strong> these sources? <span class="mono">core/date</span>, <span class="mono">core/environment</span>, and sources plugins might contribute… how are they collected and gathered into the list passed to <span class="mono">combine</span>? That's the job of next lesson's <strong>registry (Lesson 23)</strong>: a place where all sources "check in and register." A source knows how to refresh itself (this lesson), the registry knows what sources exist (next lesson), and together system context truly runs.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p><span class="mono">compare</span>'s three branches are, in <span class="mono">make</span>, an elegant <span class="mono">Option.match</span> + equality:</p>
+  <pre class="code"><span class="cm">// simplified from system-context/index.ts</span>
+compare: (previous) =&gt; Option.<span class="fn">match</span>(<span class="fn">decode</span>(previous), {
+  onNone: () =&gt; ({ _tag: <span class="st">"Incompatible"</span> }),        <span class="cm">// can't decode old archive</span>
+  onSome: (decoded) =&gt;
+    <span class="fn">equivalent</span>(decoded, value)
+      ? { _tag: <span class="st">"Unchanged"</span> }                       <span class="cm">// same → silent</span>
+      : { _tag: <span class="st">"Updated"</span>, render: () =&gt; ({       <span class="cm">// changed → render the diff</span>
+          text: source.<span class="fn">update</span>(decoded, value),
+          snapshot: <span class="fn">snapshot</span>() }) },
+})</pre>
+  <p>Note <span class="mono">decode</span> returns an <span class="mono">Option</span> (using <span class="mono">decodeUnknownOption</span>, not the throwing version) — failing to decode isn't a "crash" but dutifully takes the <span class="mono">onNone</span> branch, becoming a named <span class="mono">Incompatible</span> result. This is again Lessons 5 and 8's worldview of "errors are values, not exceptions" at the micro level: even an edge case like "the old snapshot can't be read" is folded into the type, becoming a definite branch of the <span class="mono">Compared</span> union, not an accident that blows up mid-way.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li><strong>codec shoulders three</strong>: a source declares just one <span class="mono">Schema.Codec</span>, and <span class="mono">make</span> derives <strong>encode</strong> (store snapshot), <strong>decode</strong> (read snapshot), <strong>equivalent</strong> (judge equality) — declare the structure, equality comes free, no hand-written comparison.</li>
+    <li><strong>baseline = speak once, remember once</strong>: <span class="mono">source.baseline(value)</span> renders human-readable full text for the model, <span class="mono">encode(value)</span> stores a structured snapshot for the system — one observation, two forms.</li>
+    <li><strong>The snapshot is the increment's anchor</strong>: without the previous round's stored snapshot, there's no way to compare "changed?"</li>
+    <li><strong>compare, one of three</strong>: <span class="mono">Unchanged</span> (value unchanged → silent, save tokens) / <span class="mono">Updated</span> (changed → render diff + update snapshot) / <span class="mono">Incompatible</span> (old snapshot won't decode, schema changed → fall back to re-baseline).</li>
+    <li><span class="mono">decode</span> uses Option (can't decode → onNone → Incompatible), folding even "old archive unreadable" into the type — Lessons 5, 8's "errors are values" continued at the micro level.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_23 = wip('System Context Registry', 'The context registry')
 LESSON_24 = wip('Context Epoch', 'The Context Epoch')
 LESSON_25 = wip('会话中系统消息', 'Mid-conversation messages')
