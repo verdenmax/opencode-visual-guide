@@ -1241,6 +1241,47 @@ QUIZZES = {
             {"zh": "课里给了一条判断法则：「凡是『这家供应商怎么怎么样』的知识，都只该住在 llm 包里；一旦泄漏进 core，就是一处设计破窗」。为什么把这种知识的「物理位置」管住，比口头约定「大家别在 core 里写供应商特判」更可靠？", "en": "The lesson gives a rule of thumb: \"any 'how this provider behaves' knowledge should live only in the llm package; once it leaks into core, that's a broken window.\" Why is controlling the physical location of such knowledge more reliable than a verbal agreement \"let's not write provider special-cases in core\"?"},
         ],
     },
+    "29-protocol-adapters.html": {
+        "mcq": [
+            {
+                "q": {"zh": "Protocol 接口（route/protocol.ts）长什么样？", "en": "What does the Protocol interface (route/protocol.ts) look like?"},
+                "opts": [
+                    {"zh": "一张两栏表：body（请求侧，把规范请求编码成这家请求体）+ stream（响应侧，一台把流式响应解码回规范事件的状态机）", "en": "A two-column form: body (request side, encode canonical request into this body) + stream (response side, a state machine decoding the streaming response back into canonical events)"},
+                    {"zh": "一个超大函数，把所有供应商的逻辑写在一起", "en": "One giant function with all providers' logic together"},
+                    {"zh": "只有一个 send() 方法", "en": "Just a single send() method"},
+                    {"zh": "一堆 if (provider === ...) 分支", "en": "A pile of if (provider === ...) branches"},
+                ],
+                "answer": 0,
+                "why": {"zh": "接口干净得像张表，只有两块：body 管「出去」、stream 管「回来」。body 就一个 from(LLMRequest)→Body 函数加一个 schema；stream 是 initial/event/step/terminal?/onHalt? 五件套的状态机。所有协议都填这同一张表——认清它，第 30~32 课就只是「同一张表的不同方言填法」。", "en": "The interface is clean as a table, just two blocks: body owns \"out,\" stream owns \"back.\" body is one from(LLMRequest)→Body function plus a schema; stream is a five-part state machine (initial/event/step/terminal?/onHalt?). Every protocol fills this same form — grasp it and lessons 30–32 are just \"the same form filled in different dialects.\""},
+            },
+            {
+                "q": {"zh": "为什么请求侧只是一个函数，响应侧却是一台状态机？", "en": "Why is the request side just a function, but the response side a state machine?"},
+                "opts": [
+                    {"zh": "请求是静态的、一次性拼好整个发出；响应是流式碎片到达（如工具参数 JSON 跨多帧），必须边收边攒、记住「目前到哪了」", "en": "A request is static, assembled and sent whole at once; a response arrives as streaming fragments (e.g. tool-arg JSON across frames), so you must accumulate as you receive, remembering \"where you are so far\""},
+                    {"zh": "纯属历史包袱，没有道理", "en": "Pure legacy baggage, no reason"},
+                    {"zh": "因为响应比请求大", "en": "Because responses are bigger than requests"},
+                    {"zh": "为了让代码更长", "en": "To make the code longer"},
+                ],
+                "answer": 0,
+                "why": {"zh": "这个不对称忠实映射现实。请求在你按下发送时就尘埃落定，一个 from 函数足矣。响应却是模型流式吐回：一个工具调用的参数 JSON 跨好几帧才到齐——你收到「{\\\"path\\\":」这半截时无从处理，必须用 State 当草稿纸攒着，等拼齐再吐出完整事件。step(State,Event)→[State, LLMEvent[]] 正是为此。", "en": "The asymmetry faithfully maps reality. A request is settled the moment you hit send — one from function suffices. But a response streams back: one tool call's argument JSON arrives across several frames — receiving the half \"{\\\"path\\\":\" leaves you nothing to do, you must use State as scratch paper, accumulate, and emit a whole event only once assembled. step(State,Event)→[State, LLMEvent[]] exists exactly for this."},
+            },
+            {
+                "q": {"zh": "Protocol.make 的实现是 (input) => input，一个恒等函数。它为什么存在？", "en": "Protocol.make is implemented as (input) => input, an identity function. Why does it exist?"},
+                "opts": [
+                    {"zh": "作为一个「类型化接缝」：今天什么都不做，但为将来给所有协议统一加横切关注点（如 tracing）预留唯一入口", "en": "As a \"typed seam\": doing nothing today, but reserving a single entry point to later add cross-cutting concerns (like tracing) across all protocols at once"},
+                    {"zh": "它会校验并修正请求体", "en": "It validates and fixes the request body"},
+                    {"zh": "它负责发送 HTTP 请求", "en": "It sends the HTTP request"},
+                    {"zh": "它是个 bug，应该删掉", "en": "It's a bug and should be deleted"},
+                ],
+                "answer": 0,
+                "why": {"zh": "源码注释说得明白：schema 和解析函数才是真理之源，make 不做运行时的事。但留这个壳是克制的远见——将来想给六个协议统一加一层（tracing、instrumentation）时，有唯一下手处，不必去改每个协议的定义。一个今天什么都不做的恒等函数，是为明天的「统一改造」留的门。", "en": "The source comment is explicit: the schemas and parser functions are the source of truth, make does nothing at runtime. But leaving this shell is restrained foresight — when you later want to add one layer (tracing, instrumentation) across six protocols, there's a single place to do it, without touching each protocol's definition. An identity function doing nothing today is a door left open for tomorrow's unified retrofit."},
+            },
+        ],
+        "open": [
+            {"zh": "stream.step 的签名是 (State, Event) => [State, LLMEvent[]]——它把「新状态」一并返回，而不是偷偷改一个全局变量。结合本课的工具调用例子（参数跨帧到齐），说说「显式传递状态」相比「就地修改」，给这台流式解码状态机带来了什么好处（提示：可预测性、可测试性、并发）。", "en": "stream.step's signature is (State, Event) => [State, LLMEvent[]] — it returns the \"new state\" alongside, rather than secretly mutating a global. Using this lesson's tool-call example (arguments arriving across frames), discuss what \"explicitly threading state\" buys this streaming-decode state machine over \"in-place mutation\" (hint: predictability, testability, concurrency)."},
+            {"zh": "本课说六种协议「要解决的问题是同构的」，于是用一个 Protocol 接口钉成一张所有协议都填的表。回想你接触过的「多个后端/多种格式但本质同构」的场景（如多种支付渠道、多种导出格式），如果当初也抽出这样一张「统一接口表」，会让新增一种渠道/格式变得多容易？反过来，没抽会怎样？", "en": "This lesson says the six protocols solve an \"isomorphic problem,\" so it nails them into one Protocol interface every protocol fills. Recall a \"many backends/formats but essentially isomorphic\" scenario you've met (e.g. multiple payment channels, multiple export formats). Had you abstracted such a \"unified interface form,\" how much easier would adding a new channel/format become? Conversely, what happens without it?"},
+        ],
+    },
 }
 
 def render(fname, lang):

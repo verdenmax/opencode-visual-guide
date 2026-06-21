@@ -195,7 +195,226 @@ LESSON_28 = {
 </div>
 """,
 }
-LESSON_29 = wip('协议适配器', 'Protocol adapters')
+LESSON_29 = {
+    "zh": r"""
+<p class="lead">上一课我们立了「翻译墙」的总图：core 说规范语，协议适配器翻成各家方言。这一课，我们走近这道墙，看<strong>一个协议适配器内部，到底由哪几块「翻译职责」构成</strong>。好消息是：opencode 把这件事抽象得极其干净——<strong>每一个协议，无论翻译的是 Anthropic 还是 Gemini 的方言，都在填同一张「两栏表」</strong>。一栏管<strong>出去</strong>（怎么把规范请求，编码成这家的请求体），一栏管<strong>回来</strong>（怎么把这家的流式响应，解码回规范事件）。读懂这张表的形状，你再去看第 30~32 课具体某家的协议，就只是在看「<strong>同一张表，被不同的方言填了不同的内容</strong>」而已。</p>
+<p>为什么要先看「骨架」、再看具体协议？因为<strong>共性比差异更重要</strong>。六种协议看似五花八门，但它们要解决的<strong>问题是同构的</strong>：把一个统一的请求送出去、把一串流式的响应收回来。opencode 用一个 <span class="mono">Protocol</span> 接口，把这个「同构的问题」钉成了一张<strong>所有协议都必须填的表</strong>。先把这张表的格子认清楚，你就有了一副「<strong>对照阅读</strong>」的框架：看任何一家协议时，都能立刻定位「它的请求编码在哪、流解码在哪」，而不会迷失在某家方言的细节里。这一课给的，是读懂后面三课的<strong>地图</strong>。</p>
+
+<div class="card analogy">
+  <div class="tag">📋 生活类比</div>
+  上一课那队同声传译，其实每个人手里都有一份<strong>一模一样的「岗位说明书」</strong>（<span class="mono">Protocol</span> 接口）。说明书只规定两项硬性职责：<strong>一、「出境翻译」</strong>——把总指挥用母语提的需求，<strong>整理成对应承包商能看懂的一份完整文书</strong>（请求体）。<strong>二、「入境翻译」</strong>——这条最讲究：承包商的回话不是一口气说完的，而是<strong>一个词一个词、断断续续地</strong>传回来；传译必须<strong>边听边记、攒着上下文</strong>，把这一串碎片，一点点拼回母语里一句句完整的话（流式解码）。无论你这名传译负责的是哪国方言，<strong>这两项职责的「形状」分毫不差</strong>——区别只在于，针对不同方言，你「怎么整理文书」「怎么拼碎片」的具体手法不同。一张统一的说明书、六种方言的不同填法——这就是协议适配器的骨架。
+</div>
+
+<h2>一张两栏表：body 与 stream</h2>
+<p>翻开 <span class="mono">route/protocol.ts</span>，<span class="mono">Protocol</span> 接口干净得像一张表格——它只有两大块，<strong>恰好对应「出去」和「回来」</strong>：</p>
+<pre class="code"><span class="cm">// 简化自 route/protocol.ts</span>
+<span class="kw">interface</span> Protocol&lt;Body, Frame, Event, State&gt; {
+  id: ProtocolID
+  body: {                          <span class="cm">// ← 请求侧（出去）</span>
+    schema: Codec&lt;Body&gt;            <span class="cm">//   这家请求体的形状</span>
+    from: (LLMRequest) =&gt; Body     <span class="cm">//   把规范请求 → 这家的请求体</span>
+  }
+  stream: {                        <span class="cm">// ← 响应侧（回来）：一台状态机</span>
+    event: Codec&lt;Event, Frame&gt;     <span class="cm">//   把一个线缆帧 → 一个解码事件</span>
+    initial: (LLMRequest) =&gt; State <span class="cm">//   解析器初始状态</span>
+    step: (State, Event) =&gt; [State, LLMEvent[]]  <span class="cm">// 一个事件 → 规范事件 + 新状态</span>
+  }
+}</pre>
+<p>整个接口就两块：<span class="mono">body</span> 管请求、<span class="mono">stream</span> 管响应。这个划分本身就是一句话的设计哲学：<strong>一个协议要干的，无非是「把规范请求翻成方言、把方言响应翻回规范」这一来一回</strong>。<span class="mono">body.from</span> 就是「出境翻译」的全部——一个函数，吃一个 <span class="mono">LLMRequest</span>，吐一个这家供应商能懂的请求体。<span class="mono">stream</span> 则是「入境翻译」，它复杂得多，是一台<strong>状态机</strong>（下一节细说）。一张表，两栏；填满这两栏，一个协议就成了。</p>
+<p>还有个值得留意的细节：接口头上那四个类型参数 <span class="mono">&lt;Body, Frame, Event, State&gt;</span>，其实是在<strong>逼每个协议明确回答四个问题</strong>——你的<strong>请求体</strong>长什么样（Body）？线缆上一帧<strong>原始数据</strong>是什么（Frame）？解码后的<strong>一个事件</strong>是什么结构（Event）？你的解析器要<strong>攒什么状态</strong>（State）？这四个「未知数」一旦被一家协议各自填上具体类型，TypeScript 就能<strong>顺着 schema 和函数把类型全推导出来</strong>——源码注释特意说，组装协议时<strong>通常无需手写类型参数</strong>，schema 和解析函数自己就是真理之源。换句话说，这张表不只是「文档式」的约定，它是一副<strong>带类型的模具</strong>：你把四个空填实，编译器替你保证「请求体的形状」「事件的解码」「状态的流转」三处首尾一致、不会接错。</p>
+<div class="cols">
+  <div class="col"><h4>body · 请求侧（出去）</h4><p>一个 <span class="mono">from(LLMRequest)</span> 函数，把规范请求编码成这家的请求体。简单、一次成形。</p></div>
+  <div class="col"><h4>stream · 响应侧（回来）</h4><p>一台状态机，把这家的流式响应，一帧一帧解码、累积、翻回规范 <span class="mono">LLMEvent</span>。</p></div>
+</div>
+<p>把这张表立体地画出来，就是下面这三层——最外层是协议的身份与两大职责，往里一层是每个职责由哪几个零件组成。你会发现，<strong>所有的复杂度都压在了 <span class="mono">stream</span> 这一栏</strong>：请求侧轻飘飘两个零件，响应侧却挂着五个零件的一台机器。这种「一边轻、一边重」的视觉不平衡，本身就在提醒你：读任何一家协议，<strong>真正的功夫都在 <span class="mono">stream</span> 上</strong>。</p>
+<div class="layers">
+  <div class="layer"><div class="l-name">Protocol</div><div class="l-desc">id（协议身份）＋ 两大职责：body / stream</div></div>
+  <div class="layer"><div class="l-name">body（请求侧）</div><div class="l-desc">schema（请求体形状）＋ from（规范请求 → 这家请求体）</div></div>
+  <div class="layer"><div class="l-name">stream（响应侧）</div><div class="l-desc">event ＋ initial ＋ step ＋ terminal? ＋ onHalt?（一台状态机）</div></div>
+</div>
+
+<h2>出境翻译：body.from，一个函数的事</h2>
+<p>先看轻的那一栏。<span class="mono">body.from</span> 的签名朴素到了极点：<span class="mono">(request: LLMRequest) =&gt; Effect&lt;Body&gt;</span>——喂进去一个规范请求，吐出来一个这家供应商认得的请求体。为什么它能这么简单？因为请求是<strong>静态</strong>的：在你按下发送键的那一刻，你想说什么、带哪些消息、给哪些工具定义、要多少 token，<strong>全都已经定好了</strong>。没有「边想边说」，没有「说一半再补」。所以「出境翻译」就是一道<strong>纯粹的数据变换</strong>：把规范结构里的字段，按这家方言的字段名和嵌套方式，重新摆一遍。</p>
+<div class="flow">
+  <div class="f-node">LLMRequest<br><small>规范请求</small></div>
+  <div class="f-arrow">body.from →</div>
+  <div class="f-node">字段改名 / 重排<br><small>messages、tools、温度…按方言摆放</small></div>
+  <div class="f-arrow">→</div>
+  <div class="f-node">Body<br><small>这家的请求体</small></div>
+</div>
+<p>那 <span class="mono">schema</span> 又是干嘛的？它是这家请求体的<strong>形状契约</strong>——一个 <span class="mono">Codec&lt;Body&gt;</span>。它有两重价值：一是给 <span class="mono">from</span> 的产物一个<strong>可校验的目标类型</strong>（编出来的 body 必须长这样，错了在类型层就拦下）；二是真正发请求时，由它把 <span class="mono">Body</span> 编码成 JSON 字符串（回忆第 28 课提到的 <span class="mono">protocol.body.schema</span> encode）。<strong>from 负责「内容对不对」，schema 负责「形状对不对」</strong>，两者一搭，请求侧就齐了。这一栏之所以举重若轻，正因为它面对的是一个「已经尘埃落定」的请求——难的从来不是把定稿翻译出去，而是把一段还在流动中的话，边听边拼回来。</p>
+
+<h2>为什么请求简单、响应是状态机</h2>
+<p>这张表最值得玩味的，是它的<strong>不对称</strong>：请求侧只是一个函数，响应侧却是一台状态机。这个不对称不是随意的，它<strong>忠实地映射了现实</strong>。请求，是你<strong>一次性</strong>拼好、整个发出去的——所以一个 <span class="mono">from</span> 函数足矣。可响应，是模型<strong>流式</strong>吐回来的：文字一个 token 一个 token 地来，一个工具调用的参数 JSON 会<strong>跨好几个分块</strong>陆续到齐，用量统计在最后才出现…… 你不可能等它全部到齐再处理（那就失去了「流式」的全部意义），必须<strong>边收边解</strong>。而「边收边解」就天然需要<strong>记住「目前收到哪了」</strong>——这，正是状态机存在的理由。</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">initial</span><span class="t-txt">每次响应开始，建一个初始解析状态 State</span></div>
+  <div class="t-row"><span class="t-num">event</span><span class="t-txt">收到一个线缆帧 Frame → 解码成一个 Event</span></div>
+  <div class="t-row"><span class="t-num">step</span><span class="t-txt">step(State, Event) → [新 State, 吐出的若干 LLMEvent]</span></div>
+  <div class="t-row"><span class="t-num">…循环…</span><span class="t-txt">每来一帧就 step 一次，状态不断推进、事件不断吐出</span></div>
+  <div class="t-row"><span class="t-num">onHalt</span><span class="t-txt">流结束 → 可选地 flush 最后一批 LLMEvent</span></div>
+</div>
+<p><span class="mono">step</span> 的签名 <span class="mono">(State, Event) =&gt; [State, LLMEvent[]]</span> 是整个响应侧的灵魂，也是函数式里<strong>状态转换</strong>的经典形态：给我「当前状态」和「新来的一个事件」，我还你「下一个状态」和「这一步该吐出的规范事件」。比如一个工具调用：第一帧 <span class="mono">step</span> 可能只记下「开始攒一个叫 read 的工具调用」（吐空），后续几帧把参数 JSON 一段段拼进 State（还吐空），等参数齐了，最后一帧才吐出一个完整的 <span class="mono">toolCall</span> 规范事件。<strong>碎片进、完整出</strong>，靠的就是 State 在中间默默攒着。这台状态机，就是把「方言的流式碎片」重组成「规范的完整事件」的那台机器。</p>
+<p>把刚才那个工具调用的例子，一帧一帧摊开看，状态机的「攒」就具体了——注意前三步 <span class="mono">step</span> <strong>吐出的规范事件都是空的</strong>，State 在悄悄变厚；直到参数齐了，才「啪」地吐出一个完整事件：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">帧1</span><span class="t-txt">「开始一个工具调用 read」→ State 记下 {name:read, args:''}，吐出 []</span></div>
+  <div class="t-row"><span class="t-num">帧2</span><span class="t-txt">参数分块 '{\"path\":' → State.args 追加，吐出 []</span></div>
+  <div class="t-row"><span class="t-num">帧3</span><span class="t-txt">参数分块 '\"a.ts\"}' → State.args 追加，此时 JSON 已完整</span></div>
+  <div class="t-row"><span class="t-num">帧4</span><span class="t-txt">「工具调用结束」→ 吐出完整 LLMEvent.toolCall{name:read, args:{path:'a.ts'}}</span></div>
+</div>
+<p>这就是 State 的全部意义：<strong>它是那块「把跨帧碎片暂存到拼齐为止」的草稿纸</strong>。没有它，你收到「<span class="mono">{\"path\":</span>」这半截 JSON 时根本无从处理——它既不是合法 JSON，也不构成任何完整语义。有了 State，每一帧都只做一件小事（追加、记录），完整性判断和事件吐出，留到「攒齐」的那一刻。这也解释了为什么 <span class="mono">step</span> 要把「新状态」一并吐回去：状态机不许偷偷改全局变量，每一步都<strong>显式地把草稿纸传给下一步</strong>，于是整条解码链就成了一串纯粹、可预测的转换。把响应侧的五个零件并排看，各司其职就一目了然了：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">event</div><div class="c-txt">把一个线缆帧 Frame 解码成一个结构化 Event（Codec）</div></div>
+  <div class="cell"><div class="c-tag">initial</div><div class="c-txt">每次响应开始，按请求建一个初始解析状态 State</div></div>
+  <div class="cell"><div class="c-tag">step</div><div class="c-txt">核心：吃 (State, Event)，吐 [新 State, 若干 LLMEvent]</div></div>
+  <div class="cell"><div class="c-tag">terminal?</div><div class="c-txt">可选：判断某事件是否标志「请求完成」（给不会自然收尾的传输用）</div></div>
+  <div class="cell"><div class="c-tag">onHalt?</div><div class="c-txt">可选：流结束时，flush 最后一批攒着的 LLMEvent</div></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这一课给出了所有协议共享的<strong>骨架</strong>，是读懂后面三课的地图：</p>
+  <ul>
+    <li><strong>一个 <span class="mono">Protocol</span> = 两栏表</strong>：<span class="mono">body</span>（请求侧）+ <span class="mono">stream</span>（响应侧）。所有协议都填这张表。</li>
+    <li><strong>body.from</strong>：一个函数，规范 <span class="mono">LLMRequest</span> → 这家的请求体。出境翻译，一次成形。</li>
+    <li><strong>stream 是状态机</strong>：<span class="mono">initial</span>（建状态）→ <span class="mono">step(State, Event)</span>（碎片进、累积、吐规范事件）→ <span class="mono">onHalt</span>（收尾）。</li>
+    <li><strong>不对称映射现实</strong>：请求一次发出（函数够用），响应流式到达（必须状态机边收边解）。</li>
+  </ul>
+  <p>有了这张表，接下来三课就清晰了：它们各自只是在<strong>填同一张表的不同方言版本</strong>。第 30 课看 <strong>Anthropic</strong> 怎么填（它的工具块、缓存断点有什么特别）；第 31 课看 <strong>OpenAI</strong> 的 Chat 与 Responses 两套填法；第 32 课看 <strong>Gemini 与 Bedrock</strong>。读它们时，你只需带着一个问题：「<strong>这家的 <span class="mono">body.from</span> 和 <span class="mono">stream.step</span>，和别家比，特别在哪？</strong>」——骨架你已经懂了，剩下的全是方言的趣味。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>一个协议怎么「组装」出来？看 <span class="mono">anthropic-messages.ts</span> 结尾那几行，正是在填这张表：</p>
+  <pre class="code"><span class="cm">// 简化自 protocols/anthropic-messages.ts 结尾</span>
+<span class="kw">export const</span> protocol = Protocol.<span class="fn">make</span>({
+  id: ADAPTER,
+  body: { schema: ..., from: ... },        <span class="cm">// 请求侧</span>
+  stream: { event: ..., initial: ..., step: ... },  <span class="cm">// 响应侧</span>
+})</pre>
+  <p>有意思的是 <span class="mono">Protocol.make</span> 本身——它的实现就是 <span class="mono">(input) =&gt; input</span>，<strong>一个恒等函数</strong>！它不做任何运行时的事，纯粹是个「<strong>类型化的接缝</strong>」：源码注释说得明白，「schema 和解析函数才是真理之源」，<span class="mono">make</span> 存在的意义，是给未来的横切关注点（比如加 tracing、instrumentation）<strong>预留一个统一的入口</strong>。这是一种很克制的远见：现在不需要在组装协议时做额外的事，但留一个 <span class="mono">make</span> 的壳，将来想给所有协议<strong>统一加一层</strong>时，就有了唯一的下手处，而不必去改六个协议的定义。<strong>一个今天什么都不做的恒等函数，是为明天的「统一改造」留的门。</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li>每个协议适配器都在填<strong>同一张两栏表</strong>（<span class="mono">Protocol</span> 接口，<span class="mono">route/protocol.ts</span>）：<span class="mono">body</span>（请求侧）+ <span class="mono">stream</span>（响应侧）。</li>
+    <li><strong>body.from</strong>：一个函数，把规范 <span class="mono">LLMRequest</span> 编码成这家供应商的请求体——出境翻译，一次成形。</li>
+    <li><strong>stream 是一台状态机</strong>：<span class="mono">initial</span> 建状态 → <span class="mono">step(State, Event) =&gt; [State, LLMEvent[]]</span> 把方言流式碎片累积、重组成规范事件 → <span class="mono">onHalt</span> 收尾。</li>
+    <li><strong>不对称映射现实</strong>：请求一次性发出（函数够用），响应流式到达、需跨帧累积（如工具调用参数分块到齐），故必须状态机边收边解。</li>
+    <li><span class="mono">Protocol.make</span> 是<strong>恒等函数</strong>，纯类型化接缝——为未来横切关注点（tracing 等）预留统一入口。这张表是读懂第 30~32 课的地图。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Last lesson drew the big picture of the "translation wall": core speaks the canonical language, protocol adapters translate it into each vendor's dialect. This lesson walks up to that wall and looks at <strong>what a single protocol adapter is made of, internally</strong>. The good news: opencode abstracts this with extraordinary cleanliness—<strong>every protocol, whether it translates Anthropic's or Gemini's dialect, fills in the same two-column form</strong>. One column handles <strong>outbound</strong> (how to encode a canonical request into this vendor's body), one handles <strong>inbound</strong> (how to decode this vendor's streaming response back into canonical events). Once you grasp the shape of this form, reading any specific protocol in lessons 30–32 becomes just watching "<strong>the same form, filled in with a different dialect</strong>."</p>
+<p>Why look at the "skeleton" first, then specific protocols? Because <strong>commonality matters more than difference</strong>. Six protocols look wildly varied, but the <strong>problem they solve is isomorphic</strong>: send one unified request out, take a stream of responses back. opencode nails this "isomorphic problem" into one <span class="mono">Protocol</span> interface—<strong>a form every protocol must fill</strong>. Learn the cells of this form, and you have a <strong>cross-reading</strong> framework: for any vendor, you can instantly locate "where its request encoding lives, where its stream decoding lives," instead of drowning in one dialect's details. This lesson gives you the <strong>map</strong> for the next three.</p>
+
+<div class="card analogy">
+  <div class="tag">📋 Analogy</div>
+  Each interpreter in last lesson's relay actually holds an <strong>identical "job description"</strong> (the <span class="mono">Protocol</span> interface). It mandates only two hard duties: <strong>One, "outbound translation"</strong>—take the chief's request, phrased in the mother tongue, and <strong>assemble one complete document the matching contractor can read</strong> (the request body). <strong>Two, "inbound translation"</strong>—and this one's subtle: the contractor's reply doesn't come all at once, it arrives <strong>word by word, in halting fragments</strong>; the interpreter must <strong>listen-and-jot, holding context</strong>, piecing that stream of fragments back into complete mother-tongue sentences (streaming decode). Whatever dialect you handle, <strong>the "shape" of these two duties is identical</strong>—only the specific knack of "how you assemble the document" and "how you piece fragments" differs per dialect. One unified job description, six dialects' different fillings—that's the skeleton of a protocol adapter.
+</div>
+
+<h2>One two-column form: body and stream</h2>
+<p>Open <span class="mono">route/protocol.ts</span> and the <span class="mono">Protocol</span> interface is clean as a table—just two big blocks, <strong>matching exactly "out" and "back"</strong>:</p>
+<pre class="code"><span class="cm">// simplified from route/protocol.ts</span>
+<span class="kw">interface</span> Protocol&lt;Body, Frame, Event, State&gt; {
+  id: ProtocolID
+  body: {                          <span class="cm">// ← request side (out)</span>
+    schema: Codec&lt;Body&gt;            <span class="cm">//   shape of this vendor's body</span>
+    from: (LLMRequest) =&gt; Body     <span class="cm">//   canonical request → this body</span>
+  }
+  stream: {                        <span class="cm">// ← response side (back): a state machine</span>
+    event: Codec&lt;Event, Frame&gt;     <span class="cm">//   one wire frame → one decoded event</span>
+    initial: (LLMRequest) =&gt; State <span class="cm">//   initial parser state</span>
+    step: (State, Event) =&gt; [State, LLMEvent[]]  <span class="cm">// one event → canonical events + new state</span>
+  }
+}</pre>
+<p>The whole interface is two blocks: <span class="mono">body</span> owns the request, <span class="mono">stream</span> owns the response. The split itself is a one-line design philosophy: <strong>all a protocol does is the round trip of "translate canonical request into dialect, translate dialect response back into canonical."</strong> <span class="mono">body.from</span> is the entirety of "outbound translation"—one function, eats an <span class="mono">LLMRequest</span>, emits a body this vendor understands. <span class="mono">stream</span> is "inbound translation," far more involved—a <strong>state machine</strong> (next section). One form, two columns; fill both, and a protocol is born.</p>
+<p>One more detail worth noting: those four type parameters in the header, <span class="mono">&lt;Body, Frame, Event, State&gt;</span>, actually <strong>force each protocol to answer four questions</strong>—what does your <strong>request body</strong> look like (Body)? what's one raw <strong>frame</strong> on the wire (Frame)? what's the structure of one decoded <strong>event</strong> (Event)? what <strong>state</strong> must your parser accumulate (State)? Once a protocol fills these four "unknowns" with concrete types, TypeScript can <strong>infer all the types down the schemas and functions</strong>—the source comment notes you <strong>usually need not write type arguments</strong> when assembling a protocol; the schemas and parser functions are themselves the source of truth. In other words, this form isn't just a "documentary" convention—it's a <strong>typed mold</strong>: fill the four blanks and the compiler guarantees "request body shape," "event decode," and "state flow" all line up end to end.</p>
+<div class="cols">
+  <div class="col"><h4>body · request side (out)</h4><p>A <span class="mono">from(LLMRequest)</span> function, encoding the canonical request into this vendor's body. Simple, formed in one shot.</p></div>
+  <div class="col"><h4>stream · response side (back)</h4><p>A state machine, decoding this vendor's streaming response frame by frame, accumulating, translating back into canonical <span class="mono">LLMEvent</span>.</p></div>
+</div>
+<p>Drawn in three dimensions, this form is the three layers below—outermost is the protocol's identity and two duties, one layer in is which parts each duty is made of. You'll notice <strong>all the complexity is loaded onto the <span class="mono">stream</span> column</strong>: the request side is two light parts, the response side hangs a five-part machine. That visual imbalance, "light on one side, heavy on the other," is itself a reminder: when reading any protocol, <strong>the real work is in <span class="mono">stream</span></strong>.</p>
+<div class="layers">
+  <div class="layer"><div class="l-name">Protocol</div><div class="l-desc">id (protocol identity) + two duties: body / stream</div></div>
+  <div class="layer"><div class="l-name">body (request side)</div><div class="l-desc">schema (body shape) + from (canonical request → this body)</div></div>
+  <div class="layer"><div class="l-name">stream (response side)</div><div class="l-desc">event + initial + step + terminal? + onHalt? (a state machine)</div></div>
+</div>
+
+<h2>Outbound: body.from, a one-function affair</h2>
+<p>Take the light column first. <span class="mono">body.from</span>'s signature is plain to the extreme: <span class="mono">(request: LLMRequest) =&gt; Effect&lt;Body&gt;</span>—feed in a canonical request, get out a body this vendor recognizes. Why can it be this simple? Because the request is <strong>static</strong>: the moment you hit send, what you want to say, which messages you carry, which tool definitions you give, how many tokens you want—<strong>are all already fixed</strong>. No "thinking while talking," no "saying half then amending." So "outbound translation" is a <strong>pure data transformation</strong>: take the fields of the canonical structure, lay them out again under this dialect's field names and nesting.</p>
+<div class="flow">
+  <div class="f-node">LLMRequest<br><small>canonical request</small></div>
+  <div class="f-arrow">body.from →</div>
+  <div class="f-node">rename / rearrange fields<br><small>messages, tools, temperature… per dialect</small></div>
+  <div class="f-arrow">→</div>
+  <div class="f-node">Body<br><small>this vendor's body</small></div>
+</div>
+<p>So what's <span class="mono">schema</span> for? It's the <strong>shape contract</strong> of this vendor's body—a <span class="mono">Codec&lt;Body&gt;</span>. It carries two values: one, it gives <span class="mono">from</span>'s output a <strong>checkable target type</strong> (the encoded body must look like this, errors caught at the type level); two, at actual send time, it encodes the <span class="mono">Body</span> into a JSON string (recall lesson 28's <span class="mono">protocol.body.schema</span> encode). <strong>from handles "is the content right," schema handles "is the shape right"</strong>; together the request side is complete. This column lifts heavy things lightly precisely because it faces a request that has "already settled"—the hard part was never translating a finished draft outward, but piecing a still-flowing utterance back together as you listen.</p>
+
+<h2>Why request is simple, response is a state machine</h2>
+<p>What's most intriguing about this form is its <strong>asymmetry</strong>: the request side is just a function, the response side is a state machine. This asymmetry isn't arbitrary—it <strong>faithfully maps reality</strong>. A request you assemble <strong>all at once</strong> and send whole—so one <span class="mono">from</span> function suffices. But a response the model emits <strong>streaming</strong>: text arrives token by token, one tool call's argument JSON arrives <strong>across several chunks</strong>, usage stats appear only at the end… you can't wait for it all to arrive before processing (that defeats the whole point of "streaming"), you must <strong>decode as you receive</strong>. And "decode as you receive" inherently needs to <strong>remember "where you are so far"</strong>—which is exactly why the state machine exists.</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">initial</span><span class="t-txt">each response start, build an initial parser state State</span></div>
+  <div class="t-row"><span class="t-num">event</span><span class="t-txt">receive a wire frame Frame → decode into one Event</span></div>
+  <div class="t-row"><span class="t-num">step</span><span class="t-txt">step(State, Event) → [new State, emitted LLMEvents]</span></div>
+  <div class="t-row"><span class="t-num">…loop…</span><span class="t-txt">each frame steps once, state advances, events emit</span></div>
+  <div class="t-row"><span class="t-num">onHalt</span><span class="t-txt">stream ends → optionally flush the last batch of LLMEvents</span></div>
+</div>
+<p>The signature <span class="mono">(State, Event) =&gt; [State, LLMEvent[]]</span> is the soul of the whole response side, and a classic shape of <strong>state transition</strong> in functional style: give me "current state" and "one newly-arrived event," I return "next state" and "the canonical events this step should emit." Take a tool call: the first frame <span class="mono">step</span> might only note "start accumulating a tool call named read" (emits nothing); later frames piece the argument JSON into State chunk by chunk (still emit nothing); once the arguments are complete, the final frame emits one whole <span class="mono">toolCall</span> canonical event. <strong>Fragments in, whole out</strong>—powered by State quietly accumulating in the middle. This state machine is the machine that reassembles "the dialect's streaming fragments" into "canonical complete events."</p>
+<p>Lay that tool-call example out frame by frame and the machine's "accumulate" gets concrete—note the first three <span class="mono">step</span>s <strong>emit empty canonical events</strong> while State quietly thickens; only once arguments are complete does it "pop" out one whole event:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">frame1</span><span class="t-txt">"begin tool call read" → State notes {name:read, args:''}, emits []</span></div>
+  <div class="t-row"><span class="t-num">frame2</span><span class="t-txt">arg chunk '{\"path\":' → State.args appended, emits []</span></div>
+  <div class="t-row"><span class="t-num">frame3</span><span class="t-txt">arg chunk '\"a.ts\"}' → State.args appended, JSON now complete</span></div>
+  <div class="t-row"><span class="t-num">frame4</span><span class="t-txt">"tool call done" → emits whole LLMEvent.toolCall{name:read, args:{path:'a.ts'}}</span></div>
+</div>
+<p>That's the entire meaning of State: <strong>it's the "scratch paper" that buffers cross-frame fragments until they're whole</strong>. Without it, receiving the half-JSON "<span class="mono">{\"path\":</span>" leaves you nothing to do—it's neither valid JSON nor any complete meaning. With State, each frame does one small thing (append, note); completeness judgment and event emission wait for the "all assembled" moment. This also explains why <span class="mono">step</span> returns the "new state" alongside: the machine isn't allowed to secretly mutate globals, every step <strong>explicitly hands the scratch paper to the next</strong>, so the whole decode chain becomes a string of pure, predictable transforms. Lay the response side's five parts side by side and each one's job is plain:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">event</div><div class="c-txt">decode one wire frame Frame into one structured Event (Codec)</div></div>
+  <div class="cell"><div class="c-tag">initial</div><div class="c-txt">each response start, build an initial parser State from the request</div></div>
+  <div class="cell"><div class="c-tag">step</div><div class="c-txt">core: eats (State, Event), emits [new State, some LLMEvents]</div></div>
+  <div class="cell"><div class="c-tag">terminal?</div><div class="c-txt">optional: judge whether an event marks "request done" (for transports that don't end naturally)</div></div>
+  <div class="cell"><div class="c-tag">onHalt?</div><div class="c-txt">optional: at stream end, flush the last batch of buffered LLMEvents</div></div>
+</div>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson gives the <strong>skeleton</strong> all protocols share, the map for the next three lessons:</p>
+  <ul>
+    <li><strong>One <span class="mono">Protocol</span> = a two-column form</strong>: <span class="mono">body</span> (request side) + <span class="mono">stream</span> (response side). Every protocol fills this form.</li>
+    <li><strong>body.from</strong>: one function, canonical <span class="mono">LLMRequest</span> → this vendor's body. Outbound translation, formed in one shot.</li>
+    <li><strong>stream is a state machine</strong>: <span class="mono">initial</span> (build state) → <span class="mono">step(State, Event)</span> (fragments in, accumulate, emit canonical events) → <span class="mono">onHalt</span> (wrap up).</li>
+    <li><strong>asymmetry maps reality</strong>: request sent all at once (a function suffices), response arrives streaming (must be a state machine, decode as you receive).</li>
+  </ul>
+  <p>With this form, the next three lessons get clear: each is just <strong>filling the same form in a different dialect</strong>. Lesson 30 watches <strong>Anthropic</strong> fill it (what's special about its tool blocks, cache breakpoints); lesson 31 the <strong>OpenAI</strong> Chat and Responses fillings; lesson 32 <strong>Gemini and Bedrock</strong>. Read them carrying one question: "<strong>how is this vendor's <span class="mono">body.from</span> and <span class="mono">stream.step</span> special, versus the others?</strong>"—you already grasp the skeleton, the rest is all dialect flavor.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>How is a protocol "assembled"? Look at the last lines of <span class="mono">anthropic-messages.ts</span>—it's filling exactly this form:</p>
+  <pre class="code"><span class="cm">// simplified from end of protocols/anthropic-messages.ts</span>
+<span class="kw">export const</span> protocol = Protocol.<span class="fn">make</span>({
+  id: ADAPTER,
+  body: { schema: ..., from: ... },        <span class="cm">// request side</span>
+  stream: { event: ..., initial: ..., step: ... },  <span class="cm">// response side</span>
+})</pre>
+  <p>The intriguing part is <span class="mono">Protocol.make</span> itself—its implementation is <span class="mono">(input) =&gt; input</span>, <strong>an identity function</strong>! It does nothing at runtime, purely a "<strong>typed seam</strong>": the source comment is explicit, "the schemas and parser functions are the source of truth," and <span class="mono">make</span> exists to <strong>reserve a unified entry point</strong> for future cross-cutting concerns (like adding tracing, instrumentation). It's a restrained foresight: nothing extra is needed at assembly today, but leaving a <span class="mono">make</span> shell means when you later want to <strong>add one layer across all protocols</strong>, there's a single place to do it, without touching six protocol definitions. <strong>An identity function that does nothing today is a door left open for tomorrow's "unified retrofit."</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li>Every protocol adapter fills <strong>the same two-column form</strong> (the <span class="mono">Protocol</span> interface, <span class="mono">route/protocol.ts</span>): <span class="mono">body</span> (request side) + <span class="mono">stream</span> (response side).</li>
+    <li><strong>body.from</strong>: one function, encoding the canonical <span class="mono">LLMRequest</span> into this vendor's request body—outbound translation, formed in one shot.</li>
+    <li><strong>stream is a state machine</strong>: <span class="mono">initial</span> builds state → <span class="mono">step(State, Event) =&gt; [State, LLMEvent[]]</span> accumulates and reassembles dialect streaming fragments into canonical events → <span class="mono">onHalt</span> wraps up.</li>
+    <li><strong>asymmetry maps reality</strong>: a request is sent all at once (a function suffices), a response arrives streaming and needs cross-frame accumulation (e.g. tool-call arguments arriving in chunks), so it must be a state machine decoding as it receives.</li>
+    <li><span class="mono">Protocol.make</span> is an <strong>identity function</strong>, a pure typed seam—reserving a unified entry for future cross-cutting concerns (tracing etc.). This form is the map for lessons 30–32.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_30 = wip('Anthropic Messages 协议', 'The Anthropic protocol')
 LESSON_31 = wip('OpenAI Chat/Responses 协议', 'The OpenAI protocols')
 LESSON_32 = wip('Gemini 与 Bedrock 协议', 'Gemini & Bedrock')
