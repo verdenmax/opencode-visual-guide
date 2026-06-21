@@ -328,8 +328,338 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第八部分 · 配置·Agents·Provider</span><span class="lang-en">Part 8 · Config, Agents, Providers</span></div>
     <h1><span class="lang-zh">Provider 插件定义</span><span class="lang-en">Provider plugins</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《Provider 插件定义》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“Provider 插件定义”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Provider plugins" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Provider plugins" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">上一课的 MCP，给 agent 接上了外部的「手」（工具）。这一课讲 <strong>Provider 插件</strong>——给 agent 接上外部的「脑」（模型）。opencode 支持<strong>三十多家</strong>模型供应商：Anthropic、OpenAI、Google、Amazon Bedrock、Groq、xAI、Mistral、Cohere、OpenRouter、Azure、Vertex……你在配置里把 <span class="mono">model</span> 写成哪家的，agent 就用哪家的脑子思考。问题来了：要支持这么多供应商，opencode 是不是写了一个三十多个分支的巨型 <span class="mono">switch</span>？<strong>恰恰相反</strong>。opencode 用的是一套优雅的<strong>插件架构</strong>：每一家供应商，都是一个<strong>独立的、自包含的插件文件</strong>（<span class="mono">core/src/plugin/provider/anthropic.ts</span>、<span class="mono">openai.ts</span>……），它们被收进一个数组 <span class="mono">ProviderPlugins</span>。<strong>新增一家供应商，等于加一个插件文件 + 在数组里加一行——核心代码一行都不用动。</strong></p>
+<p>这一课最值得带走的洞见，是 opencode 解决「一对多」的办法：<strong>不是核心去逐个认领供应商，而是把「谁能处理这个包」广播出去，让插件自己举手认领。</strong>当 agent 要用某个模型时，opencode 不去 <span class="mono">if (provider === "anthropic") ... else if ...</span>，而是<strong>广播一个事件</strong>：「有谁能处理 <span class="mono">@ai-sdk/anthropic</span> 这个包？」三十多个插件都收到这条广播，但只有 Anthropic 插件认出「这是我的包」，于是站出来把 SDK 造好。这种「广播 + 自我认领」的设计，把核心和具体供应商<strong>彻底解耦</strong>了——核心永远不知道、也不必知道总共有哪些供应商，它只管喊一嗓子，剩下的交给插件自己响应。读懂这套机制，你就懂了「一个真正可扩展的系统，是如何做到『加新功能不改老代码』的」。</p>
+
+<div class="card analogy">
+  <div class="tag">🧩 生活类比</div>
+  把 opencode 对接模型供应商，想象成一间<strong>大公司的前台转接电话</strong>。笨办法是前台背一本厚厚的通讯录：「财务找张三、法务找李四……」——每多一个部门，就得改一次通讯录（巨型 switch）。opencode 的办法聪明得多：前台<strong>对着整层楼喊一嗓子</strong>「有个找 <span class="mono">@ai-sdk/anthropic</span> 的电话，谁接？」——三十多个工位都听见了，但只有 Anthropic 那个工位的人<strong>举手「我接！」</strong>。前台根本不需要知道楼里坐了哪些部门、各在哪个工位，<strong>它只管广播，认领交给各部门自己</strong>。来了个新部门？新部门自己搬张桌子坐进来（加个插件文件）、记得「听到喊我就举手」即可——前台的工作流一个字都不用改。而那个永远<strong>坐在最后一个工位的「兜底接线员」</strong>（DynamicProviderPlugin）：凡是没人举手的电话，他统统接下来，临时去把对应的人请来（npm 装包）。
+</div>
+
+<h2>一个 Provider 插件长什么样</h2>
+<p>先看最小的样本——<span class="mono">alibaba.ts</span>，整个文件不到 20 行，却是所有 provider 插件的标准模板：</p>
+<pre class="code"><span class="kw">export const</span> AlibabaPlugin = PluginV2.<span class="fn">define</span>({
+  id: PluginV2.ID.<span class="fn">make</span>(<span class="st">"alibaba"</span>),
+  effect: Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
+    <span class="kw">return</span> {
+      <span class="st">"aisdk.sdk"</span>: Effect.<span class="fn">fn</span>(<span class="kw">function*</span> (evt) {
+        <span class="kw">if</span> (evt.package !== <span class="st">"@ai-sdk/alibaba"</span>) <span class="kw">return</span>   <span class="cm">// ← 不是我的包，闭嘴</span>
+        <span class="kw">const</span> mod = <span class="kw">yield*</span> Effect.<span class="fn">promise</span>(() =&gt; <span class="fn">import</span>(<span class="st">"@ai-sdk/alibaba"</span>))
+        evt.sdk = mod.<span class="fn">createAlibaba</span>(evt.options)         <span class="cm">// ← 是我的包，造 SDK</span>
+      }),
+    }
+  }),
+})</pre>
+<p>一个 provider 插件，就是 <span class="mono">PluginV2.define({ id, effect })</span>：<span class="mono">id</span> 是插件名，<span class="mono">effect</span> 是一段返回<strong>钩子函数表</strong>的 Effect。最核心的钩子叫 <span class="mono">"aisdk.sdk"</span>，它的逻辑朴素到只有两步：<strong>第一步「自我认领」</strong>——<span class="mono">if (evt.package !== "@ai-sdk/alibaba") return</span>，不是我负责的包就直接返回、什么都不做；<strong>第二步「造 SDK」</strong>——确认是自己的包后，<strong>动态 import</strong> 对应的 AI SDK 模块，调它的 <span class="mono">createAlibaba(options)</span> 工厂，把造好的 SDK 塞进 <span class="mono">evt.sdk</span>。</p>
+<p>这里有个容易被忽略却很关键的细节：那句 <span class="mono">import("@ai-sdk/alibaba")</span> 是<strong>动态导入</strong>。意味着只有当你<strong>真的用到</strong>阿里的模型时，阿里的 SDK 包才会被加载进内存——你没用到的三十多家 SDK，一行代码都不会跑、一点内存都不占。三十多个 provider 插件虽然全都「在场待命」，但每个都<strong>极其廉价</strong>（不到 20 行 + 一个延迟加载的 import），真正昂贵的 SDK 加载严格按需发生。<p>这又是那个全书主题——<strong>「便宜地在场，昂贵地按需」</strong>——在 provider 层的又一次回响。那么这三十多家「在场待命」的供应商都有谁？<span class="mono">ProviderPlugins</span> 数组里大致可分几类：</p>
+<table class="t">
+  <tr><th>类别</th><th>代表供应商（插件文件）</th></tr>
+  <tr><td>一线大厂</td><td>Anthropic、OpenAI、Google、xAI、Mistral、Cohere</td></tr>
+  <tr><td>云平台</td><td>Amazon Bedrock、Azure、Google Vertex、Snowflake Cortex、SAP AI Core</td></tr>
+  <tr><td>推理加速 / 聚合</td><td>Groq、Cerebras、DeepInfra、Together、Perplexity、Nvidia</td></tr>
+  <tr><td>网关 / 路由</td><td>OpenRouter、Vercel Gateway、Cloudflare AI Gateway、LLMGateway、opencode</td></tr>
+  <tr><td>OpenAI 兼容 / 兜底</td><td>openai-compatible（通用兼容端点）、<strong>DynamicProviderPlugin</strong>（万能兜底）</td></tr>
+</table>
+<p>这张表本身就说明了插件架构的价值：从一线大厂到小众网关，从需要 AWS 签名的 Bedrock 到只认 OpenAI 协议的兼容端点，<strong>形态如此各异的三十多家，却被同一套 <span class="mono">PluginV2.define</span> 模板收得整整齐齐</strong>。每家的特殊性都被封进自己那个文件，对外却呈现完全一致的形状。换个角度看，这张表也是一份「<strong>能力地图</strong>」：当你纠结「opencode 到底支不支持某家模型」时，答案几乎总是「支持」——要么它已在这三十多个内置插件里有专属一格，要么它能被最后那个万能兜底动态接入。<strong>这种「明确支持的列表很长、列表之外还有兜底」的双保险，正是一个成熟工具对接外部生态时该有的从容。</strong></p>
+
+<h2>广播与自我认领：核心与供应商的解耦</h2>
+<p>这些插件是怎么被「喊」到的？看 <span class="mono">aisdk.ts</span>：当 agent 需要某个模型时，<span class="mono">AISDK.language(model)</span> 会<strong>触发（trigger）一个 <span class="mono">"aisdk.sdk"</span> 事件</strong>，把 <span class="mono">{ model, package, options }</span> 广播给<strong>所有</strong>插件：</p>
+<div class="flow">
+  <div class="f-node">agent 要用某模型<br><small>AISDK.language(model)</small></div>
+  <div class="f-arrow">广播 →</div>
+  <div class="f-node">trigger "aisdk.sdk"<br><small>{ model, package, options }</small></div>
+  <div class="f-arrow">三十多插件都收到 →</div>
+  <div class="f-node">各自判断 evt.package<br><small>只有对的那个举手</small></div>
+  <div class="f-arrow">认领者 →</div>
+  <div class="f-node">createXxx(options)<br><small>evt.sdk = 造好的 SDK</small></div>
+</div>
+<p>关键就在「广播给所有插件、各自判断」这一步：核心的 <span class="mono">aisdk.ts</span> 从头到尾<strong>没有一个 if-else 在区分供应商</strong>，它只是把事件抛出去；是 Anthropic 插件自己用 <span class="mono">if (evt.package !== "@ai-sdk/anthropic") return</span> 认领了自己那一份。如果广播完一圈下来 <span class="mono">evt.sdk</span> 还是空的（没人举手），核心就报一个清楚的错：<span class="mono">No AISDK provider plugin returned an SDK</span>。整个 provider 体系其实围绕<strong>三个钩子</strong>展开：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">aisdk.sdk</div><div class="c-txt">按 package 认领，造出该供应商的 SDK 实例（最核心、人人都有）</div></div>
+  <div class="cell"><div class="c-tag">aisdk.language</div><div class="c-txt">从 SDK 造出具体的语言模型，可定制路由（如 Copilot 选 Responses vs Chat）</div></div>
+  <div class="cell"><div class="c-tag">catalog.transform</div><div class="c-txt">改写模型目录，如 Anthropic 加 beta 请求头、Copilot 隐藏冲突的模型别名</div></div>
+</div>
+<p>把一次完整的「从 model 配置到可用语言模型」的解析走一遍，就是这样一条链：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">agent 需要 model（如 <span class="mono">anthropic/claude-...</span>）→ <span class="mono">AISDK.language(model)</span></span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">查 <span class="mono">sdks</span> 缓存；命中则直接复用，免重复构造</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">未命中 → trigger <span class="mono">"aisdk.sdk"</span> 广播 <span class="mono">{package:"@ai-sdk/anthropic"}</span></span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">Anthropic 插件认领 → <span class="mono">import("@ai-sdk/anthropic")</span> → <span class="mono">createAnthropic(options)</span> → 设 <span class="mono">evt.sdk</span></span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">trigger <span class="mono">"aisdk.language"</span> → 插件定制（或默认 <span class="mono">sdk.languageModel(id)</span>）</span></div>
+  <div class="t-row"><span class="t-num">6</span><span class="t-txt">得到可用的 LanguageModel，缓存并返回 → 交给 M6 协议层去 stream</span></div>
+</div>
+<p>而数组 <span class="mono">ProviderPlugins</span> 的<strong>最后一个</strong>位置，永远留给那个「兜底接线员」<span class="mono">DynamicProviderPlugin</span>。它的 <span class="mono">aisdk.sdk</span> 钩子第一行是 <span class="mono">if (evt.sdk) return</span>——<strong>只要前面任何一个内置插件已经认领了，它就不插手</strong>；只有当三十多个内置插件全都没举手时，它才出场：把那个未知的包<strong>用 npm 临时装下来</strong>，import 进来，找一个 <span class="mono">create</span> 开头的导出当工厂。这一笔极其漂亮——<strong>内置三十多家是「快路径」，而 DynamicProviderPlugin 兜住了「剩下的所有家」</strong>：哪怕某家供应商 opencode 从没听说过，只要它发布了一个符合 AI SDK 约定的 npm 包，就能被这个兜底插件动态接进来。<strong>三十多家明确支持 + 一个万能兜底 = 理论上支持任意供应商。</strong></p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">内置插件（快路径）</div><div class="c-txt">认死一个包名 <span class="mono">if (evt.package !== "@ai-sdk/xxx") return</span>；命中即 createXxx，无需联网装包</div></div>
+  <div class="cell"><div class="c-tag">DynamicProviderPlugin（兜底）</div><div class="c-txt">数组末位，<span class="mono">if (evt.sdk) return</span> 仅在无人认领时出场：<span class="mono">npm.add(package)</span> → import → 找 <span class="mono">create*</span> 导出</div></div>
+</div>
+
+<h2>不止造 SDK：插件还能微调行为</h2>
+<p>最小的插件只实现 <span class="mono">aisdk.sdk</span>，但「重」一点的供应商会用上另两个钩子，做精细的定制。两个真实例子最能说明问题：</p>
+<div class="cols">
+  <div class="col"><h4>Anthropic · 加 beta 头</h4><p>它额外实现 <span class="mono">catalog.transform</span>，给所有 Anthropic 模型的请求头塞进 <span class="mono">anthropic-beta: interleaved-thinking…,fine-grained-tool-streaming…</span>——开启交错思考、细粒度工具流式等 beta 能力。这正是第 30 课 Anthropic 协议特性在 provider 层的「开关」。</p></div>
+  <div class="col"><h4>Copilot · 选路由</h4><p>它实现 <span class="mono">aisdk.language</span>，对 GPT-5 类模型走 Responses API、对 mini 变体仍走 Chat Completions——一个 <span class="mono">shouldUseResponses(modelID)</span> 当场裁决。这正是第 31、35 课「Responses vs Chat 双端点」在 provider 层的落地。</p></div>
+</div>
+<p>这两个例子揭示了 provider 插件真正的威力：它不只是「把 SDK 造出来」的工厂，更是每家供应商<strong>容纳自己怪癖的容器</strong>。Anthropic 要 beta 头、Copilot 要分模型选端点、Azure 要换鉴权、Bedrock 要 AWS 签名……这些<strong>千奇百怪的特殊处理，全都被关进各自的插件文件里，绝不外溢到核心</strong>。核心的 <span class="mono">aisdk.ts</span> 始终干干净净，只管「广播事件、收集结果、缓存 SDK」这套通用流程。最后值得一提的是：provider 插件并非孤例，它只是 opencode <strong>整套插件系统</strong>的一类成员——看 <span class="mono">boot.ts</span> 的启动序列，agent（L45）、command、skill（L43）、config（L44）<strong>全都是以插件形式注册的</strong>。<strong>「插件」是贯穿 opencode 的统一扩展范式</strong>：无论你想加一家模型供应商、一个 agent、一个命令还是一项技能，套路都一样——写一个自包含的插件，挂上钩子，注册进去。读懂了 provider 插件，你就读懂了 opencode 整个可扩展架构的骨架。换句话说，这一课表面在讲「怎么对接三十多家模型」，骨子里讲的是 opencode <strong>面对一切「一对多」扩展时的统一答卷</strong>——把变化点（每家供应商、每个 agent、每条命令）做成可插拔的插件，让恒定的核心只负责「广播事件、收集结果」这套通用编排。变与不变就此清爽地分了家。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观视角</div>
+  <p>这一课讲清了 opencode 如何用插件架构支持三十多家模型供应商：</p>
+  <ul>
+    <li><strong>每家供应商 = 一个自包含插件</strong>（<span class="mono">core/src/plugin/provider/*.ts</span>），<span class="mono">PluginV2.define({ id, effect→钩子表 })</span>。最小的 <span class="mono">alibaba.ts</span> 不到 20 行。三十多个插件收进 <span class="mono">ProviderPlugins</span> 数组。<strong>新增供应商 = 加文件 + 加一行，不动核心。</strong></li>
+    <li><strong>广播 + 自我认领</strong>：<span class="mono">aisdk.ts</span> 的 <span class="mono">AISDK.language</span> 触发 <span class="mono">"aisdk.sdk"</span> 事件广播给所有插件；每个插件用 <span class="mono">if (evt.package !== "@ai-sdk/xxx") return</span> 自我认领，只有匹配的那个 <span class="mono">createXxx(options)</span> 设 <span class="mono">evt.sdk</span>。核心零 if-else 区分供应商。</li>
+    <li><strong>三个钩子</strong>：<span class="mono">aisdk.sdk</span>（造 SDK，人人都有）、<span class="mono">aisdk.language</span>（造语言模型、可定制路由，如 Copilot Responses/Chat）、<span class="mono">catalog.transform</span>（改目录，如 Anthropic beta 头）。<span class="mono">import("@ai-sdk/xxx")</span> 动态导入=按需加载。</li>
+    <li><strong>DynamicProviderPlugin 兜底</strong>：数组最后一位，<span class="mono">if (evt.sdk) return</span> 只在没人认领时出场，npm 临时装包、找 <span class="mono">create*</span> 导出。三十多家快路径 + 一个万能兜底 = 支持任意供应商。</li>
+  </ul>
+  <p>至此 M8（配置/Agents/Provider）讲完：L44 配置定义意图、L45 agent 凝成角色、L46 MCP 接上外部的手、L47 Provider 接上外部的脑。一个可配置、可定制、可无限扩展的 agent 全貌成形。而 provider 插件揭示的「插件是贯穿全系统的统一扩展范式」（<span class="mono">boot.ts</span> 里 agent/command/skill/config 皆插件），也为后续埋下伏笔。下一部分 M9 转向<strong>持久化与存储</strong>：agent 跑出来的会话、消息、上下文，如何用 Drizzle + SQLite 落到磁盘、又如何在版本间迁移。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">aisdk.ts</span> 里「广播事件、收集 SDK」的核心流程（简化自源码）：</p>
+  <pre class="code"><span class="cm">// 没有任何 if (provider==="anthropic") 之类的分支！</span>
+<span class="kw">const</span> sdk = sdks.<span class="fn">get</span>(sdkKey) ??
+  (<span class="kw">yield*</span> plugin
+    .<span class="fn">trigger</span>(<span class="st">"aisdk.sdk"</span>, { model, package: model.api.package, options }, {})
+  ).sdk
+<span class="kw">if</span> (!sdk)                                  <span class="cm">// 广播一圈没人认领</span>
+  <span class="kw">return yield*</span> <span class="kw">new</span> <span class="fn">InitError</span>({
+    providerID: model.providerID,
+    cause: <span class="kw">new</span> <span class="fn">Error</span>(<span class="st">"No AISDK provider plugin returned an SDK"</span>),
+  })
+sdks.<span class="fn">set</span>(sdkKey, sdk)               <span class="cm">// 缓存：同样的包+选项不重复造</span>
+<span class="cm">// 再触发 aisdk.language，让插件定制语言模型（如 Copilot 选端点）</span>
+<span class="kw">const</span> result = <span class="kw">yield*</span> plugin.<span class="fn">trigger</span>(<span class="st">"aisdk.language"</span>, { model, sdk, options }, {})
+<span class="kw">const</span> language = result.language ?? sdk.<span class="fn">languageModel</span>(model.api.id)</pre>
+  <p>这段代码最值得品的，是它的「<strong>空</strong>」——通篇<strong>没有一个供应商的名字</strong>。核心只做三件通用的事：广播 <span class="mono">aisdk.sdk</span> 收 SDK、广播 <span class="mono">aisdk.language</span> 收语言模型、用 <span class="mono">sdkKey</span> 缓存避免重复构造。具体「Anthropic 怎么造、Copilot 怎么路由」的知识，<strong>全都不在这里</strong>，而在各自的插件里。这就是<strong>控制反转（IoC）</strong>的精髓：传统写法是核心主动调用每个供应商（核心依赖供应商），而这里是<strong>核心定义「广播-认领」的协议、供应商反过来挂进核心</strong>（供应商依赖核心）。依赖方向一反，「加供应商」就从「改核心的 switch」变成了「写个新插件挂上去」——<strong>核心对扩展开放、对修改封闭</strong>，这正是开闭原则活生生的样子。还有那行 <span class="mono">result.language ?? sdk.languageModel(...)</span>：插件没定制就走 SDK 默认，定制了就用插件的——<strong>用「可选覆盖」给每个钩子都留了「不管就走合理默认」的温柔出口。</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>三十多家供应商 = 三十多个自包含插件</strong>（<span class="mono">plugin/provider/*.ts</span>），<span class="mono">PluginV2.define({ id, effect→钩子表 })</span>，收进 <span class="mono">ProviderPlugins</span> 数组。<strong>新增供应商 = 加文件 + 加一行，核心零改动</strong>（开闭原则）。</li>
+    <li><strong>广播 + 自我认领</strong>：<span class="mono">aisdk.ts</span> 触发 <span class="mono">"aisdk.sdk"</span> 广播给所有插件，每个用 <span class="mono">if (evt.package !== "@ai-sdk/xxx") return</span> 认领，只匹配者 <span class="mono">createXxx</span> 设 <span class="mono">evt.sdk</span>。核心零 if-else 区分供应商=控制反转。</li>
+    <li><strong>三个钩子</strong>：<span class="mono">aisdk.sdk</span>（造 SDK）、<span class="mono">aisdk.language</span>（造语言模型、定制路由，如 Copilot Responses/Chat，呼应 L31/35）、<span class="mono">catalog.transform</span>（改目录，如 Anthropic beta 头，呼应 L30）。各家怪癖关进各自插件，核心始终干净。</li>
+    <li><strong>动态导入按需加载</strong>：<span class="mono">import("@ai-sdk/xxx")</span> 让没用到的 SDK 一行不跑、一字节不占——「便宜地在场，昂贵地按需」在 provider 层的回响。</li>
+    <li><strong>DynamicProviderPlugin 兜底</strong>：数组最后一位，<span class="mono">if (evt.sdk) return</span>，只在内置全没认领时 npm 装包、找 <span class="mono">create*</span> 工厂。三十多快路径 + 一个万能兜底 = 任意供应商。provider 只是 opencode <strong>统一插件范式</strong>的一类（boot.ts 里 agent/command/skill/config 皆插件）。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. opencode 要支持三十多家模型供应商（Anthropic/OpenAI/Groq/Bedrock…），它用的是什么架构？</div>
+  <ol class="opts">
+    <li>每家供应商一个独立的微服务</li>
+    <li>一个三十多分支的巨型 switch 语句</li>
+    <li>把所有供应商硬编码进 aisdk.ts</li>
+    <li>插件架构——每家供应商是一个自包含插件文件（PluginV2.define），收进 ProviderPlugins 数组；新增供应商=加文件+加一行，核心零改动</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。opencode 用插件架构：每家供应商是一个独立、自包含的插件文件（core/src/plugin/provider/anthropic.ts、openai.ts…），都是 PluginV2.define({ id, effect→钩子表 })。最小的 alibaba.ts 不到 20 行。三十多个插件收进 ProviderPlugins 数组。新增一家供应商=加一个插件文件 + 在数组里加一行，核心代码一行都不用动——这正是开闭原则（对扩展开放、对修改封闭）的活样子。对比「巨型 switch」：那种写法每加一家就要改核心，而插件架构把变化点（每家供应商）隔离进各自的文件，恒定的核心永不被触碰。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. 当 agent 需要某个模型时，核心 aisdk.ts 如何找到负责该供应商的插件？</div>
+  <ol class="opts">
+    <li>按字母顺序试，直到有一个不报错</li>
+    <li>核心维护一张供应商→插件的查找表，直接索引</li>
+    <li>遍历所有插件，调用每一个的 createXxx</li>
+    <li>广播 + 自我认领——trigger "aisdk.sdk" 事件给所有插件，每个用 if (evt.package !== "@ai-sdk/xxx") return 自我判断，只有匹配的那个 createXxx 设 evt.sdk；核心零 if-else 区分供应商</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。aisdk.ts 的 AISDK.language(model) 触发（trigger）一个 "aisdk.sdk" 事件，把 { model, package, options } 广播给所有插件。核心从头到尾没有一个 if-else 在区分供应商，它只是把事件抛出去；是各插件自己用 if (evt.package !== "@ai-sdk/anthropic") return 认领自己那一份，只有匹配的那个 import 对应包、调 createXxx(options)、设 evt.sdk。若广播一圈 evt.sdk 仍空就报 No AISDK provider plugin returned an SDK。这是控制反转（IoC）：传统是核心主动调每个供应商（核心依赖供应商），这里是核心定义「广播-认领」协议、供应商反过来挂进核心（供应商依赖核心）。依赖方向一反，加供应商从「改核心 switch」变成「写新插件挂上去」。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. ProviderPlugins 数组最后一位的 DynamicProviderPlugin 起什么作用？</div>
+  <ol class="opts">
+    <li>兜底——它的钩子第一行 if (evt.sdk) return，只在三十多个内置插件都没认领时出场：npm 临时装下未知包、import、找 create* 导出当工厂。三十多家快路径 + 一个万能兜底 = 支持任意供应商</li>
+    <li>它缓存其他插件造好的 SDK</li>
+    <li>它是默认供应商，没配置时用它</li>
+    <li>它负责管理所有内置供应商的生命周期</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。DynamicProviderPlugin 永远排在 ProviderPlugins 数组最后一位，是「兜底接线员」。它的 aisdk.sdk 钩子第一行 if (evt.sdk) return——只要前面任何内置插件已认领（已设 evt.sdk），它就不插手；只有三十多个内置全没举手时才出场：把未知包用 npm 临时装下来（npm.add）、import 进来、找一个 create 开头的导出当工厂。这样内置三十多家是「快路径」（认死包名、无需联网），而 DynamicProviderPlugin 兜住「剩下所有家」——哪怕 opencode 从没听说过某供应商，只要它发布了符合 AI SDK 约定的 npm 包就能被动态接入。三十多明确支持 + 一个万能兜底 = 理论上支持任意供应商。这种「长列表 + 列表外兜底」的双保险，是成熟工具对接外部生态的从容。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里说核心 aisdk.ts 的解析代码最值得品的是它的「空」——通篇没有一个供应商的名字，只做「广播 aisdk.sdk 收 SDK、广播 aisdk.language 收语言模型、用 sdkKey 缓存」三件通用事，而「Anthropic 怎么造、Copilot 怎么路由」全在各自插件里。请你用「控制反转 / 依赖倒置 / 开闭原则」解释这种设计为什么能做到「加供应商不改核心」，并结合你写过的代码，谈谈一个「巨型 switch / if-else 链」在什么信号出现时，就该被重构成这种「广播 + 自我认领」的插件架构？这种重构的代价和风险又是什么？</li>
+    <li>课里揭示「插件是贯穿 opencode 的统一扩展范式」——boot.ts 里 agent（L45）、command、skill（L43）、config（L44）全是以插件形式注册的，provider 只是其中一类。同时课里给了 Anthropic（catalog.transform 加 beta 头）和 Copilot（aisdk.language 选 Responses/Chat 端点）两个「重」插件例子，说明插件不只是造 SDK 的工厂，更是「容纳每家供应商怪癖的容器」。请你谈谈：把每家的特殊处理（AWS 签名、beta 头、端点路由…）封进各自插件、绝不外溢到核心，对一个长期演进的项目意味着什么？当某个「怪癖」开始被多家供应商共享时，你会如何在「保持插件自包含」和「避免重复」之间权衡？</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">Last lesson's MCP connected external "hands" (tools) to the agent. This lesson covers <strong>Provider plugins</strong>—connecting external "brains" (models) to the agent. opencode supports <strong>thirty-some</strong> model providers: Anthropic, OpenAI, Google, Amazon Bedrock, Groq, xAI, Mistral, Cohere, OpenRouter, Azure, Vertex… whichever one you write into the config's <span class="mono">model</span>, that's the brain the agent thinks with. The question: to support so many providers, did opencode write one giant <span class="mono">switch</span> with thirty-some branches? <strong>Quite the opposite.</strong> opencode uses an elegant <strong>plugin architecture</strong>: each provider is an <strong>independent, self-contained plugin file</strong> (<span class="mono">core/src/plugin/provider/anthropic.ts</span>, <span class="mono">openai.ts</span>…), gathered into one array <span class="mono">ProviderPlugins</span>. <strong>Adding a provider equals adding a plugin file + one line in the array—not a single line of core code changes.</strong></p>
+<p>The insight to take from this lesson is opencode's way of solving "one-to-many": <strong>instead of the core claiming providers one by one, it broadcasts "who can handle this package" and lets plugins raise their own hand.</strong> When the agent needs a model, opencode doesn't <span class="mono">if (provider === "anthropic") ... else if ...</span>; it <strong>broadcasts an event</strong>: "who can handle the <span class="mono">@ai-sdk/anthropic</span> package?" All thirty-some plugins receive this broadcast, but only the Anthropic plugin recognizes "this is mine" and steps up to build the SDK. This "broadcast + self-claim" design <strong>fully decouples</strong> the core from concrete providers—the core never knows, never needs to know, how many providers exist in total; it just shouts, and the rest is left to plugins to respond. Grasp this and you'll understand "how a truly extensible system achieves 'add new features without touching old code.'"</p>
+
+<div class="card analogy">
+  <div class="tag">🧩 Analogy</div>
+  Picture opencode connecting to model providers as a <strong>big company's front desk routing calls</strong>. The dumb way: the receptionist memorizes a thick directory—"finance is Zhang, legal is Li…"—and every new department means editing the directory (a giant switch). opencode's way is far smarter: the receptionist <strong>shouts across the whole floor</strong> "there's a call for <span class="mono">@ai-sdk/anthropic</span>, who takes it?"—all thirty-some desks hear it, but only the person at the Anthropic desk <strong>raises a hand: "I've got it!"</strong> The receptionist needn't know which departments sit on the floor or at which desks; <strong>it just broadcasts, claiming is left to each department</strong>. A new department arrives? It moves in its own desk (adds a plugin file), remembers to "raise a hand when called"—the receptionist's workflow doesn't change one word. And that <strong>"catch-all operator" forever at the last desk</strong> (DynamicProviderPlugin): every call no one claims, it takes them all, temporarily fetching the right person (npm-installs the package).
+</div>
+
+<h2>What a Provider plugin looks like</h2>
+<p>First the smallest sample—<span class="mono">alibaba.ts</span>, the whole file under 20 lines, yet the standard template for all provider plugins:</p>
+<pre class="code"><span class="kw">export const</span> AlibabaPlugin = PluginV2.<span class="fn">define</span>({
+  id: PluginV2.ID.<span class="fn">make</span>(<span class="st">"alibaba"</span>),
+  effect: Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
+    <span class="kw">return</span> {
+      <span class="st">"aisdk.sdk"</span>: Effect.<span class="fn">fn</span>(<span class="kw">function*</span> (evt) {
+        <span class="kw">if</span> (evt.package !== <span class="st">"@ai-sdk/alibaba"</span>) <span class="kw">return</span>   <span class="cm">// ← not my package, stay quiet</span>
+        <span class="kw">const</span> mod = <span class="kw">yield*</span> Effect.<span class="fn">promise</span>(() =&gt; <span class="fn">import</span>(<span class="st">"@ai-sdk/alibaba"</span>))
+        evt.sdk = mod.<span class="fn">createAlibaba</span>(evt.options)         <span class="cm">// ← my package, build the SDK</span>
+      }),
+    }
+  }),
+})</pre>
+<p>A provider plugin is just <span class="mono">PluginV2.define({ id, effect })</span>: <span class="mono">id</span> is the plugin name, <span class="mono">effect</span> is an Effect returning a <strong>table of hook functions</strong>. The core hook is <span class="mono">"aisdk.sdk"</span>, whose logic is plain as two steps: <strong>step one "self-claim"</strong>—<span class="mono">if (evt.package !== "@ai-sdk/alibaba") return</span>, not my package so return immediately, do nothing; <strong>step two "build the SDK"</strong>—once confirmed it's my package, <strong>dynamically import</strong> the corresponding AI SDK module, call its <span class="mono">createAlibaba(options)</span> factory, stuff the built SDK into <span class="mono">evt.sdk</span>.</p>
+<p>There's an easily-overlooked yet crucial detail: that <span class="mono">import("@ai-sdk/alibaba")</span> is a <strong>dynamic import</strong>. It means only when you <strong>actually use</strong> Alibaba's model does Alibaba's SDK package get loaded into memory—the thirty-some SDKs you don't use won't run a line of code or occupy a byte of memory. Though all thirty-some provider plugins are "present on standby," each is <strong>extremely cheap</strong> (under 20 lines + a lazy-loaded import), and the truly expensive SDK loading happens strictly on demand. This is another echo of the book-wide theme—<strong>"present cheaply, fulfilled expensively on demand"</strong>—at the provider layer. So who are these thirty-some "on standby" providers? The <span class="mono">ProviderPlugins</span> array roughly splits into a few categories:</p>
+<table class="t">
+  <tr><th>Category</th><th>Representative providers (plugin files)</th></tr>
+  <tr><td>First-tier majors</td><td>Anthropic, OpenAI, Google, xAI, Mistral, Cohere</td></tr>
+  <tr><td>Cloud platforms</td><td>Amazon Bedrock, Azure, Google Vertex, Snowflake Cortex, SAP AI Core</td></tr>
+  <tr><td>Inference accel / aggregators</td><td>Groq, Cerebras, DeepInfra, Together, Perplexity, Nvidia</td></tr>
+  <tr><td>Gateways / routers</td><td>OpenRouter, Vercel Gateway, Cloudflare AI Gateway, LLMGateway, opencode</td></tr>
+  <tr><td>OpenAI-compatible / catch-all</td><td>openai-compatible (generic compatible endpoint), <strong>DynamicProviderPlugin</strong> (universal catch-all)</td></tr>
+</table>
+<p>This table itself shows the plugin architecture's value: from first-tier majors to niche gateways, from Bedrock needing AWS signing to compatible endpoints speaking only the OpenAI protocol, <strong>thirty-some so wildly varied providers are gathered neatly by the same <span class="mono">PluginV2.define</span> template</strong>. Each one's peculiarity is sealed into its own file, yet presents an entirely uniform shape outward. From another angle, this table is also a "<strong>capability map</strong>": when you wonder "does opencode support some model," the answer is almost always "yes"—either it already has a dedicated cell among these thirty-some built-in plugins, or it can be dynamically connected by that last universal catch-all. <strong>This "long explicit-support list, with a catch-all beyond the list" double insurance is exactly the composure a mature tool should have when connecting to an external ecosystem.</strong></p>
+
+<h2>Broadcast and self-claim: decoupling core from providers</h2>
+<p>How do these plugins get "called"? See <span class="mono">aisdk.ts</span>: when the agent needs a model, <span class="mono">AISDK.language(model)</span> <strong>triggers an <span class="mono">"aisdk.sdk"</span> event</strong>, broadcasting <span class="mono">{ model, package, options }</span> to <strong>all</strong> plugins:</p>
+<div class="flow">
+  <div class="f-node">agent needs a model<br><small>AISDK.language(model)</small></div>
+  <div class="f-arrow">broadcast →</div>
+  <div class="f-node">trigger "aisdk.sdk"<br><small>{ model, package, options }</small></div>
+  <div class="f-arrow">all 30+ plugins receive →</div>
+  <div class="f-node">each checks evt.package<br><small>only the right one raises a hand</small></div>
+  <div class="f-arrow">claimer →</div>
+  <div class="f-node">createXxx(options)<br><small>evt.sdk = built SDK</small></div>
+</div>
+<p>The key is that "broadcast to all plugins, each judges for itself" step: the core <span class="mono">aisdk.ts</span> has <strong>not one if-else distinguishing providers</strong> from start to finish, it merely throws the event out; it's the Anthropic plugin that claims its share with <span class="mono">if (evt.package !== "@ai-sdk/anthropic") return</span>. If after a full broadcast round <span class="mono">evt.sdk</span> is still empty (no one raised a hand), the core reports a clear error: <span class="mono">No AISDK provider plugin returned an SDK</span>. The whole provider system actually revolves around <strong>three hooks</strong>:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">aisdk.sdk</div><div class="c-txt">claim by package, build that provider's SDK instance (most core, everyone has it)</div></div>
+  <div class="cell"><div class="c-tag">aisdk.language</div><div class="c-txt">build the concrete language model from the SDK, customizable routing (e.g. Copilot picks Responses vs Chat)</div></div>
+  <div class="cell"><div class="c-tag">catalog.transform</div><div class="c-txt">rewrite the model catalog, e.g. Anthropic adds beta headers, Copilot hides a conflicting model alias</div></div>
+</div>
+<p>Walking through one complete "from model config to usable language model" resolution gives this chain:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">agent needs a model (e.g. <span class="mono">anthropic/claude-...</span>) → <span class="mono">AISDK.language(model)</span></span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">check the <span class="mono">sdks</span> cache; hit → reuse directly, no rebuild</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">miss → trigger <span class="mono">"aisdk.sdk"</span> broadcasting <span class="mono">{package:"@ai-sdk/anthropic"}</span></span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">Anthropic plugin claims → <span class="mono">import("@ai-sdk/anthropic")</span> → <span class="mono">createAnthropic(options)</span> → set <span class="mono">evt.sdk</span></span></div>
+  <div class="t-row"><span class="t-num">5</span><span class="t-txt">trigger <span class="mono">"aisdk.language"</span> → plugin customizes (or default <span class="mono">sdk.languageModel(id)</span>)</span></div>
+  <div class="t-row"><span class="t-num">6</span><span class="t-txt">get a usable LanguageModel, cache and return → hand to M6's protocol layer to stream</span></div>
+</div>
+<p>And the <strong>last</strong> position in the <span class="mono">ProviderPlugins</span> array is forever reserved for that "catch-all operator" <span class="mono">DynamicProviderPlugin</span>. Its <span class="mono">aisdk.sdk</span> hook's first line is <span class="mono">if (evt.sdk) return</span>—<strong>so long as any built-in plugin before it already claimed, it stays out</strong>; only when all thirty-some built-in plugins failed to raise a hand does it step up: <strong>temporarily npm-installs</strong> that unknown package, imports it, finds an export starting with <span class="mono">create</span> as the factory. This stroke is exquisite—<strong>the thirty-some built-ins are the "fast path," while DynamicProviderPlugin catches "all the rest"</strong>: even if opencode has never heard of some provider, as long as it published an npm package conforming to AI SDK conventions, this catch-all plugin can dynamically connect it. <strong>Thirty-some explicitly supported + one universal catch-all = supporting any provider in theory.</strong></p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">Built-in plugin (fast path)</div><div class="c-txt">claims one fixed package name <span class="mono">if (evt.package !== "@ai-sdk/xxx") return</span>; on match createXxx, no network install</div></div>
+  <div class="cell"><div class="c-tag">DynamicProviderPlugin (catch-all)</div><div class="c-txt">last in the array, <span class="mono">if (evt.sdk) return</span>, steps up only when unclaimed: <span class="mono">npm.add(package)</span> → import → find <span class="mono">create*</span> export</div></div>
+</div>
+
+<h2>More than building SDKs: plugins can fine-tune behavior</h2>
+<p>The smallest plugins implement only <span class="mono">aisdk.sdk</span>, but "heavier" providers use the other two hooks for fine customization. Two real examples illustrate it best:</p>
+<div class="cols">
+  <div class="col"><h4>Anthropic · adds beta headers</h4><p>It additionally implements <span class="mono">catalog.transform</span>, stuffing <span class="mono">anthropic-beta: interleaved-thinking…,fine-grained-tool-streaming…</span> into all Anthropic models' request headers—enabling interleaved thinking, fine-grained tool streaming, and other beta capabilities. This is exactly lesson 30's Anthropic protocol features as a "switch" at the provider layer.</p></div>
+  <div class="col"><h4>Copilot · picks routing</h4><p>It implements <span class="mono">aisdk.language</span>, routing GPT-5-class models to the Responses API, mini variants still to Chat Completions—a <span class="mono">shouldUseResponses(modelID)</span> adjudicates on the spot. This is exactly lessons 31 and 35's "Responses vs Chat dual-endpoint" landing at the provider layer.</p></div>
+</div>
+<p>These two examples reveal the provider plugin's real power: it's not just a factory that "builds the SDK," but a <strong>container holding each provider's quirks</strong>. Anthropic wants beta headers, Copilot wants per-model endpoint selection, Azure wants different auth, Bedrock wants AWS signing… these <strong>wildly varied special handlings are all locked into their own plugin files, never spilling into the core</strong>. The core <span class="mono">aisdk.ts</span> stays spotless, handling only the generic flow of "broadcast event, collect result, cache SDK." Finally worth mentioning: provider plugins aren't a lone case but just one member of opencode's <strong>whole plugin system</strong>—look at <span class="mono">boot.ts</span>'s startup sequence: agent (L45), command, skill (L43), config (L44) are <strong>all registered as plugins</strong>. <strong>"Plugin" is the unified extension paradigm running through opencode</strong>: whether you want to add a model provider, an agent, a command, or a skill, the routine is the same—write a self-contained plugin, hook it in, register it. Grasp the provider plugin and you grasp the skeleton of opencode's entire extensible architecture. Put differently, this lesson on the surface is about "how to connect thirty-some models," but at heart it's opencode's <strong>unified answer to all "one-to-many" extension</strong>—make the variable points (each provider, each agent, each command) pluggable plugins, leaving the constant core responsible only for the generic orchestration of "broadcast events, collect results." Variable and invariant thus part cleanly.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson clarifies how opencode uses a plugin architecture to support thirty-some model providers:</p>
+  <ul>
+    <li><strong>Each provider = one self-contained plugin</strong> (<span class="mono">core/src/plugin/provider/*.ts</span>), <span class="mono">PluginV2.define({ id, effect→hook table })</span>. The smallest <span class="mono">alibaba.ts</span> is under 20 lines. Thirty-some plugins gathered into the <span class="mono">ProviderPlugins</span> array. <strong>Adding a provider = add a file + add a line, no core change.</strong></li>
+    <li><strong>Broadcast + self-claim</strong>: <span class="mono">aisdk.ts</span>'s <span class="mono">AISDK.language</span> triggers the <span class="mono">"aisdk.sdk"</span> event broadcasting to all plugins; each self-claims with <span class="mono">if (evt.package !== "@ai-sdk/xxx") return</span>, only the matching one's <span class="mono">createXxx(options)</span> sets <span class="mono">evt.sdk</span>. Core has zero if-else distinguishing providers.</li>
+    <li><strong>Three hooks</strong>: <span class="mono">aisdk.sdk</span> (build SDK, everyone has it), <span class="mono">aisdk.language</span> (build language model, customizable routing, e.g. Copilot Responses/Chat), <span class="mono">catalog.transform</span> (rewrite catalog, e.g. Anthropic beta headers). <span class="mono">import("@ai-sdk/xxx")</span> dynamic import = lazy loading.</li>
+    <li><strong>DynamicProviderPlugin catch-all</strong>: last in the array, <span class="mono">if (evt.sdk) return</span> steps up only when unclaimed, npm-installs the package, finds a <span class="mono">create*</span> export. Thirty-some fast path + one universal catch-all = supporting any provider.</li>
+  </ul>
+  <p>This completes M8 (config/Agents/Provider): L44 config defines intent, L45 the agent crystallizes a role, L46 MCP connects external hands, L47 Provider connects external brains. The full picture of a configurable, customizable, infinitely-extensible agent takes shape. And the "plugin is the unified extension paradigm running through the system" that provider plugins reveal (in <span class="mono">boot.ts</span>, agent/command/skill/config are all plugins) lays groundwork for what follows. The next part M9 turns to <strong>persistence and storage</strong>: how the sessions, messages, contexts the agent produces land on disk with Drizzle + SQLite, and how they migrate across versions.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>The core "broadcast event, collect SDK" flow in <span class="mono">aisdk.ts</span> (simplified from source):</p>
+  <pre class="code"><span class="cm">// not a single if (provider==="anthropic")-type branch!</span>
+<span class="kw">const</span> sdk = sdks.<span class="fn">get</span>(sdkKey) ??
+  (<span class="kw">yield*</span> plugin
+    .<span class="fn">trigger</span>(<span class="st">"aisdk.sdk"</span>, { model, package: model.api.package, options }, {})
+  ).sdk
+<span class="kw">if</span> (!sdk)                                  <span class="cm">// a full broadcast, no one claimed</span>
+  <span class="kw">return yield*</span> <span class="kw">new</span> <span class="fn">InitError</span>({
+    providerID: model.providerID,
+    cause: <span class="kw">new</span> <span class="fn">Error</span>(<span class="st">"No AISDK provider plugin returned an SDK"</span>),
+  })
+sdks.<span class="fn">set</span>(sdkKey, sdk)               <span class="cm">// cache: same package+options not rebuilt</span>
+<span class="cm">// then trigger aisdk.language, letting plugins customize the model (e.g. Copilot picks endpoint)</span>
+<span class="kw">const</span> result = <span class="kw">yield*</span> plugin.<span class="fn">trigger</span>(<span class="st">"aisdk.language"</span>, { model, sdk, options }, {})
+<span class="kw">const</span> language = result.language ?? sdk.<span class="fn">languageModel</span>(model.api.id)</pre>
+  <p>What's most worth savoring in this code is its "<strong>emptiness</strong>"—<strong>not one provider's name</strong> appears throughout. The core does only three generic things: broadcast <span class="mono">aisdk.sdk</span> to collect the SDK, broadcast <span class="mono">aisdk.language</span> to collect the language model, cache with <span class="mono">sdkKey</span> to avoid rebuilding. The concrete knowledge of "how Anthropic builds, how Copilot routes" is <strong>nowhere here</strong> but in each plugin. This is the essence of <strong>inversion of control (IoC)</strong>: the traditional way has the core actively call each provider (core depends on providers), while here <strong>the core defines the "broadcast-claim" protocol and providers hook into the core in reverse</strong> (providers depend on core). Flip the dependency direction and "adding a provider" turns from "editing the core's switch" into "writing a new plugin and hooking it in"—<strong>the core is open to extension, closed to modification</strong>, exactly what the open-closed principle looks like alive. And that <span class="mono">result.language ?? sdk.languageModel(...)</span> line: plugin didn't customize → take the SDK default, did → use the plugin's—<strong>using "optional override" to give every hook a gentle exit of "do nothing and get a sensible default."</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>Thirty-some providers = thirty-some self-contained plugins</strong> (<span class="mono">plugin/provider/*.ts</span>), <span class="mono">PluginV2.define({ id, effect→hook table })</span>, gathered into the <span class="mono">ProviderPlugins</span> array. <strong>Adding a provider = add a file + add a line, zero core change</strong> (open-closed principle).</li>
+    <li><strong>Broadcast + self-claim</strong>: <span class="mono">aisdk.ts</span> triggers <span class="mono">"aisdk.sdk"</span> broadcasting to all plugins, each claims with <span class="mono">if (evt.package !== "@ai-sdk/xxx") return</span>, only the matching one <span class="mono">createXxx</span> sets <span class="mono">evt.sdk</span>. Core has zero if-else distinguishing providers = inversion of control.</li>
+    <li><strong>Three hooks</strong>: <span class="mono">aisdk.sdk</span> (build SDK), <span class="mono">aisdk.language</span> (build language model, customize routing, e.g. Copilot Responses/Chat, echoing L31/35), <span class="mono">catalog.transform</span> (rewrite catalog, e.g. Anthropic beta headers, echoing L30). Each provider's quirks locked into its own plugin, core stays clean.</li>
+    <li><strong>Dynamic import lazy-loads</strong>: <span class="mono">import("@ai-sdk/xxx")</span> means unused SDKs run no line, occupy no byte—"present cheaply, fulfilled expensively on demand" echoing at the provider layer.</li>
+    <li><strong>DynamicProviderPlugin catch-all</strong>: last in the array, <span class="mono">if (evt.sdk) return</span>, npm-installs and finds a <span class="mono">create*</span> factory only when no built-in claimed. Thirty-some fast path + one universal catch-all = any provider. Provider is just one kind of opencode's <strong>unified plugin paradigm</strong> (in boot.ts, agent/command/skill/config are all plugins).</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. To support thirty-some model providers (Anthropic/OpenAI/Groq/Bedrock…), what architecture does opencode use?</div>
+  <ol class="opts">
+    <li>An independent microservice per provider</li>
+    <li>One giant switch statement with thirty-some branches</li>
+    <li>Hardcode all providers into aisdk.ts</li>
+    <li>A plugin architecture — each provider is a self-contained plugin file (PluginV2.define), gathered into the ProviderPlugins array; adding a provider = add a file + a line, zero core change</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. opencode uses a plugin architecture: each provider is an independent, self-contained plugin file (core/src/plugin/provider/anthropic.ts, openai.ts…), all PluginV2.define({ id, effect→hook table }). The smallest alibaba.ts is under 20 lines. Thirty-some plugins gathered into the ProviderPlugins array. Adding a provider = add a plugin file + a line in the array, not a single line of core changes — exactly the open-closed principle (open to extension, closed to modification) alive. Versus a "giant switch": that way edits the core per provider, while the plugin architecture isolates the variable point (each provider) into its own file, the constant core never touched.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. When the agent needs a model, how does the core aisdk.ts find the plugin responsible for that provider?</div>
+  <ol class="opts">
+    <li>Tries alphabetically until one doesn't error</li>
+    <li>The core keeps a provider→plugin lookup table, indexes directly</li>
+    <li>Iterates all plugins, calls every one's createXxx</li>
+    <li>Broadcast + self-claim — trigger an "aisdk.sdk" event to all plugins, each judges with if (evt.package !== "@ai-sdk/xxx") return, only the matching one's createXxx sets evt.sdk; core has zero if-else distinguishing providers</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. aisdk.ts's AISDK.language(model) triggers an "aisdk.sdk" event, broadcasting { model, package, options } to all plugins. The core has not one if-else distinguishing providers start to finish; it just throws the event out; each plugin claims its share with if (evt.package !== "@ai-sdk/anthropic") return, only the matching one imports its package, calls createXxx(options), sets evt.sdk. If after a full broadcast evt.sdk is still empty it reports No AISDK provider plugin returned an SDK. This is inversion of control (IoC): traditionally the core actively calls each provider (core depends on providers), here the core defines the "broadcast-claim" protocol and providers hook into the core in reverse (providers depend on core). Flip the dependency direction and adding a provider turns from "editing the core switch" into "writing a new plugin and hooking it in."</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. What role does DynamicProviderPlugin, last in the ProviderPlugins array, play?</div>
+  <ol class="opts">
+    <li>Catch-all — its hook's first line if (evt.sdk) return, steps up only when all thirty-some built-ins failed to claim: npm-installs the unknown package, imports, finds a create* export as factory. Thirty-some fast path + one universal catch-all = supporting any provider</li>
+    <li>It caches SDKs built by other plugins</li>
+    <li>It's the default provider, used when none is configured</li>
+    <li>It manages the lifecycle of all built-in providers</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. DynamicProviderPlugin is forever last in the ProviderPlugins array, the "catch-all operator." Its aisdk.sdk hook's first line if (evt.sdk) return — so long as any built-in before it claimed (set evt.sdk), it stays out; only when all thirty-some built-ins failed to raise a hand does it step up: npm-installs the unknown package (npm.add), imports it, finds an export starting with create as factory. So the thirty-some built-ins are the "fast path" (claim fixed package names, no network), while DynamicProviderPlugin catches "all the rest" — even if opencode never heard of some provider, as long as it published an npm package conforming to AI SDK conventions it can be dynamically connected. Thirty-some explicitly supported + one universal catch-all = any provider in theory. This "long list + catch-all beyond the list" double insurance is a mature tool's composure connecting to an external ecosystem.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson says what's most worth savoring in core aisdk.ts's resolution code is its "emptiness" — not one provider name throughout, doing only three generic things (broadcast aisdk.sdk to collect SDK, broadcast aisdk.language to collect language model, cache with sdkKey), while "how Anthropic builds, how Copilot routes" lives entirely in each plugin. Explain with "inversion of control / dependency inversion / open-closed principle" why this design achieves "add a provider without changing core," and from code you've written, discuss at what signal a "giant switch / if-else chain" should be refactored into this "broadcast + self-claim" plugin architecture? What are the costs and risks of such a refactor?</li>
+    <li>The lesson reveals "plugin is the unified extension paradigm running through opencode" — in boot.ts agent (L45), command, skill (L43), config (L44) are all registered as plugins, provider just one kind. It also gives two "heavy" plugin examples, Anthropic (catalog.transform adds beta headers) and Copilot (aisdk.language picks Responses/Chat endpoint), showing plugins aren't just SDK-building factories but "containers holding each provider's quirks." Discuss: what does sealing each provider's special handling (AWS signing, beta headers, endpoint routing…) into its own plugin, never spilling to core, mean for a long-evolving project? When some "quirk" starts being shared by multiple providers, how would you weigh between "keeping plugins self-contained" and "avoiding duplication"?</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="46-mcp.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">MCP 集成</span><span class="lang-en">MCP integration</span></div></a><a class="next" href="48-drizzle-sqlite.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">Drizzle 与 SQLite</span><span class="lang-en">Drizzle &amp; SQLite</span></div></a></div>
 </div>
 <script>

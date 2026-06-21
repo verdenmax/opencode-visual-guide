@@ -45,6 +45,48 @@ def _shuffle(opts, answer, seed):
 
 
 QUIZZES = {
+    "47-provider-plugins.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode 要支持三十多家模型供应商（Anthropic/OpenAI/Groq/Bedrock…），它用的是什么架构？", "en": "To support thirty-some model providers (Anthropic/OpenAI/Groq/Bedrock…), what architecture does opencode use?"},
+                "opts": [
+                    {"zh": "插件架构——每家供应商是一个自包含插件文件（PluginV2.define），收进 ProviderPlugins 数组；新增供应商=加文件+加一行，核心零改动", "en": "A plugin architecture — each provider is a self-contained plugin file (PluginV2.define), gathered into the ProviderPlugins array; adding a provider = add a file + a line, zero core change"},
+                    {"zh": "一个三十多分支的巨型 switch 语句", "en": "One giant switch statement with thirty-some branches"},
+                    {"zh": "每家供应商一个独立的微服务", "en": "An independent microservice per provider"},
+                    {"zh": "把所有供应商硬编码进 aisdk.ts", "en": "Hardcode all providers into aisdk.ts"},
+                ],
+                "answer": 0,
+                "why": {"zh": "opencode 用插件架构：每家供应商是一个独立、自包含的插件文件（core/src/plugin/provider/anthropic.ts、openai.ts…），都是 PluginV2.define({ id, effect→钩子表 })。最小的 alibaba.ts 不到 20 行。三十多个插件收进 ProviderPlugins 数组。新增一家供应商=加一个插件文件 + 在数组里加一行，核心代码一行都不用动——这正是开闭原则（对扩展开放、对修改封闭）的活样子。对比「巨型 switch」：那种写法每加一家就要改核心，而插件架构把变化点（每家供应商）隔离进各自的文件，恒定的核心永不被触碰。", "en": "opencode uses a plugin architecture: each provider is an independent, self-contained plugin file (core/src/plugin/provider/anthropic.ts, openai.ts…), all PluginV2.define({ id, effect→hook table }). The smallest alibaba.ts is under 20 lines. Thirty-some plugins gathered into the ProviderPlugins array. Adding a provider = add a plugin file + a line in the array, not a single line of core changes — exactly the open-closed principle (open to extension, closed to modification) alive. Versus a \"giant switch\": that way edits the core per provider, while the plugin architecture isolates the variable point (each provider) into its own file, the constant core never touched."},
+            },
+            {
+                "q": {"zh": "当 agent 需要某个模型时，核心 aisdk.ts 如何找到负责该供应商的插件？", "en": "When the agent needs a model, how does the core aisdk.ts find the plugin responsible for that provider?"},
+                "opts": [
+                    {"zh": "广播 + 自我认领——trigger \"aisdk.sdk\" 事件给所有插件，每个用 if (evt.package !== \"@ai-sdk/xxx\") return 自我判断，只有匹配的那个 createXxx 设 evt.sdk；核心零 if-else 区分供应商", "en": "Broadcast + self-claim — trigger an \"aisdk.sdk\" event to all plugins, each judges with if (evt.package !== \"@ai-sdk/xxx\") return, only the matching one's createXxx sets evt.sdk; core has zero if-else distinguishing providers"},
+                    {"zh": "核心维护一张供应商→插件的查找表，直接索引", "en": "The core keeps a provider→plugin lookup table, indexes directly"},
+                    {"zh": "遍历所有插件，调用每一个的 createXxx", "en": "Iterates all plugins, calls every one's createXxx"},
+                    {"zh": "按字母顺序试，直到有一个不报错", "en": "Tries alphabetically until one doesn't error"},
+                ],
+                "answer": 0,
+                "why": {"zh": "aisdk.ts 的 AISDK.language(model) 触发（trigger）一个 \"aisdk.sdk\" 事件，把 { model, package, options } 广播给所有插件。核心从头到尾没有一个 if-else 在区分供应商，它只是把事件抛出去；是各插件自己用 if (evt.package !== \"@ai-sdk/anthropic\") return 认领自己那一份，只有匹配的那个 import 对应包、调 createXxx(options)、设 evt.sdk。若广播一圈 evt.sdk 仍空就报 No AISDK provider plugin returned an SDK。这是控制反转（IoC）：传统是核心主动调每个供应商（核心依赖供应商），这里是核心定义「广播-认领」协议、供应商反过来挂进核心（供应商依赖核心）。依赖方向一反，加供应商从「改核心 switch」变成「写新插件挂上去」。", "en": "aisdk.ts's AISDK.language(model) triggers an \"aisdk.sdk\" event, broadcasting { model, package, options } to all plugins. The core has not one if-else distinguishing providers start to finish; it just throws the event out; each plugin claims its share with if (evt.package !== \"@ai-sdk/anthropic\") return, only the matching one imports its package, calls createXxx(options), sets evt.sdk. If after a full broadcast evt.sdk is still empty it reports No AISDK provider plugin returned an SDK. This is inversion of control (IoC): traditionally the core actively calls each provider (core depends on providers), here the core defines the \"broadcast-claim\" protocol and providers hook into the core in reverse (providers depend on core). Flip the dependency direction and adding a provider turns from \"editing the core switch\" into \"writing a new plugin and hooking it in.\""},
+            },
+            {
+                "q": {"zh": "ProviderPlugins 数组最后一位的 DynamicProviderPlugin 起什么作用？", "en": "What role does DynamicProviderPlugin, last in the ProviderPlugins array, play?"},
+                "opts": [
+                    {"zh": "兜底——它的钩子第一行 if (evt.sdk) return，只在三十多个内置插件都没认领时出场：npm 临时装下未知包、import、找 create* 导出当工厂。三十多家快路径 + 一个万能兜底 = 支持任意供应商", "en": "Catch-all — its hook's first line if (evt.sdk) return, steps up only when all thirty-some built-ins failed to claim: npm-installs the unknown package, imports, finds a create* export as factory. Thirty-some fast path + one universal catch-all = supporting any provider"},
+                    {"zh": "它负责管理所有内置供应商的生命周期", "en": "It manages the lifecycle of all built-in providers"},
+                    {"zh": "它是默认供应商，没配置时用它", "en": "It's the default provider, used when none is configured"},
+                    {"zh": "它缓存其他插件造好的 SDK", "en": "It caches SDKs built by other plugins"},
+                ],
+                "answer": 0,
+                "why": {"zh": "DynamicProviderPlugin 永远排在 ProviderPlugins 数组最后一位，是「兜底接线员」。它的 aisdk.sdk 钩子第一行 if (evt.sdk) return——只要前面任何内置插件已认领（已设 evt.sdk），它就不插手；只有三十多个内置全没举手时才出场：把未知包用 npm 临时装下来（npm.add）、import 进来、找一个 create 开头的导出当工厂。这样内置三十多家是「快路径」（认死包名、无需联网），而 DynamicProviderPlugin 兜住「剩下所有家」——哪怕 opencode 从没听说过某供应商，只要它发布了符合 AI SDK 约定的 npm 包就能被动态接入。三十多明确支持 + 一个万能兜底 = 理论上支持任意供应商。这种「长列表 + 列表外兜底」的双保险，是成熟工具对接外部生态的从容。", "en": "DynamicProviderPlugin is forever last in the ProviderPlugins array, the \"catch-all operator.\" Its aisdk.sdk hook's first line if (evt.sdk) return — so long as any built-in before it claimed (set evt.sdk), it stays out; only when all thirty-some built-ins failed to raise a hand does it step up: npm-installs the unknown package (npm.add), imports it, finds an export starting with create as factory. So the thirty-some built-ins are the \"fast path\" (claim fixed package names, no network), while DynamicProviderPlugin catches \"all the rest\" — even if opencode never heard of some provider, as long as it published an npm package conforming to AI SDK conventions it can be dynamically connected. Thirty-some explicitly supported + one universal catch-all = any provider in theory. This \"long list + catch-all beyond the list\" double insurance is a mature tool's composure connecting to an external ecosystem."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说核心 aisdk.ts 的解析代码最值得品的是它的「空」——通篇没有一个供应商的名字，只做「广播 aisdk.sdk 收 SDK、广播 aisdk.language 收语言模型、用 sdkKey 缓存」三件通用事，而「Anthropic 怎么造、Copilot 怎么路由」全在各自插件里。请你用「控制反转 / 依赖倒置 / 开闭原则」解释这种设计为什么能做到「加供应商不改核心」，并结合你写过的代码，谈谈一个「巨型 switch / if-else 链」在什么信号出现时，就该被重构成这种「广播 + 自我认领」的插件架构？这种重构的代价和风险又是什么？", "en": "The lesson says what's most worth savoring in core aisdk.ts's resolution code is its \"emptiness\" — not one provider name throughout, doing only three generic things (broadcast aisdk.sdk to collect SDK, broadcast aisdk.language to collect language model, cache with sdkKey), while \"how Anthropic builds, how Copilot routes\" lives entirely in each plugin. Explain with \"inversion of control / dependency inversion / open-closed principle\" why this design achieves \"add a provider without changing core,\" and from code you've written, discuss at what signal a \"giant switch / if-else chain\" should be refactored into this \"broadcast + self-claim\" plugin architecture? What are the costs and risks of such a refactor?"},
+            {"zh": "课里揭示「插件是贯穿 opencode 的统一扩展范式」——boot.ts 里 agent（L45）、command、skill（L43）、config（L44）全是以插件形式注册的，provider 只是其中一类。同时课里给了 Anthropic（catalog.transform 加 beta 头）和 Copilot（aisdk.language 选 Responses/Chat 端点）两个「重」插件例子，说明插件不只是造 SDK 的工厂，更是「容纳每家供应商怪癖的容器」。请你谈谈：把每家的特殊处理（AWS 签名、beta 头、端点路由…）封进各自插件、绝不外溢到核心，对一个长期演进的项目意味着什么？当某个「怪癖」开始被多家供应商共享时，你会如何在「保持插件自包含」和「避免重复」之间权衡？", "en": "The lesson reveals \"plugin is the unified extension paradigm running through opencode\" — in boot.ts agent (L45), command, skill (L43), config (L44) are all registered as plugins, provider just one kind. It also gives two \"heavy\" plugin examples, Anthropic (catalog.transform adds beta headers) and Copilot (aisdk.language picks Responses/Chat endpoint), showing plugins aren't just SDK-building factories but \"containers holding each provider's quirks.\" Discuss: what does sealing each provider's special handling (AWS signing, beta headers, endpoint routing…) into its own plugin, never spilling to core, mean for a long-evolving project? When some \"quirk\" starts being shared by multiple providers, how would you weigh between \"keeping plugins self-contained\" and \"avoiding duplication\"?"},
+        ],
+    },
+
     "46-mcp.html": {
         "mcq": [
             {
