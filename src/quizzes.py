@@ -1528,6 +1528,47 @@ QUIZZES = {
             {"zh": "Copilot 的认证用「令牌交换」：先拿长期的 GitHub OAuth 凭证，换一个短期、限定用途的 Copilot token，再拿它去认证。课里说这是「最小权限 + 短时效凭证」的安全惯例，且这套复杂流程被整个封装进 auth 这一件、不惊动协议层。请论证：为什么「不直接把长期凭证发给推理端点，而是换一个短期 token」更安全？把这种安全复杂性隔离在 auth 这一层（而非散落各处），对整个系统的可维护性和可审计性有什么好处？", "en": "Copilot's auth uses \"token exchange\": take the long-lived GitHub OAuth credential, exchange for a short-lived, purpose-limited Copilot token, then authenticate with it. The lesson calls this the \"least privilege + short-lived credential\" security convention, with the whole complex flow encapsulated into the auth piece, undisturbing the protocol layer. Argue: why is \"not sending the long-lived credential to inference endpoints, but exchanging for a short-lived token\" more secure? What does isolating this security complexity in the auth layer (rather than scattering it) do for the system's maintainability and auditability?"},
         ],
     },
+    "42-bounded-output.html": {
+        "mcq": [
+            {
+                "q": {"zh": "ToolOutputStore 截断超长输出时，为什么保留「头一半 + 尾一半」而不是「只留前 N 行」？", "en": "When ToolOutputStore truncates over-long output, why keep \"first half + last half\" instead of \"only first N lines\"?"},
+                "opts": [
+                    {"zh": "工具输出的信息密度集中在两端：开头=在跑啥/什么配置，结尾=结果/报错/汇总，中间多是重复进度行；只留前 N 行会砍掉最关键的『最终结果/报错』", "en": "Tool output's info density concentrates at both ends: start=what's running/config, end=result/error/summary, the middle mostly repetitive progress; keep-only-first-N would chop the all-important 'final result/error'"},
+                    {"zh": "纯粹是为了对称好看", "en": "Purely for symmetric aesthetics"},
+                    {"zh": "因为尾部数据更新", "en": "Because the tail data is newer"},
+                    {"zh": "随机选的策略", "en": "A randomly chosen strategy"},
+                ],
+                "answer": 0,
+                "why": {"zh": "preview 保留头 headLines=⌈max/2⌉ + 尾 tailLines=⌊max/2⌋，中夹 marker，字节超界同理头尾各取一半。对日志/测试/转储，最有用的信息几乎总在两端：开头说在跑什么，结尾说成没成、错在哪。天真地「只留前 1000 行」恰恰会砍掉最关键的最终结果——模型看半天进度却不知成败。这是把截断当成「有限预算里尽量多留有用信息」的优化，而非无脑砍到 N 行。", "en": "preview keeps head headLines=⌈max/2⌉ + tail tailLines=⌊max/2⌋ with a marker between, same half-each for bytes. For logs/tests/dumps, the most useful info is almost always at both ends: start says what's running, end says success or where the error is. Naively \"keep only the first 1000 lines\" would chop the all-important final result — the model reads progress forever yet doesn't know the outcome. This treats truncation as optimizing \"keep as much useful info as possible within a limited budget,\" not brainlessly chopping to N lines."},
+            },
+            {
+                "q": {"zh": "截断必然损失信息，那被砍掉的中间部分怎么办？模型还能拿到全文吗？", "en": "Truncation inevitably loses info—what about the chopped middle? Can the model still get the full text?"},
+                "opts": [
+                    {"zh": "能：截断的同时把全文 write 到一份托管文件，路径放进 outputPaths 交给模型；要看全的，模型用第38课的 read 工具去读那份文件（可翻页）", "en": "Yes: while truncating, write the full text to a managed file, put the path in outputPaths for the model; to see the full thing, the model reads that file with lesson 38's read tool (pageable)"},
+                    {"zh": "不能，中间永久丢失", "en": "No, the middle is permanently lost"},
+                    {"zh": "全文被压缩成一句话", "en": "The full text is compressed into one sentence"},
+                    {"zh": "全文被发邮件给用户", "en": "The full text is emailed to the user"},
+                ],
+                "answer": 0,
+                "why": {"zh": "这是设计的第二处巧妙：截断给模型看的同时，把完整输出 write 到 {global.data}/tool-output/tool_{递增ID}（flag:wx 独占创建），bound 把路径放进 outputPaths。模型拿到「预览 + 全文在这个路径」的线索，真要看中间就用 read 工具读那份文件。这是漂亮的闭环——spill 出去的全文靠 read 收得回来，工具系统自我兜底（复用已有的 read，不另造接口，正是第36课统一工具表的红利）。有界视图+完整备份+按需回取+7天自动清理。", "en": "This is the design's second cleverness: while truncating what the model sees, write the full output to {global.data}/tool-output/tool_{ascending ID} (flag:wx exclusive create), and bound puts the path in outputPaths. The model gets \"a preview + the full text is at this path,\" and to see the middle reads that file with the read tool. A beautiful loop — the spilled full text is retrievable via read, the tool system backstopping itself (reusing the existing read, no new interface, exactly lesson 36's unified-tool-form dividend). Bounded view + full backup + on-demand retrieval + 7-day auto-cleanup."},
+            },
+            {
+                "q": {"zh": "bash 的 1 MB 内存上限（第39课）和 ToolOutputStore 的 2000行/50KB 界（本课）是同一个东西吗？", "en": "Are bash's 1 MB memory cap (lesson 39) and ToolOutputStore's 2000-line/50KB bound (this lesson) the same thing?"},
+                "opts": [
+                    {"zh": "不是，是两层不同的界：bash 的防『内存』（命令 stdout 不在进程里堆爆），ToolOutputStore 的防『上下文』（任何工具结果回模型前限到 2000行/50KB）", "en": "No, two different bounds: bash's guards 'memory' (a command's stdout not piling up to blow the process), ToolOutputStore's guards 'context' (any tool result bounded to 2000 lines/50KB before returning to the model)"},
+                    {"zh": "是的，完全一样", "en": "Yes, identical"},
+                    {"zh": "bash 的更严，覆盖了 ToolOutputStore", "en": "bash's is stricter, supersedes ToolOutputStore"},
+                    {"zh": "两者都只在配置文件里", "en": "Both exist only in config files"},
+                ],
+                "answer": 0,
+                "why": {"zh": "两层不同的界，各防各的资源。bash 的 MAX_CAPTURE_BYTES=1MB 是更早、更底层的一道闸，防的是一条命令的 stdout 在进程内存里无限堆积撑爆内存。ToolOutputStore 的 2000行/50KB 是最终、面向模型的一道闸，防的是任何工具的结果回到模型前撑爆上下文窗口。一个管内存安全、一个管上下文预算，分工清晰、各守一摊。这也是 M7 反复出现的『凡可能量大处皆有界』红线在不同层面的体现。", "en": "Two different bounds, each guarding its own resource. bash's MAX_CAPTURE_BYTES=1MB is an earlier, lower-level gate guarding against a command's stdout piling up unboundedly in process memory. ToolOutputStore's 2000-line/50KB is the final, model-facing gate guarding against any tool's result blowing the context window before returning to the model. One governs memory safety, the other context budget, cleanly divided. This is M7's recurring 'anywhere volume could be large is bounded' red thread at different layers."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说 ToolOutputStore 用 read 工具来「回取」spill 出去的全文——没有给自己另造一个『读回全文』的接口，而是复用了已有的 read，因为全文落成普通文件、读文件本就有人管。这被称为「第36课统一工具表的红利：因为所有工具同形，才能互相衔接、彼此兜底」。请举一个你见过的「因为接口统一/数据格式统一，模块得以意外地互相复用」的例子（如 Unix 一切皆文件、管道）。统一抽象带来的这种「组合性红利」，为什么常常事先想不到、事后才显现？", "en": "The lesson says ToolOutputStore uses the read tool to \"retrieve\" the spilled full text—it didn't build a dedicated 'read back the full text' interface but reused the existing read, because the full text lands as an ordinary file and reading files is already handled. This is called \"lesson 36's unified-tool-form dividend: because all tools are isomorphic, they can interconnect and backstop each other.\" Give an example you've seen of \"because the interface/data format is unified, modules unexpectedly reuse each other\" (Unix everything-is-a-file, pipes). Why is this \"composability dividend\" of a unified abstraction often unforeseeable beforehand, only emerging afterward?"},
+            {"zh": "课里强调「有界是不容许差不多的承诺」：boundedPreview 连 marker（『…已截断…』）自身占的字节都算进 maxBytes 预算，不让提示语本身使总量超界。请谈谈这种「连边角料都算进预算」的严格，在你做过的资源约束场景（如固定缓冲区、限流配额、内存池）里为什么重要？「差不多就行」的近似预算，会在什么情况下酿成真实的 bug？", "en": "The lesson stresses \"bounded is a promise that allows no close-enough\": boundedPreview counts even the marker's ('…truncated…') own bytes into the maxBytes budget, not letting the notice itself overshoot. Discuss why this rigor of \"counting even the scraps into the budget\" matters in resource-constrained scenarios you've worked on (fixed buffers, rate-limit quotas, memory pools). Under what conditions does a \"close enough\" approximate budget breed a real bug?"},
+        ],
+    },
     "41-permissions.html": {
         "mcq": [
             {

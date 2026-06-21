@@ -1219,5 +1219,192 @@ Ruleset = Rule[]</pre>
 </div>
 """,
 }
-LESSON_42 = wip('有界工具输出', 'Bounded tool output')
+LESSON_42 = {
+    "zh": r"""
+<p class="lead">这一课收束一条从 M7 开篇就反复出现的红线——<strong>有界</strong>。前面我们一路见它：文件读的 offset/limit、搜索的 limit、bash 的 timeout 与字节上限。它们都在防同一件事：<strong>工具吐出来的结果，可能大到撑爆模型的上下文窗口</strong>。一个 grep <span class="mono">import</span> 可能命中几万行、一个 <span class="mono">cat 大日志</span> 能刷出几兆字节——若把这些原样塞回对话，<strong>瞬间填满模型那有限又昂贵的上下文</strong>，轻则花掉一大笔 token，重则把真正重要的对话内容挤出窗口。这一课的 <span class="mono">ToolOutputStore</span>，就是工具执行流上的<strong>最后一道有界闸门</strong>：它保证<strong>任何一个工具的输出，都不会洪水般淹没模型</strong>，又不让信息真的丢失。</p>
+<p>它的解法有两处特别巧。其一，<strong>截断不是「砍掉尾巴」，而是「掐头去尾、留两端」</strong>——对日志、测试结果、文件转储这类输出，最有用的信息往往集中在<strong>开头</strong>（在跑什么）和<strong>结尾</strong>（结果/报错），中间是大段重复的躯干；所以它保留<strong>头一半 + 尾一半</strong>，中间用一个标记一笔带过。其二，<strong>截断的同时，把全文外溢（spill）到一份托管文件，并把文件路径一并交给模型</strong>——模型看到的是「精炼预览 + 全文在哪」，真要看全的，它可以用 read 工具去读那份文件。<strong>有界的视图、完整的备份、按需的访问</strong>——三者一配，既护住了上下文，又没真丢一个字节。读懂这一课，你就明白一个 agent 是怎么和「无限可能很大的工具输出」<strong>安全共处</strong>的。</p>
+
+<div class="card analogy">
+  <div class="tag">📄 生活类比</div>
+  想象一个工具跑完，吐出一份<strong>五百页的报告</strong>；可你（模型）手上一次只拿得下<strong>几页</strong>（上下文窗口就这么大）。怎么办？把五百页全塞给你——你<strong>一页都拿不住，全散了</strong>；只给你<strong>头五页</strong>——你又<strong>看不到最后的结论和报错</strong>，而那往往才是关键。<span class="mono">ToolOutputStore</span> 像一个机灵的助理：它给你<strong>开头几页 + 结尾几页</strong>（来龙与去果，通常最要紧），中间夹一张纸条「<strong>…中间省略，全文已归档在 42 号抽屉…</strong>」。你当下就抓住了大意；万一真要看中间，再去<strong>开那个抽屉</strong>（用 read 工具读那份托管文件）。<strong>大意先给你、全文存好、随时可取</strong>——既没让你被五百页淹没，又一个字都没丢。这，就是「有界但不失真」的助理之道。
+</div>
+
+<h2>为什么必须有界：上下文是稀缺资源</h2>
+<p>先想清楚动机。模型的<strong>上下文窗口是有限的</strong>——它一次能「读到」的内容有个上限（几万到几十万 token 不等），而且<strong>每个 token 都要花钱、都占时间</strong>。工具的输出却可能<strong>大得没边</strong>：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">grep 太宽</div><div class="c-txt">搜一个常见词，命中几千上万行</div></div>
+  <div class="cell"><div class="c-tag">cat 大文件</div><div class="c-txt">一个日志/数据文件，刷出几兆字节</div></div>
+  <div class="cell"><div class="c-tag">bash 啰嗦</div><div class="c-txt">一条构建/测试命令，吐出海量进度与堆栈</div></div>
+</div>
+<p>如果把这些原样灌回对话，后果是双重的：<strong>一是烧钱又拖慢</strong>（几万行 token 的输入费用与延迟），<strong>二更致命——它会把真正重要的东西挤出窗口</strong>。上下文就那么大，被一坨无关的日志填满，模型就「<strong>记不住</strong>」前面的需求、刚才的计划了。所以「有界」不是小气，而是<strong>对一种稀缺资源的必要保护</strong>。回忆第 37 课：注册表的 <span class="mono">settle</span> 在工具执行后调了一句 <span class="mono">resources.bound(...)</span>——那个 <span class="mono">resources</span> 就是这一课的 <span class="mono">ToolOutputStore</span>，<strong>它是每个工具结果回到模型之前，都要过的最后一道关</strong>。</p>
+<p>这里要和第 39 课的 bash 字节上限区分清楚——它们是<strong>两层不同的界</strong>，各防各的：</p>
+<div class="cols">
+  <div class="col"><h4>bash 的 1 MB 内存上限（第 39 课）</h4><p>防的是「<strong>内存</strong>」：一条命令的 stdout 不能在进程里无限堆积、撑爆内存。是更早、更底层的一道闸。</p></div>
+  <div class="col"><h4>ToolOutputStore 的界（本课）</h4><p>防的是「<strong>上下文</strong>」：任何工具的结果回模型前，限到 2000 行 / 50 KB。是最终、面向模型的一道闸。</p></div>
+</div>
+
+<h2>掐头去尾：截断的智慧</h2>
+<p>核心是 <span class="mono">bound</span> 函数和它调用的 <span class="mono">preview</span>。先看它认的几个界：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">MAX_LINES = 2000</div><div class="c-txt">行数上限；可经 config 的 tool_output.max_lines 覆盖</div></div>
+  <div class="cell"><div class="c-tag">MAX_BYTES = 50 KB</div><div class="c-txt">字节上限；可经 max_bytes 覆盖。行/字节双重把关</div></div>
+  <div class="cell"><div class="c-tag">RETENTION = 7 天</div><div class="c-txt">托管文件保留期，过期自动清理</div></div>
+</div>
+<p>默认的界是 <span class="mono">MAX_LINES = 2000</span> 行、<span class="mono">MAX_BYTES = 50 KB</span>。当输出超界，<span class="mono">preview</span> 的截断策略很讲究——<strong>不是简单砍掉超出的部分，而是头尾各留一半</strong>：</p>
+<div class="flow">
+  <div class="f-node">超长输出<br><small>比如 1 万行</small></div>
+  <div class="f-arrow">preview →</div>
+  <div class="f-node">头 1000 行<br><small>headLines=⌈max/2⌉</small></div>
+  <div class="f-arrow">+ 标记 +</div>
+  <div class="f-node">尾 1000 行<br><small>tailLines=⌊max/2⌋</small></div>
+</div>
+<p>为什么是<strong>头 + 尾</strong>，而不是「头 N 行」这种最直觉的做法？因为对工具输出的<strong>信息分布</strong>有洞察：一段日志、一次测试运行、一个文件转储，最有价值的信息几乎总是落在<strong>两端</strong>——<strong>开头</strong>告诉你「在跑什么、什么配置」，<strong>结尾</strong>告诉你「结果如何、有没有报错、最终汇总」；中间往往是大段重复的进度行、数据行，信息密度最低。若天真地「只留前 1000 行」，恰恰会<strong>把最关键的『最终结果 / 报错』那一截砍掉</strong>——模型看了半天进度，却不知道到底成没成。<span class="mono">preview</span> 保留头一半、尾一半，中间夹一个 marker（如「…已截断…」），正是<strong>用同样的预算，留住信息密度最高的两端</strong>。字节超界时同理——头 <span class="mono">headBytes</span>、尾 <span class="mono">tailBytes</span> 各取一半。<strong>一个看似不起眼的「头尾都留」，背后是对『工具输出长什么样』的真实理解。</strong>不妨想想你自己看一份很长的测试日志：是不是也总先扫一眼开头「跑了哪些用例」，再直接跳到结尾看「几个通过几个失败、错在哪」？中间那几千行逐条进度，多半一眼带过。<span class="mono">preview</span> 的「掐头去尾」，做的正是这件最符合人直觉的事——它没有把截断当成一道无脑的「砍到 N 行」的机械操作，而是当成一个「<strong>在有限预算里，尽量多留有用信息</strong>」的优化问题来解。</p>
+
+<h2>外溢与回取：全文不丢，按需可读</h2>
+<p>截断必然损失信息——那被砍掉的中间一大段呢？这就是设计的第二处巧妙：<strong>截断给模型看的同时，把<em>完整</em>输出写进一份托管文件</strong>。<span class="mono">write</span> 把全文落到 <span class="mono">{全局数据目录}/tool-output/tool_{递增ID}</span>（用 <span class="mono">flag: "wx"</span> 独占创建、防覆盖），<span class="mono">bound</span> 把这个文件路径放进返回的 <span class="mono">outputPaths</span>。于是模型拿到的，是「<strong>预览 + 一条『全文在这个路径』的线索</strong>」：</p>
+<div class="flow">
+  <div class="f-node">完整输出</div>
+  <div class="f-arrow">超界则 →</div>
+  <div class="f-node">① 头尾预览给模型<br><small>+ marker</small></div>
+  <div class="f-arrow">同时 →</div>
+  <div class="f-node">② 全文 spill 到托管文件<br><small>outputPaths 交给模型</small></div>
+</div>
+<p>这一步把「<strong>有界</strong>」和「<strong>不失真</strong>」这对看似矛盾的目标，优雅地调和了。模型当下读到的是精炼预览，不会被淹没；可万一它<strong>真需要看被截掉的中间部分</strong>（比如要找某一行特定的报错），它手里有路径——<strong>用第 38 课的 read 工具去读那份文件就行</strong>（read 还能 offset/limit 翻页，正好对付大文件）。把「模型看到的」和「实际存下的」并排，这套分治就一目了然：</p>
+<div class="cols">
+  <div class="col"><h4>模型看到的</h4><p>头尾<strong>预览</strong>（约 2000 行 / 50 KB 以内）+ 中间一个 marker + 一条 <span class="mono">outputPaths</span> 路径线索。够小，塞进上下文不心疼。</p></div>
+  <div class="col"><h4>实际存下的</h4><p>一份<strong>完整无损</strong>的托管文件（全文，无论多大）。模型按需用 read 去取，要哪段读哪段。</p></div>
+</div>
+<p>这是个漂亮的闭环：<strong>spill 出去的全文，靠 read 工具收得回来。</strong>整个工具系统在这里<strong>自我咬合</strong>——一个工具（任意）的超大输出，被另一个工具（read）兜底。这种「工具之间互相托底」的设计很值得回味：它没有给 ToolOutputStore 再造一套专门的「读回全文」接口，而是<strong>复用了早已存在的 read 工具</strong>——全文落成一份普通文件，而读文件这件事，工具系统里本就有人管。少造一个轮子，又让两块零件严丝合缝地咬上，正是第 36 课「一张统一的工具表」带来的红利：因为所有工具同形，它们才能这样<strong>互相衔接、彼此兜底</strong>。而这些托管文件也不会永远堆着：<span class="mono">RETENTION = 7 天</span>，过期自动清理，不让磁盘无限膨胀。<strong>有界的视图、完整的备份、按需的回取、自动的清理</strong>——一套完整的「大输出生命周期管理」。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>有界工具输出，是工具结果回到模型前的<strong>最后一道闸</strong>，护住模型那稀缺的上下文：</p>
+  <ul>
+    <li><strong>动机：上下文稀缺</strong>。工具输出可能极大（grep 万行、cat 几兆）；原样灌回会烧钱、拖慢，更会把真正重要的内容挤出窗口。第 37 课 <span class="mono">settle</span> 里的 <span class="mono">resources.bound(...)</span> 就是这一课。</li>
+    <li><strong>掐头去尾的截断</strong>（<span class="mono">preview</span>）：默认 <span class="mono">MAX_LINES=2000</span> / <span class="mono">MAX_BYTES=50KB</span>（可 config 覆盖）；超界保留<strong>头一半 + 尾一半</strong>、中夹 marker——因为工具输出的信息密度集中在<strong>两端</strong>（开头=在跑啥、结尾=结果/报错），「只留前 N 行」会砍掉最关键的结果。</li>
+    <li><strong>外溢 + 回取</strong>：截断的同时把全文 <span class="mono">write</span> 到托管文件（<span class="mono">tool-output/tool_{递增ID}</span>，<span class="mono">flag:"wx"</span> 独占），路径放进 <span class="mono">outputPaths</span> 交给模型；模型要看全的，用第 38 课 read 工具去读——<strong>有界视图 + 完整备份 + 按需访问</strong>，工具系统自我兜底。</li>
+    <li><strong>两层界要分清</strong>：bash 的 1 MB 内存上限（第 39 课）防内存；ToolOutputStore 的 2000 行/50 KB 防上下文。<span class="mono">RETENTION=7 天</span> 自动清理托管文件。</li>
+  </ul>
+  <p>到这里，M7 工具系统只剩最后一块拼图。第 43 课讲 <strong>Skills 系统</strong>：一种把「一套领域知识 + 一组操作步骤」打包、按需注入、还经权限化的特殊能力——它把前面所有零件（工具定义、注册、权限、Context Source）串成一个更高层的抽象。讲完它，M7「agent 的手」就彻底讲透：能定义工具、能收集调度、能读写搜跑问、能被权限管住、能把大输出收得住，最后还能把成套技能打包复用——一套完整、可控、可扩展的工具体系。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>头尾截断的核心，是 <span class="mono">preview</span> 里这段「各取一半」（简化自 tool-output-store.ts）：</p>
+  <pre class="code"><span class="cm">// 超过 maxLines：保留头一半 + 尾一半，中间靠 marker 兜住</span>
+<span class="kw">const</span> headLines = Math.<span class="fn">ceil</span>(maxLines / 2)   <span class="cm">// 头多拿一行（奇数时）</span>
+<span class="kw">const</span> tailLines = Math.<span class="fn">floor</span>(maxLines / 2)
+<span class="kw">const</span> sampled = lines.length &lt;= maxLines
+  ? text
+  : [ lines.slice(0, headLines).<span class="fn">join</span>(<span class="st">"\n"</span>),
+      lines.slice(lines.length - tailLines).<span class="fn">join</span>(<span class="st">"\n"</span>) ].<span class="fn">join</span>(<span class="st">"\n"</span>)
+<span class="cm">// 字节也超界时：takePrefix(headBytes) + takeSuffix(tailBytes)，同样两端取</span></pre>
+  <p>有两处工程上的细心。其一，<span class="mono">headLines = ceil</span>、<span class="mono">tailLines = floor</span>——当 maxLines 是奇数时，<strong>头比尾多留一行</strong>，一个微小却体现倾向的选择（开头通常略比结尾更值得多留一点上下文）。其二，<span class="mono">boundedPreview</span> 在拼装时，会<strong>把 marker 自身的字节数也算进预算</strong>（<span class="mono">maxBytes - markerBytes - 4</span>）——它不会「先按满额截断、再贴上 marker」而导致总量悄悄超界，而是<strong>预留出 marker 的位置</strong>再去截断。这种「连提示语本身占的空间都算进有界预算」的较真，正是「有界」二字的<strong>严格落地</strong>：说好了不超 50 KB，那连那句「…已截断…」也得算在 50 KB 之内。<strong>有界，是一个不容许『差不多』的承诺，连一句省略提示都得守约。</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>动机</strong>：模型上下文<strong>有限且昂贵</strong>，工具输出可能极大（grep 万行/cat 几兆），原样回灌会烧钱、拖慢、更会把重要内容挤出窗口。<span class="mono">ToolOutputStore</span>（<span class="mono">core/src/tool-output-store.ts</span>）是工具结果回模型前的最后一道有界闸（第 37 课 <span class="mono">settle</span> 调的 <span class="mono">resources.bound</span>）。</li>
+    <li><strong>掐头去尾截断</strong>：默认 <span class="mono">MAX_LINES=2000</span> / <span class="mono">MAX_BYTES=50KB</span>（<span class="mono">config/tool-output.ts</span> 的 <span class="mono">max_lines/max_bytes</span> 可覆盖）；超界保留<strong>头一半（⌈/2⌉）+ 尾一半（⌊/2⌋）</strong>、中夹 marker——因信息密度集中两端（头=在跑啥、尾=结果/报错），只留前 N 行会砍掉最关键的结果。字节超界同理头尾各取一半。</li>
+    <li><strong>外溢 spill + 回取</strong>：截断同时把全文 <span class="mono">write</span> 到托管文件（<span class="mono">{global.data}/tool-output/tool_{递增ID}</span>，<span class="mono">flag:"wx"</span> 独占创建），路径入 <span class="mono">outputPaths</span> 交模型；要看全文用第 38 课 read 工具读（可翻页）——有界视图 + 完整备份 + 按需访问，工具系统自我兜底。</li>
+    <li><strong>两层界</strong>：bash 1 MB 内存上限（第 39 课）防内存 vs ToolOutputStore 2000 行/50 KB 防上下文。<span class="mono">RETENTION=7 天</span> 自动清理托管文件。</li>
+    <li><strong>严格的有界</strong>：<span class="mono">boundedPreview</span> 把 marker 自身字节也算进预算（<span class="mono">maxBytes - markerBytes - 4</span>），不让提示语本身使总量超界；headLines 用 ceil（奇数时头比尾多留一行）。「有界」是不容『差不多』的承诺。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">This lesson ties off a red thread recurring since M7's start—<strong>bounding</strong>. We've seen it all along: file-read's offset/limit, search's limit, bash's timeout and byte cap. They all guard the same thing: <strong>a tool's output can be large enough to blow the model's context window</strong>. A grep <span class="mono">import</span> may hit tens of thousands of lines, a <span class="mono">cat big-log</span> can dump megabytes—stuffing these raw back into the conversation would <strong>instantly fill the model's limited, expensive context</strong>, at best burning a fortune in tokens, at worst pushing the genuinely important conversation out of the window. This lesson's <span class="mono">ToolOutputStore</span> is the <strong>final bounding gate</strong> on the tool-execution flow: it ensures <strong>no single tool's output can flood the model</strong>, without truly losing information.</p>
+<p>Its solution has two clever parts. One, <strong>truncation isn't "chop off the tail" but "keep both ends, cut the middle"</strong>—for logs, test results, file dumps, the most useful info concentrates at the <strong>start</strong> (what's running) and the <strong>end</strong> (result/error), the middle being a long repetitive body; so it keeps the <strong>first half + last half</strong>, glossing the middle with a marker. Two, <strong>while truncating, it spills the full text to a managed file and hands the file path to the model too</strong>—the model sees "a crisp preview + where the full text is," and if it really needs the whole thing, it reads that file with the read tool. <strong>A bounded view, a complete backup, on-demand access</strong>—all three together protect the context yet lose not a byte. Grasp this lesson and you'll understand how an agent <strong>safely coexists with "tool output that could be infinitely large."</strong></p>
+
+<div class="card analogy">
+  <div class="tag">📄 Analogy</div>
+  Imagine a tool finishes and spits out a <strong>five-hundred-page report</strong>; but you (the model) can only hold <strong>a few pages</strong> at once (the context window is just that big). What to do? Hand you all 500—you <strong>can't hold a single page, they all scatter</strong>; give you just the <strong>first five</strong>—you <strong>miss the final conclusion and errors</strong>, which are often the key. <span class="mono">ToolOutputStore</span> is like a clever assistant: it gives you the <strong>first few pages + the last few pages</strong> (the lead-up and the outcome, usually most important), with a slip in between: "<strong>…middle omitted, full report filed in drawer #42…</strong>." You grasp the gist right away; should you really need the middle, go <strong>open that drawer</strong> (read the managed file with the read tool). <strong>Gist up front, full text stored, retrievable anytime</strong>—you're not drowned by 500 pages, yet not a word is lost. This is the assistant's way of "bounded but not distorted."
+</div>
+
+<h2>Why it must be bounded: context is a scarce resource</h2>
+<p>First, the motivation. The model's <strong>context window is finite</strong>—what it can "read" at once has a ceiling (tens of thousands to hundreds of thousands of tokens), and <strong>every token costs money and time</strong>. Yet a tool's output can be <strong>boundlessly large</strong>:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">grep too broad</div><div class="c-txt">searching a common word, hitting thousands of lines</div></div>
+  <div class="cell"><div class="c-tag">cat a big file</div><div class="c-txt">a log/data file dumping megabytes</div></div>
+  <div class="cell"><div class="c-tag">bash verbose</div><div class="c-txt">a build/test command spitting masses of progress and stacks</div></div>
+</div>
+<p>Pouring these raw back into the conversation has a double consequence: <strong>one, burning money and slowing things</strong> (tens of thousands of lines' token cost and latency), <strong>two, more fatal—it pushes the genuinely important out of the window</strong>. The context is only so big; filled with a lump of irrelevant logs, the model "<strong>forgets</strong>" the earlier requirements, the just-made plan. So "bounding" isn't stinginess but <strong>necessary protection of a scarce resource</strong>. Recall lesson 37: the registry's <span class="mono">settle</span> calls <span class="mono">resources.bound(...)</span> after a tool executes—that <span class="mono">resources</span> is this lesson's <span class="mono">ToolOutputStore</span>, <strong>the final gate every tool result passes before returning to the model</strong>.</p>
+<p>Here we must distinguish it from lesson 39's bash byte cap—they're <strong>two different bounds</strong>, each guarding its own:</p>
+<div class="cols">
+  <div class="col"><h4>bash's 1 MB memory cap (lesson 39)</h4><p>Guards "<strong>memory</strong>": a command's stdout can't pile up unboundedly in the process and blow memory. An earlier, lower-level gate.</p></div>
+  <div class="col"><h4>ToolOutputStore's bound (this lesson)</h4><p>Guards "<strong>context</strong>": any tool's result, before returning to the model, is bounded to 2000 lines / 50 KB. The final, model-facing gate.</p></div>
+</div>
+
+<h2>Cut head and tail: the wisdom of truncation</h2>
+<p>The core is the <span class="mono">bound</span> function and the <span class="mono">preview</span> it calls. First the bounds it honors:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">MAX_LINES = 2000</div><div class="c-txt">line cap; overridable via config's tool_output.max_lines</div></div>
+  <div class="cell"><div class="c-tag">MAX_BYTES = 50 KB</div><div class="c-txt">byte cap; overridable via max_bytes. Lines/bytes dual gating</div></div>
+  <div class="cell"><div class="c-tag">RETENTION = 7 days</div><div class="c-txt">managed-file retention, auto-cleaned on expiry</div></div>
+</div>
+<p>The default bounds are <span class="mono">MAX_LINES = 2000</span> lines, <span class="mono">MAX_BYTES = 50 KB</span>. When output exceeds, <span class="mono">preview</span>'s truncation strategy is careful—<strong>not simply chopping the excess, but keeping half at each end</strong>:</p>
+<div class="flow">
+  <div class="f-node">over-long output<br><small>say 10,000 lines</small></div>
+  <div class="f-arrow">preview →</div>
+  <div class="f-node">first 1000 lines<br><small>headLines=⌈max/2⌉</small></div>
+  <div class="f-arrow">+ marker +</div>
+  <div class="f-node">last 1000 lines<br><small>tailLines=⌊max/2⌋</small></div>
+</div>
+<p>Why <strong>head + tail</strong>, not the most intuitive "first N lines"? Because of insight into tool output's <strong>information distribution</strong>: a log, a test run, a file dump—the most valuable info almost always sits at the <strong>two ends</strong>—the <strong>start</strong> tells you "what's running, what config," the <strong>end</strong> tells you "the result, any error, the final summary"; the middle is often a long repetitive run of progress/data lines, lowest in info density. Naively "keep only the first 1000 lines" would precisely <strong>chop off the all-important 'final result / error'</strong>—the model reads progress forever yet doesn't know whether it succeeded. <span class="mono">preview</span> keeps the first half, last half, with a marker between (like "…truncated…"), exactly <strong>using the same budget to keep the highest-info-density two ends</strong>. Same when bytes exceed—head <span class="mono">headBytes</span>, tail <span class="mono">tailBytes</span>, half each. <strong>A seemingly trivial "keep both ends" rests on a real understanding of "what tool output looks like."</strong> Think of how you read a very long test log: don't you also first glance at the start "which cases ran," then jump straight to the end "how many passed/failed, where the error is"? The thousands of progress lines in between, mostly skimmed past. <span class="mono">preview</span>'s "cut head and tail" does exactly this most-human-intuitive thing—it treats truncation not as a brainless "chop to N lines" mechanical op, but as an optimization problem of "<strong>keep as much useful info as possible within a limited budget</strong>."</p>
+
+<h2>Spill and retrieve: the full text isn't lost, readable on demand</h2>
+<p>Truncation inevitably loses info—what about that big chopped middle? This is the design's second cleverness: <strong>while truncating what the model sees, it writes the <em>full</em> output into a managed file</strong>. <span class="mono">write</span> lands the full text to <span class="mono">{global data dir}/tool-output/tool_{ascending ID}</span> (with <span class="mono">flag: "wx"</span> exclusive create, guarding against overwrite), and <span class="mono">bound</span> puts this file path into the returned <span class="mono">outputPaths</span>. So the model gets "<strong>a preview + a clue that 'the full text is at this path'</strong>":</p>
+<div class="flow">
+  <div class="f-node">full output</div>
+  <div class="f-arrow">if over bound →</div>
+  <div class="f-node">① head-tail preview to model<br><small>+ marker</small></div>
+  <div class="f-arrow">simultaneously →</div>
+  <div class="f-node">② full text spilled to managed file<br><small>outputPaths to the model</small></div>
+</div>
+<p>This step elegantly reconciles the seemingly contradictory goals of "<strong>bounded</strong>" and "<strong>undistorted</strong>." The model reads a crisp preview now, not drowned; but should it <strong>really need the chopped middle</strong> (e.g. to find one specific error line), it has the path—<strong>just read that file with lesson 38's read tool</strong> (read can offset/limit-page too, perfect for big files). Lay "what the model sees" and "what's actually stored" side by side and this divide-and-conquer is plain:</p>
+<div class="cols">
+  <div class="col"><h4>What the model sees</h4><p>A head-tail <strong>preview</strong> (within ~2000 lines / 50 KB) + a marker in the middle + an <span class="mono">outputPaths</span> path clue. Small enough to fit the context painlessly.</p></div>
+  <div class="col"><h4>What's actually stored</h4><p>A <strong>complete, lossless</strong> managed file (full text, however large). The model fetches on demand with read, reading whatever section it needs.</p></div>
+</div>
+<p>It's a beautiful loop: <strong>the spilled-out full text is retrievable via the read tool.</strong> The whole tool system <strong>meshes with itself</strong> here—any tool's oversized output is backstopped by another tool (read). This "tools backstopping each other" design is worth savoring: it didn't build ToolOutputStore a dedicated "read back the full text" interface, but <strong>reused the already-existing read tool</strong>—the full text lands as an ordinary file, and reading files is something the tool system already handles. One fewer wheel reinvented, and two parts mesh seamlessly—exactly the dividend of lesson 36's "one unified tool form": because all tools are isomorphic, they can <strong>interconnect and backstop each other</strong> like this. And these managed files don't pile up forever: <span class="mono">RETENTION = 7 days</span>, auto-cleaned on expiry, not letting the disk grow unboundedly. <strong>A bounded view, a complete backup, on-demand retrieval, automatic cleanup</strong>—a complete "large-output lifecycle management."</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>Bounded tool output is the <strong>final gate</strong> before tool results return to the model, protecting the model's scarce context:</p>
+  <ul>
+    <li><strong>Motivation: context is scarce</strong>. Tool output can be huge (grep ten-thousand lines, cat megabytes); pouring it raw back burns money, slows things, and pushes the genuinely important out of the window. Lesson 37 <span class="mono">settle</span>'s <span class="mono">resources.bound(...)</span> is this lesson.</li>
+    <li><strong>Head-tail truncation</strong> (<span class="mono">preview</span>): default <span class="mono">MAX_LINES=2000</span> / <span class="mono">MAX_BYTES=50KB</span> (config-overridable); over bound keeps the <strong>first half + last half</strong>, marker in between—because tool output's info density concentrates at <strong>both ends</strong> (start=what's running, end=result/error), "keep only first N lines" would chop the all-important result.</li>
+    <li><strong>Spill + retrieve</strong>: while truncating, <span class="mono">write</span> the full text to a managed file (<span class="mono">tool-output/tool_{ascending ID}</span>, <span class="mono">flag:"wx"</span> exclusive), put the path in <span class="mono">outputPaths</span> for the model; to see the full thing, read it with lesson 38's read tool—<strong>bounded view + full backup + on-demand access</strong>, the tool system backstopping itself.</li>
+    <li><strong>Distinguish the two bounds</strong>: bash's 1 MB memory cap (lesson 39) guards memory; ToolOutputStore's 2000-line/50 KB guards context. <span class="mono">RETENTION=7 days</span> auto-cleans managed files.</li>
+  </ul>
+  <p>By here, M7's tool system has one last piece left. Lesson 43 covers the <strong>Skills system</strong>: a special capability packaging "a body of domain knowledge + a set of operating steps," injected on demand and permissioned—stringing all the prior parts (tool definition, registration, permissions, Context Source) into a higher-level abstraction. After it, M7's "the agent's hands" is fully covered: able to define tools, collect and dispatch them, read/write/search/run/ask, be governed by permissions, hold large outputs in check, and finally package whole skills for reuse—a complete, controllable, extensible tool system.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>The head-tail truncation's core is this "half each" in <span class="mono">preview</span> (simplified from tool-output-store.ts):</p>
+  <pre class="code"><span class="cm">// over maxLines: keep first half + last half, marker backstops the middle</span>
+<span class="kw">const</span> headLines = Math.<span class="fn">ceil</span>(maxLines / 2)   <span class="cm">// head takes one extra (when odd)</span>
+<span class="kw">const</span> tailLines = Math.<span class="fn">floor</span>(maxLines / 2)
+<span class="kw">const</span> sampled = lines.length &lt;= maxLines
+  ? text
+  : [ lines.slice(0, headLines).<span class="fn">join</span>(<span class="st">"\n"</span>),
+      lines.slice(lines.length - tailLines).<span class="fn">join</span>(<span class="st">"\n"</span>) ].<span class="fn">join</span>(<span class="st">"\n"</span>)
+<span class="cm">// when bytes also exceed: takePrefix(headBytes) + takeSuffix(tailBytes), both ends too</span></pre>
+  <p>Two engineering niceties. One, <span class="mono">headLines = ceil</span>, <span class="mono">tailLines = floor</span>—when maxLines is odd, <strong>the head keeps one more line than the tail</strong>, a tiny but telling preference (the start usually merits slightly more context than the end). Two, <span class="mono">boundedPreview</span>, when assembling, <strong>counts the marker's own bytes into the budget</strong> (<span class="mono">maxBytes - markerBytes - 4</span>)—it won't "truncate to full quota then paste the marker" and quietly overshoot, but <strong>reserves the marker's room</strong> before truncating. This rigor of "even the notice's own space counts toward the budget" is the <strong>strict landing</strong> of "bounded": promised not to exceed 50 KB, so even that "…truncated…" must count within the 50 KB. <strong>Bounded is a promise that allows no "close enough."</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>Motivation</strong>: the model's context is <strong>finite and expensive</strong>, tool output can be huge (grep ten-thousand lines/cat megabytes), and pouring it raw back burns money, slows things, and pushes the important out. <span class="mono">ToolOutputStore</span> (<span class="mono">core/src/tool-output-store.ts</span>) is the final bounding gate before tool results return to the model (lesson 37 <span class="mono">settle</span>'s <span class="mono">resources.bound</span>).</li>
+    <li><strong>Head-tail truncation</strong>: default <span class="mono">MAX_LINES=2000</span> / <span class="mono">MAX_BYTES=50KB</span> (<span class="mono">config/tool-output.ts</span>'s <span class="mono">max_lines/max_bytes</span> overridable); over bound keeps <strong>first half (⌈/2⌉) + last half (⌊/2⌋)</strong>, marker between—because info density concentrates at both ends (head=what's running, tail=result/error), keep-only-first-N would chop the all-important result. Same for bytes.</li>
+    <li><strong>Spill + retrieve</strong>: while truncating, <span class="mono">write</span> the full text to a managed file (<span class="mono">{global.data}/tool-output/tool_{ascending ID}</span>, <span class="mono">flag:"wx"</span> exclusive create), path into <span class="mono">outputPaths</span> for the model; to see the full text, read it with lesson 38's read tool (pageable)—bounded view + full backup + on-demand access, the tool system backstopping itself.</li>
+    <li><strong>Two bounds</strong>: bash's 1 MB memory cap (lesson 39) guards memory vs ToolOutputStore's 2000-line/50 KB guards context. <span class="mono">RETENTION=7 days</span> auto-cleans managed files.</li>
+    <li><strong>Strict bounding</strong>: <span class="mono">boundedPreview</span> counts the marker's own bytes into the budget (<span class="mono">maxBytes - markerBytes - 4</span>), not letting the notice itself overshoot; headLines uses ceil (head one more line than tail when odd). "Bounded" is a promise that allows no "close enough."</li>
+  </ul>
+</div>
+""",
+}
 LESSON_43 = wip('Skills 系统', 'The skills system')
