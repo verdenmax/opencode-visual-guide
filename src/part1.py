@@ -261,6 +261,346 @@ const cli = <span class="fn">yargs</span>(<span class="fn">hideBin</span>(proces
 </div>
 """,
 }
-LESSON_02 = wip('项目全景地图', 'The monorepo map')
+LESSON_02 = {
+    "zh": r"""
+<p class="lead">上一课记住了一条主线——客户端发消息、server 跑 agent 循环、事件流回客户端。可当你真把 opencode clone 下来、打开 <span class="mono">packages/</span> 目录，会一头撞进<strong>二十多个包</strong>，瞬间不知从哪看起。这一课就发你一张<strong>项目地图</strong>：把这些包按角色分成四组，标清谁依赖谁、哪些在"运行时 agent 路径"上、哪些只是周边。把这张图记牢，后面 62 课每点到一个包，你都知道它挂在地图的哪个位置。</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 生活类比</div>
+  把这个 monorepo 想成一座<strong>规划过的城市</strong>。<strong>市中心</strong>（CORE）是真正办事的地方——市政厅、发电厂、自来水公司，你每次"用 opencode 干一次活"跑的就是这几个包。<strong>临街店面</strong>（客户端）是市民看得见的脸：终端、网页、桌面、Slack，形态各异却都连着市中心。<strong>海外分部</strong>（云端集成）在另一个国度（Cloudflare）办公，你本地跑 opencode 根本惊动不到它们。<strong>地下水电管网</strong>（基础库）谁都在用却没人天天想起。而 <strong>turborepo</strong> 是这座城的交通调度，决定你改了一处、该重修哪几条路。
+</div>
+
+<h2>一个仓库，二十多个包</h2>
+<p>opencode 是一个 <strong>Bun + turborepo 的 monorepo</strong>：一个 git 仓库装下约 <strong>24 个包</strong>，全躺在 <span class="mono">packages/</span> 下。为什么不拆成几十个独立仓库？因为这些包之间<strong>类型互通</strong>——server 改一个接口，sdk 立刻重新生成、客户端的类型跟着报错，<strong>一次提交</strong>就能横跨"客户端/服务器"那条线把改动做完，不必发版、不必对版本号。</p>
+<p>一条 <span class="mono">bun install</span> 装好全部依赖，一张 turbo 任务图统一 <span class="mono">typecheck / build / test</span>。根 <span class="mono">package.json</span> 的 workspaces 还特意把 <span class="mono">packages/console/*</span>、<span class="mono">packages/stats/*</span> 这种"子应用树"也纳进来——所以"24 个包"是个约数：console、stats 内部又各自分了 app / core / server 几个小包。</p>
+<div class="flow">
+  <div class="node"><div class="nt">bun install</div><div class="nd">一次装好全仓依赖</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">turbo typecheck</div><div class="nd">全仓类型检查</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">turbo build</div><div class="nd">产出 dist/**</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">turbo test</div><div class="nd">dependsOn ^build</div></div>
+</div>
+<p>注意末尾那个 <span class="mono">^build</span>：turbo 规定"测一个包前，先把它依赖的<strong>上游包</strong>都 build 好"。换句话说，这张构建图本身就编码了包与包之间的<strong>依赖 DAG</strong>——一时读不懂依赖关系时，<span class="mono">turbo.json</span> 就是一份现成的地图。</p>
+<p>monorepo 也不是没有代价——24 个包挤在一起，最怕"改一行、全仓重编"。opencode 用两件事压住它：<strong>Bun</strong> 让安装与打包飞快，<strong>turbo</strong> 靠内容哈希做<strong>增量缓存</strong>，只重跑真正受影响的包。于是仓库虽大，日常 <span class="mono">typecheck</span> 往往几秒就回。</p>
+<p>反过来想：要是把 server、sdk、tui 拆成三个独立 npm 包，改一次 server 接口你就得发版 server、升级 sdk、再升级 tui——三次 PR、三次对版本。monorepo 把这一切压成<strong>一次提交</strong>。对一个正在 V1→V2 高速重构的项目，这种"原子改动"几乎是刚需。</p>
+<p>还有个一脉相承的取向：它用的是 <strong>Bun 的 workspaces</strong>，而不是 npm/pnpm。Bun 既是包管理器、又是运行时与打包器，整条工具链就一个 <span class="mono">bun</span> 命令——这和第 1 课说的"一个二进制、装起来简单"是同一种品味。</p>
+<p>说到底，monorepo 是 opencode 给"<strong>快速演进</strong>"下的注：当一个项目还在大改架构、接口天天变，把相关代码全摁进同一个仓库、用一条工具链统一约束，远比维护十几个互相对版本的独立包省心。它的取舍很清楚——<strong>用一点构建复杂度，换整体改动的灵活与一致</strong>。</p>
+<p>也别被"包多"吓到：真正需要你<strong>从头读到尾</strong>的，其实只有那一小撮核心；其余大多数包，你读这份指南可能都不会打开第二眼。仓库的<strong>体量</strong>和你要投入的<strong>注意力</strong>从来不是一回事——分清这一点，是不被大型代码库劝退的第一步。</p>
+
+<h2>四个角色分区</h2>
+<p>把 24 个包按<strong>角色</strong>一摊开，其实只有四类：① <strong>CORE</strong>——在"运行时 agent 路径"上、你每跑一次 prompt 都会执行的包；② <strong>客户端</strong>——连向 server 的各种脸；③ <strong>云端 / 集成</strong>——跑在 Cloudflare 或作为机器人的服务；④ <strong>基础库</strong>——被反复复用的工具层。读源码时先认清一个包属于哪一类，就不会在 24 个里迷路。</p>
+<p>这套"四分法"看着简单，价值却在于<strong>给每个包一个落点</strong>：以后你在某个文件顶部看到一长串 import，只要扫一眼它拉进来的是哪几组的东西，就能立刻判断"这是核心逻辑，还是某张脸的渲染，还是云上的运维"。地图的意义从来不是记住每条街的名字，而是<strong>一眼知道自己站在哪个城区</strong>。</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">客户端 · 脸</span><span class="name">tui · cli · app · ui · desktop · web</span></div>
+    <div class="ld">收集你的输入、渲染 server 推来的事件流——同一个内核的多张脸</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">CORE · 运行时路径</span><span class="name">opencode · core · llm · server · sdk · plugin</span></div>
+    <div class="ld">agent 循环、会话、模型接入、server 契约——跑一次 prompt 真正执行的只有这一组</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">云端 · 集成</span><span class="name">enterprise · function · slack · console · identity · containers · stats</span></div>
+    <div class="ld">部署在 Cloudflare 或作为机器人/服务，本地内核完全用不到</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">基础库</span><span class="name">effect-drizzle-sqlite · effect-sqlite-node · http-recorder · script · storybook</span></div>
+    <div class="ld">被复用的地基：DB 胶水、HTTP 录放、构建脚本、组件工坊</div></div>
+</div>
+<p>为什么按"角色"分，而不按"语言"或"技术栈"？因为同一种技术会散落在不同角色里——SolidJS 既在 tui 又在 app，Effect 既在 core 又在 cli。真正决定"我读源码要不要管它"的，是这个包<strong>在不在运行时跑</strong>，而不是它用什么写的。</p>
+<p>这四组里，真正值得第一时间记住的是 <strong>CORE 与"周边"的切分</strong>——它是读这个仓库最省力的一把筛子：</p>
+<div class="cols">
+  <div class="col"><h4>CORE（6 个 · 运行时路径）</h4><p>opencode · core · llm · server · sdk · plugin。<strong>只有这 6 个</strong>在你本地跑 prompt 时执行——想搞懂 agent 怎么工作，九成答案都在这里。</p></div>
+  <div class="col"><h4>周边（其余约 18 个）</h4><p>客户端的脸、云端服务、基础库。它们重要，但都<strong>围着 CORE 转</strong>：要么是它的前端，要么是它的运维，要么是它复用的工具。</p></div>
+</div>
+<p>怎么一眼判断一个包属于哪组？看三件事：它<strong>依赖 server / core 吗</strong>（多半是 CORE 或客户端）、它<strong>部署到 Cloudflare 吗</strong>（云端）、它<strong>有没有自己的"脸"</strong>（有界面是客户端，纯函数库是基础库）。这套判断，后面每撞见一个新包都用得上。</p>
+<p>这条线还有个实用推论：<strong>读这份指南，你九成时间会待在 CORE 那 6 个包里</strong>。后面十二个部分，除了第一、十二部分讲全景与工程，其余几乎都在 CORE 内部纵深。所以现在就把这 6 个名字记熟，绝对划算。</p>
+<p>要强调的是，这四组的<strong>边界并非一刀切得绝对干净</strong>：有的包会同时沾上两重身份（比如下面就会看到的 <span class="mono">cli</span>），有的基础库其实只服务于某一个上层。但作为<strong>第一层认知</strong>，这套分法已经足够好用——先有张粗地图，细节等到具体那一课再补。</p>
+
+<h2>CORE：运行时路径上的六个包</h2>
+<p>CORE 的 6 个包从"外壳"到"内核"层层递进，各管一段。下面这张表是你之后反复要回头看的<strong>主干索引</strong>：</p>
+<table class="t">
+  <tr><th>包</th><th>一句话职责</th><th>后续展开</th></tr>
+  <tr><td class="mono">opencode</td><td>主二进制：yargs CLI + V1 会话引擎 + <strong>server 宿主</strong>（providers / MCP / LSP 也在此）</td><td>第 3、4 课</td></tr>
+  <tr><td class="mono">core</td><td><strong>V2 Session Core</strong>：Effect 服务 + Drizzle/SQLite + 会话 / 工具 / system-context / pty</td><td>第四、五部分</td></tr>
+  <tr><td class="mono">llm</td><td>自研、与 provider 无关的<strong>多协议 LLM 客户端</strong></td><td>第六部分</td></tr>
+  <tr><td class="mono">server</td><td><strong>瘦契约层</strong>：cors、路由组、共享类型</td><td>第三部分</td></tr>
+  <tr><td class="mono">sdk</td><td>从 server 的 OpenAPI <strong>生成</strong>的类型安全 TS 客户端</td><td>第 12 课</td></tr>
+  <tr><td class="mono">plugin</td><td>对外的 <span class="mono">@opencode-ai/plugin</span> 插件 SDK</td><td>第十一部分</td></tr>
+</table>
+<p>把一次请求顺着这 6 个包走一遍最直观：你的话先进 <span class="mono">opencode</span> / <span class="mono">cli</span> 的命令外壳，由它宿主的 <span class="mono">server</span> 收下；server 按契约把活派给 <span class="mono">core</span> 的会话引擎；core 要调模型时找 <span class="mono">llm</span>；llm 再把请求编码成某家 provider 的协议。一层套一层，正是"外壳 → 内核"。</p>
+<p>换个比方，这 6 个包像一条<strong>从人到模型的传送带</strong>：最外面接住你的人话，最里面吐出给大模型的协议字节，中间每一段都只做一件清清楚楚的事、再把半成品交给下一段。读源码时若被某个文件绕晕，回到这条传送带上想想"我现在在哪一段、上一段递给了我什么、我又该交给下一段什么"，往往立刻就清醒了。</p>
+<p>也正因为分段清楚，每一段都能<strong>单独替换</strong>：换个 provider 只动最里那段、换张前端只动最外那段，中间纹丝不动。这种"一段坏不牵连全身"的解耦，是后面很多设计能成立的前提。</p>
+<p>一个容易看花眼的细节：<span class="mono">opencode</span> 自己<strong>同时</strong>是核心包<strong>和</strong>宿主——它一边扛着整套 <strong>V1</strong> 引擎，一边把 <strong>V2 的 core</strong> 当作 server 背后的内核装进来。所以它正好骑在 V1/V2 这条迁移线上（第 4 课细说）。</p>
+<p>还有个彩蛋：opencode 其实有<strong>两个二进制</strong>。<span class="mono">packages/opencode</span> 是当前主用的 <span class="mono">opencode</span> 命令（yargs、偏 V1）；<span class="mono">packages/cli</span> 则是另一个叫 <span class="mono">lildax</span> 的二进制，用 Effect 命令框架把 <span class="mono">core + server + tui + sdk</span> 打包到一起——那是<strong>正在成形的 V2 入口</strong>。</p>
+<div class="flow">
+  <div class="node"><div class="nt">客户端</div><div class="nd">tui · app · desktop · cli</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">sdk</div><div class="nd">生成的类型安全客户端</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">server</div><div class="nd">瘦契约层</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">core (+llm)</div><div class="nd">V2 内核 + 模型层</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">provider</div><div class="nd">Anthropic · OpenAI · …</div></div>
+</div>
+<p>这 6 个包的<strong>依赖只朝一个方向流</strong>：客户端从不直接 import <span class="mono">core</span>，而是经<strong>生成的 sdk</strong> 调 <span class="mono">server</span>，再由 server 落到 <span class="mono">core</span> 与 <span class="mono">llm</span>，最后打到各家 provider。这正是上一课那条"客户端/服务器"边界在包结构上的样子——而 sdk 这道缝，是在<strong>构建时反向</strong>从 server 的 OpenAPI 生成出来的（第 12 课）。</p>
+<p>别被 <span class="mono">server</span> 的"瘦"字骗了——它瘦，是因为<strong>重活全在 core</strong>。server 只把 HTTP 请求按契约翻成对 core 的调用，再把 core 吐出的事件流编码回 SSE。这种"薄壳厚核"的切法，让同一套 core 既能被网络 server 包、也能被 cli 进程内直接调（第 13 课）。</p>
+<p><span class="mono">sdk</span> 与 <span class="mono">plugin</span> 是 CORE 朝外开的两扇门：<span class="mono">sdk</span> 给<strong>客户端</strong>用（"我要调 server"），<span class="mono">plugin</span> 给<strong>第三方扩展</strong>用（"我要往 agent 里塞钩子"）。两扇门都从内核生成或导出类型，所以你写前端、写插件时都有完整的类型提示。</p>
+<p>为什么 <span class="mono">core</span> 要单独成包、而不直接长在 <span class="mono">opencode</span> 里？因为 V2 想让内核<strong>不绑定任何具体宿主</strong>：同一个 core，既能被 opencode 的网络 server 包，也能被 cli 进程内驱动，甚至将来搬上云端。把内核抽出来，"一处实现、多处复用"才谈得上。</p>
+<p>还有一点值得记一辈子：这些依赖几乎都是<strong>单向</strong>的——客户端依赖 sdk、sdk 依赖 server 的契约、server 依赖 core，反过来却绝不成立。core 永远不知道谁在用它，tui 的任何改动也烧不到内核。<strong>依赖只朝一个方向流</strong>，正是这套架构能拆能换、能同时养活一堆前端的根本原因。</p>
+<p>真要动手读 CORE，建议<strong>从 <span class="mono">core</span> 入手，而不是从 <span class="mono">opencode</span></strong>：前者是 V2 想长久留下的内核，结构干净、边界清楚；后者背着 V1 的历史包袱，读起来更杂。先在 core 里把"会话、工具、系统上下文"几条主线摸清，再回头看 opencode 如何把它们接上 CLI 与服务器，思路会顺很多。</p>
+
+<h2>周边三组：客户端 / 云端 / 基础库</h2>
+<p>看懂 CORE 之后，周边就轻松了——它们都<strong>不在你本地的运行时路径上</strong>，可以等需要时再翻：</p>
+<p>把周边整组先搁一边，不是说它们不重要，而是<strong>它们的复杂度彼此独立</strong>：你不懂 Electron 也能读懂 agent 循环，不懂 Cloudflare 也能读懂会话存储。这种"可以分开理解"的性质，正是好的模块划分留给读者的礼物——它让你一次只扛一份认知负担，而不必把整座城同时塞进脑子。</p>
+<div class="cols">
+  <div class="col"><h4>客户端 · 脸</h4><p><strong>tui</strong>（SolidJS + opentui 富终端）· <strong>cli</strong>（lildax 二进制）· <strong>app</strong>（SolidJS 网页 UI）· <strong>ui</strong>（渲染库：markdown / diff / shiki / katex）· <strong>desktop</strong>（Electron 壳）· <strong>web</strong>（Astro + Starlight 官网/文档）</p></div>
+  <div class="col"><h4>云端 · 集成</h4><p><strong>enterprise</strong>（Hono + SolidStart on Cloudflare）· <strong>function</strong>（CF functions：GitHub app 鉴权）· <strong>slack</strong>（Slack 机器人）· <strong>console</strong> · <strong>identity</strong> · <strong>containers</strong> · <strong>stats</strong></p></div>
+  <div class="col"><h4>基础库</h4><p><strong>effect-drizzle-sqlite</strong> 与 <strong>effect-sqlite-node</strong>（Effect↔DB 胶水）· <strong>http-recorder</strong>（录制/回放 HTTP，给 LLM 测试用）· <strong>script</strong>（构建/发布）· <strong>storybook</strong></p></div>
+</div>
+<p>客户端为什么这么多张脸？因为"把 agent 抽成服务"之后，加一张脸的成本极低——它们共享同一套 sdk 与事件流，于是终端党有 tui、桌面党有 desktop、团队协作有 slack，各取所需，却不必各写一遍 agent 逻辑（呼应第 1 课）。</p>
+<p>这里藏着一个好设计：<span class="mono">app</span> 是真正的网页应用，<span class="mono">ui</span> 是被抽出来的<strong>渲染组件库</strong>——markdown、diff、语法高亮、数学公式只实现一次，就能同时喂给网页、终端 TUI 和桌面三种脸。</p>
+<p>基础库与云端也各有看点：<span class="mono">effect-drizzle-sqlite</span> 这类包，把 core 的持久化地基<strong>抽成可复用的独立库</strong>（第九部分会站在它们之上）；<span class="mono">http-recorder</span> 用"磁带"录下 provider 的 HTTP 往返，让 LLM 层的测试<strong>不烧 token、可复现</strong>。而那一整组云端包跑在 Cloudflare 或作为机器人——<strong>本地跑 opencode 时它们一个都不会启动</strong>，读内核时尽管略过。</p>
+<p>云端这组是 opencode 的"<strong>云上半边</strong>"：<span class="mono">enterprise</span> 做团队版与共享，<span class="mono">function</span> 处理 GitHub app 的鉴权回调，<span class="mono">stats</span> 收匿名用量，<span class="mono">identity</span> 与 <span class="mono">console</span> 管账户和控制台。它们都和本地内核解耦，所以你完全可以只用本地、一行云端代码都不碰。</p>
+<p>一个常被忽略的点：<span class="mono">cli</span> 这个包<strong>跨了两重身份</strong>——它既是一张"脸"（你敲的命令行），又把 core + server 打包进自己进程。于是它同时带着客户端与宿主两个角色。这正是 V2 想要的形态：一个二进制、自带 server，连网络服务都不必先起（第 13 课）。</p>
+<p>云端这组里还藏着一个容易混淆的点：<span class="mono">console</span>、<span class="mono">stats</span> 这些名字下面其实<strong>各自又是一棵小树</strong>，里面再分 app / core / server。所以"约 24 个包"只是顶层的粗略口径，真要细数还能更多——但对建立地图来说，记住顶层这层就够了，钻进子树是具体那一课的事。</p>
+<p>基础库这一组还体现了 opencode 的另一种工程习惯：<strong>把通用能力沉淀成独立小包</strong>。数据库访问、HTTP 录放、构建脚本，本可以散在各处随手写，它却特意抽出来、单独命名、单独测试。地基足够稳，上层才敢放心踩着它们盖楼——这也是为什么读到第九部分时，你会觉得持久化层格外清爽。</p>
+
+<h2>这张地图怎么用</h2>
+<p>把真实的 <span class="mono">packages/</span> 目录按角色上个色，就是下面这张"全景小抄"——CORE 高亮、客户端暖色、云端蓝色、基础库灰一档：</p>
+<div class="cellgroup">
+  <div class="cg-cap">真实的 <b>packages/</b> 目录（按角色着色）</div>
+  <div class="cells">
+    <div class="cell hl">opencode</div><div class="cell hl">core</div><div class="cell hl">llm</div><div class="cell hl">server</div><div class="cell hl">sdk</div><div class="cell hl">plugin</div>
+    <span class="lab">CORE</span>
+  </div>
+  <div class="cells">
+    <div class="cell scale">tui</div><div class="cell scale">cli</div><div class="cell scale">app</div><div class="cell scale">ui</div><div class="cell scale">desktop</div><div class="cell scale">web</div>
+    <span class="lab">客户端</span>
+  </div>
+  <div class="cells">
+    <div class="cell q">enterprise</div><div class="cell q">function</div><div class="cell q">slack</div><div class="cell q">console</div><div class="cell q">identity</div><div class="cell q">containers</div><div class="cell q">stats</div>
+    <span class="lab">云端</span>
+  </div>
+  <div class="cells">
+    <div class="cell">effect-drizzle-sqlite</div><div class="cell">effect-sqlite-node</div><div class="cell">http-recorder</div><div class="cell">script</div><div class="cell">storybook</div>
+    <span class="lab">基础库</span>
+  </div>
+</div>
+<p>真正读起来，这份指南就是顺着 CORE 一个个把包拆开。记住这条"后面去哪找"的路线，地图就活了：</p>
+<div class="vflow">
+  <div class="step"><b>server · sdk → 第三部分</b>　server 骨架、路由、SSE 事件总线、SDK 生成</div>
+  <div class="step"><b>core → 第四、五部分 ★</b>　V2 会话内核：agent 循环 + System Context / Context Epoch</div>
+  <div class="step"><b>llm → 第六部分 ★</b>　自研多协议模型层：协议适配、流式、路由</div>
+  <div class="step"><b>core 的工具 / 配置 / 存储 → 第七、八、九部分</b>　让 agent 真能干活、能配置、记得住</div>
+  <div class="step"><b>tui → 第十部分；plugin / LSP / MCP → 第十一部分</b>　终端渲染与扩展生态</div>
+</div>
+<p>举个例子：你想搞清"一次工具调用到底怎么跑"。顺着地图——它在 <span class="mono">core</span> 的 agent 循环里（第四部分），工具的定义与注册在第七部分，要<strong>并发</strong>跑多个工具又牵出 llm 与 Effect 的并发原语（第六、二部分）。地图的价值，就是把一个模糊的问题<strong>翻译成几个明确的落点</strong>。</p>
+<p>所以这一课真正想交给你的，不是 24 个包名的清单，而是一种<strong>看待陌生大仓库的姿势</strong>：先问"哪些在运行时真的会跑"，圈出那一小撮核心；再把其余按"脸 / 云 / 库"归类、安心推迟。带着这张地图往下走，后面每一课都像往早已画好的格子里填字——这正是从"被代码淹没"到"在代码里散步"的分界线。</p>
+
+<div class="card macro">
+  <div class="tag">🌍 宏观理解</div>
+  opencode 的 monorepo = <strong>四个角色分区</strong>：<strong>CORE</strong>（opencode · core · llm · server · sdk · plugin，唯一在运行时 agent 路径上）+ <strong>客户端</strong>（多张脸）+ <strong>云端集成</strong>（跑在别处）+ <strong>基础库</strong>（复用地基）。依赖只朝一个方向流：<strong>客户端 → sdk → server → core(+llm) → provider</strong>。读这个仓库的第一把筛子，就是先盯住 6 个 CORE 包，其余等用到再查。
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 细节 / 源码对应</div>
+  这张地图的"行政区划"，直接写在仓库根的 <span class="inline">package.json</span> 与 <span class="inline">turbo.json</span> 里：workspaces 圈定哪些目录算包，turbo 的 tasks 则定义全仓怎么 <span class="mono">typecheck / build / test</span>：
+<pre class="code"><span class="cm">// 简化自 仓库根 package.json</span>
+{
+  <span class="st">"workspaces"</span>: { <span class="st">"packages"</span>: [
+    <span class="st">"packages/*"</span>,          <span class="cm">// core·llm·server·tui·sdk·opencode …</span>
+    <span class="st">"packages/console/*"</span>,   <span class="cm">// 控制台子应用树</span>
+    <span class="st">"packages/stats/*"</span>,
+    <span class="st">"packages/sdk/js"</span>, <span class="st">"packages/slack"</span>
+  ] }
+}
+<span class="cm">// 简化自 turbo.json —— 一张构建任务图</span>
+{ <span class="st">"tasks"</span>: {
+  <span class="st">"typecheck"</span>: {},
+  <span class="st">"build"</span>: { <span class="st">"outputs"</span>: [<span class="st">"dist/**"</span>] },
+  <span class="st">"opencode#test"</span>: { <span class="st">"dependsOn"</span>: [<span class="st">"^build"</span>] }  <span class="cm">// 先 build 上游</span>
+} }</pre>
+  <span class="mono">"packages/*"</span> 一行就把 <span class="mono">packages/</span> 下每个带 <span class="mono">package.json</span> 的目录纳为工作区；<span class="mono">opencode#test</span> 的 <span class="mono">dependsOn: ["^build"]</span> 则告诉 turbo："测 opencode 前，先 build 它依赖的上游包"——一句配置，就把包之间的依赖顺序交给了构建系统。根 <span class="mono">package.json</span> 里还有一张 <span class="mono">catalog</span>，把 Effect、SolidJS 等公共依赖的版本统一钉死、全仓共用——这也是 monorepo 省心的一处。
+</div>
+
+<div class="card key">
+  <div class="tag">✅ 本课要点</div>
+  <ul>
+    <li>opencode 是 <strong>Bun + turborepo</strong> 的 monorepo，约 <strong>24 个包</strong>按角色分四组。</li>
+    <li><strong>CORE 六包</strong>（opencode · core · llm · server · sdk · plugin）是唯一在运行时 agent 路径上的——读内核先看它们。</li>
+    <li><strong>opencode</strong> 既是核心包又是 server 宿主、还扛着 V1；<strong>core</strong> 是 V2 内核（第 4 课）。</li>
+    <li>依赖单向流：<strong>客户端 → sdk → server → core(+llm) → provider</strong>；sdk 在构建时反向从 server 生成。</li>
+    <li>周边 = 客户端的脸 / 云端服务 / 基础库，<strong>本地跑 prompt 时多数不参与</strong>。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Last lesson we locked in one through-line — the client sends a message, the server runs the agent loop, events stream back. But the moment you actually clone opencode and open <span class="mono">packages/</span>, you slam into <strong>twenty-some packages</strong> with no idea where to look. This lesson hands you a <strong>map</strong>: it sorts those packages into four role groups and marks who depends on whom, which sit on the "runtime agent path," and which are mere periphery. Memorize this map and, whenever a later lesson names a package, you'll know exactly where it hangs.</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 Analogy</div>
+  Picture this monorepo as a <strong>zoned city</strong>. <strong>Downtown</strong> (CORE) is where work actually happens — city hall, the power plant, the water utility; these are the packages that run every time you "do a job with opencode." The <strong>storefronts</strong> (clients) are the faces citizens see: terminal, web, desktop, Slack — different shapes, all wired to downtown. The <strong>overseas branches</strong> (cloud integrations) operate in another country (Cloudflare); running opencode locally never disturbs them. The <strong>underground utilities</strong> (infra libs) everyone uses but nobody thinks about daily. And <strong>turborepo</strong> is the city's traffic control, deciding which roads to repave when you change one thing.
+</div>
+
+<h2>One repo, twenty-some packages</h2>
+<p>opencode is a <strong>Bun + turborepo monorepo</strong>: one git repo holding about <strong>24 packages</strong>, all under <span class="mono">packages/</span>. Why not split into dozens of separate repos? Because the packages <strong>share types</strong> — change one server endpoint and the sdk regenerates, the clients' types break immediately, and a <strong>single commit</strong> carries a change across the "client/server" line with no publishing and no version juggling.</p>
+<p>One <span class="mono">bun install</span> wires every dependency; one turbo task graph unifies <span class="mono">typecheck / build / test</span>. The root <span class="mono">package.json</span> workspaces even fold in "sub-app trees" like <span class="mono">packages/console/*</span> and <span class="mono">packages/stats/*</span> — so "24 packages" is approximate: console and stats each split internally into app / core / server.</p>
+<div class="flow">
+  <div class="node"><div class="nt">bun install</div><div class="nd">wire the whole repo once</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">turbo typecheck</div><div class="nd">type-check every package</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">turbo build</div><div class="nd">emit dist/**</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">turbo test</div><div class="nd">dependsOn ^build</div></div>
+</div>
+<p>Notice that trailing <span class="mono">^build</span>: turbo says "before testing a package, build its <strong>upstream</strong> dependencies first." In other words, the build graph itself encodes the <strong>dependency DAG</strong> between packages — when you can't tell what depends on what, <span class="mono">turbo.json</span> is a ready-made map.</p>
+<p>A monorepo isn't free, though — pack 24 packages together and the nightmare is "change one line, rebuild everything." opencode beats that with two things: <strong>Bun</strong> makes install and bundling fast, and <strong>turbo</strong> does <strong>incremental caching</strong> by content hash, re-running only the packages actually affected. So the repo is big, yet a routine <span class="mono">typecheck</span> usually returns in seconds.</p>
+<p>Flip it around: if server, sdk, and tui were three separate npm packages, changing one server endpoint would mean publishing server, upgrading sdk, then upgrading tui — three PRs, three version bumps. The monorepo collapses all that into <strong>one commit</strong>. For a project mid V1→V2 rebuild, that "atomic change" is close to a necessity.</p>
+<p>One more consistent choice: it uses <strong>Bun workspaces</strong>, not npm/pnpm. Bun is package manager, runtime, and bundler at once, so the whole toolchain is a single <span class="mono">bun</span> command — the same taste as Lesson 1's "one binary, easy to install."</p>
+<p>Ultimately the monorepo is opencode's bet on <strong>fast evolution</strong>: when a project is still reshaping its architecture and its interfaces change weekly, cramming all the related code into one repo under one toolchain is far less painful than maintaining a dozen separate, version-juggling packages. The trade is clear — <strong>a little build complexity in exchange for flexible, consistent repo-wide change</strong>.</p>
+<p>And don't let the package count scare you: the only ones you truly need to <strong>read end to end</strong> are that small core; most of the rest you may never open twice across this guide. A repo's <strong>size</strong> and the <strong>attention</strong> it demands of you were never the same thing — telling them apart is the first step to not being scared off by a large codebase.</p>
+
+<h2>Four role groups</h2>
+<p>Spread the 24 packages out by <strong>role</strong> and there are really only four kinds: ① <strong>CORE</strong> — packages on the "runtime agent path," executed every time you run a prompt; ② <strong>clients</strong> — the faces connecting to the server; ③ <strong>cloud / integrations</strong> — services on Cloudflare or running as bots; ④ <strong>infra libs</strong> — reused tooling. Place a package in its bucket first and you won't get lost among the 24.</p>
+<p>This four-way split looks trivial, but its value is <strong>giving every package a home</strong>: later, when you see a long list of imports at the top of a file, one glance at which groups they pull from tells you whether you're in core logic, some face's rendering, or cloud ops. A map's worth was never memorizing every street name — it's <strong>knowing at a glance which district you're standing in</strong>.</p>
+<div class="layers">
+  <div class="layer l-app"><div class="lh"><span class="badge">Clients · faces</span><span class="name">tui · cli · app · ui · desktop · web</span></div>
+    <div class="ld">Collect your input, render the server's event stream — many faces of one kernel</div></div>
+  <div class="layer l-core"><div class="lh"><span class="badge">CORE · runtime path</span><span class="name">opencode · core · llm · server · sdk · plugin</span></div>
+    <div class="ld">Agent loop, sessions, model access, server contract — only this group runs a prompt</div></div>
+  <div class="layer l-part"><div class="lh"><span class="badge">Cloud · integrations</span><span class="name">enterprise · function · slack · console · identity · containers · stats</span></div>
+    <div class="ld">Deployed on Cloudflare or as bots/services; the local kernel never touches them</div></div>
+  <div class="layer l-main"><div class="lh"><span class="badge">Infra libs</span><span class="name">effect-drizzle-sqlite · effect-sqlite-node · http-recorder · script · storybook</span></div>
+    <div class="ld">Reused foundations: DB glue, HTTP record/replay, build scripts, component workshop</div></div>
+</div>
+<p>Why split by <strong>role</strong> rather than by language or stack? Because the same technology is scattered across roles — SolidJS lives in both tui and app, Effect in both core and cli. What actually decides "do I care about this while reading source" is whether the package <strong>runs at runtime</strong>, not what it's written in.</p>
+<p>Of these four, the split worth memorizing first is <strong>CORE vs "periphery"</strong> — the cheapest filter for reading this repo:</p>
+<div class="cols">
+  <div class="col"><h4>CORE (6 · runtime path)</h4><p>opencode · core · llm · server · sdk · plugin. <strong>Only these 6</strong> execute when you run a prompt locally — to understand how the agent works, nine-tenths of the answer is here.</p></div>
+  <div class="col"><h4>Periphery (the other ~18)</h4><p>Client faces, cloud services, infra libs. They matter, but they all <strong>orbit CORE</strong>: each is either its front-end, its ops, or a tool it reuses.</p></div>
+</div>
+<p>How do you place a package at a glance? Check three things: does it <strong>depend on server / core</strong> (likely CORE or a client), does it <strong>deploy to Cloudflare</strong> (cloud), and does it <strong>have its own "face"</strong> (a UI means client; a pure function library means infra). You'll use this test every time a new package shows up.</p>
+<p>This line has a practical corollary: <strong>reading this guide, you'll spend nine-tenths of your time inside those 6 CORE packages</strong>. Of the twelve parts ahead, all but Parts 1 and 12 (panorama and engineering) drill into CORE. So learning these 6 names now pays off handsomely.</p>
+<p>To be clear, these four groups <strong>aren't cut absolutely cleanly</strong>: some packages wear two identities at once (like <span class="mono">cli</span>, coming up), and some infra libs really serve only one upper layer. But as a <strong>first layer of understanding</strong>, the split is good enough — get the rough map first, fill in details when the specific lesson arrives.</p>
+
+<h2>CORE: the six packages on the runtime path</h2>
+<p>CORE's six packages step inward from "shell" to "kernel," each owning one segment. This table is the <strong>trunk index</strong> you'll keep coming back to:</p>
+<table class="t">
+  <tr><th>Package</th><th>One-line responsibility</th><th>Expanded in</th></tr>
+  <tr><td class="mono">opencode</td><td>Main binary: yargs CLI + V1 session engine + <strong>server host</strong> (providers / MCP / LSP live here too)</td><td>Lessons 3, 4</td></tr>
+  <tr><td class="mono">core</td><td><strong>V2 Session Core</strong>: Effect services + Drizzle/SQLite + sessions / tools / system-context / pty</td><td>Parts 4-5</td></tr>
+  <tr><td class="mono">llm</td><td>In-house, provider-agnostic <strong>multi-protocol LLM client</strong></td><td>Part 6</td></tr>
+  <tr><td class="mono">server</td><td><strong>Thin contract layer</strong>: cors, route groups, shared types</td><td>Part 3</td></tr>
+  <tr><td class="mono">sdk</td><td>Type-safe TS client <strong>generated</strong> from the server's OpenAPI</td><td>Lesson 12</td></tr>
+  <tr><td class="mono">plugin</td><td>The outward-facing <span class="mono">@opencode-ai/plugin</span> SDK</td><td>Part 11</td></tr>
+</table>
+<p>The most vivid way to see them is to follow one request through all six: your words enter the <span class="mono">opencode</span> / <span class="mono">cli</span> command shell, whose hosted <span class="mono">server</span> receives them; the server hands the work by contract to <span class="mono">core</span>'s session engine; when core needs a model it calls <span class="mono">llm</span>; and llm encodes the request into some provider's protocol. Layer wrapping layer — exactly "shell → kernel."</p>
+<p>Another metaphor: the six packages form a <strong>conveyor belt from human to model</strong> — the outer end catches your plain words, the inner end emits protocol bytes for the LLM, and each segment in between does one clearly-defined thing before handing the half-product onward. When a file tangles you up, step back onto the belt and ask "which segment am I in, what did the previous one hand me, what do I owe the next" — clarity usually returns at once.</p>
+<p>And because the segments are so clearly delineated, each can be <strong>swapped on its own</strong>: a new provider touches only the innermost segment, a new front-end only the outermost, the middle untouched. This "one segment breaks without dragging the rest down" decoupling is the premise behind many later designs.</p>
+<p>An easily-missed detail: <span class="mono">opencode</span> is <strong>both</strong> a core package <strong>and</strong> the host — it carries the entire <strong>V1</strong> engine while embedding <strong>V2's core</strong> as the kernel behind the server. So it straddles the V1/V2 migration line (Lesson 4).</p>
+<p>An easter egg: opencode actually ships <strong>two binaries</strong>. <span class="mono">packages/opencode</span> is today's main <span class="mono">opencode</span> command (yargs, V1-leaning); <span class="mono">packages/cli</span> is a second binary called <span class="mono">lildax</span> that uses an Effect command framework to bundle <span class="mono">core + server + tui + sdk</span> — the <strong>V2 entry point taking shape</strong>.</p>
+<div class="flow">
+  <div class="node"><div class="nt">clients</div><div class="nd">tui · app · desktop · cli</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">sdk</div><div class="nd">generated type-safe client</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">server</div><div class="nd">thin contract layer</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node hl"><div class="nt">core (+llm)</div><div class="nd">V2 kernel + model layer</div></div>
+  <div class="arrow">-&gt;</div>
+  <div class="node"><div class="nt">provider</div><div class="nd">Anthropic · OpenAI · …</div></div>
+</div>
+<p>These six packages' <strong>dependencies flow one way</strong>: clients never import <span class="mono">core</span> directly; they call <span class="mono">server</span> through the <strong>generated sdk</strong>, and the server lands on <span class="mono">core</span> and <span class="mono">llm</span>, finally hitting each provider. This is the previous lesson's "client/server" boundary made concrete in package form — and the sdk seam is generated <strong>backward at build time</strong> from the server's OpenAPI (Lesson 12).</p>
+<p>Don't be fooled by <span class="mono">server</span>'s "thin": it's thin because <strong>the heavy lifting all lives in core</strong>. The server only translates HTTP requests by contract into calls on core, then encodes core's event stream back into SSE. This "thin shell, thick kernel" cut lets the same core be wrapped by a network server or driven in-process by cli (Lesson 13).</p>
+<p><span class="mono">sdk</span> and <span class="mono">plugin</span> are CORE's two outward-facing doors: <span class="mono">sdk</span> is for <strong>clients</strong> ("I want to call the server"), <span class="mono">plugin</span> is for <strong>third-party extensions</strong> ("I want to hook into the agent"). Both generate or export types from the kernel, so writing a front-end or a plugin gives you full type hints.</p>
+<p>Why is <span class="mono">core</span> its own package instead of living inside <span class="mono">opencode</span>? Because V2 wants the kernel <strong>bound to no particular host</strong>: one core can be wrapped by opencode's network server, driven in-process by cli, even shipped to the cloud later. Only by extracting the kernel does "implement once, reuse everywhere" become possible.</p>
+
+<p>One more thing worth remembering for life: these dependencies are almost all <strong>one-directional</strong> — clients depend on sdk, sdk on the server's contract, server on core, but never the reverse. core never knows who uses it, and no tui change can singe the kernel. <strong>Dependencies flowing only one way</strong> is precisely why this architecture can be split, swapped, and feed a whole crowd of front-ends at once.</p>
+<p>When you actually start reading CORE, begin from <strong><span class="mono">core</span>, not <span class="mono">opencode</span></strong>: the former is the kernel V2 wants to keep for the long run — clean structure, clear boundaries — while the latter still carries V1's historical baggage and reads messier. Trace the "sessions, tools, system-context" throughlines inside core first, then come back to see how opencode wires them to the CLI and server; the path is far smoother.</p>
+
+<h2>The periphery in three groups: clients / cloud / infra</h2>
+<p>Once CORE is clear, the periphery is easy — none of it sits on your local runtime path, so flip to it only when needed:</p>
+<p>Setting the whole periphery aside doesn't mean it's unimportant — it means <strong>its complexity is mutually independent</strong>: you can grasp the agent loop without knowing Electron, and session storage without knowing Cloudflare. That "understandable in isolation" property is the gift good modular design leaves the reader — it lets you carry one cognitive load at a time instead of cramming the whole city into your head at once.</p>
+<div class="cols">
+  <div class="col"><h4>Clients · faces</h4><p><strong>tui</strong> (SolidJS + opentui rich terminal) · <strong>cli</strong> (the lildax binary) · <strong>app</strong> (SolidJS web UI) · <strong>ui</strong> (render lib: markdown / diff / shiki / katex) · <strong>desktop</strong> (Electron shell) · <strong>web</strong> (Astro + Starlight site/docs)</p></div>
+  <div class="col"><h4>Cloud · integrations</h4><p><strong>enterprise</strong> (Hono + SolidStart on Cloudflare) · <strong>function</strong> (CF functions: GitHub app auth) · <strong>slack</strong> (Slack bot) · <strong>console</strong> · <strong>identity</strong> · <strong>containers</strong> · <strong>stats</strong></p></div>
+  <div class="col"><h4>Infra libs</h4><p><strong>effect-drizzle-sqlite</strong> and <strong>effect-sqlite-node</strong> (Effect↔DB glue) · <strong>http-recorder</strong> (record/replay HTTP, for LLM tests) · <strong>script</strong> (build/release) · <strong>storybook</strong></p></div>
+</div>
+<p>Why so many client faces? Because once you extract the agent into a service, adding a face costs almost nothing — they share the same sdk and event stream, so terminal folk get tui, desktop folk get desktop, teams get slack, each taking what it needs without re-writing agent logic (echoing Lesson 1).</p>
+<p>A nice design hides here: <span class="mono">app</span> is the actual web application, while <span class="mono">ui</span> is the extracted <strong>render/component library</strong> — markdown, diffs, syntax highlighting, and math are implemented once, then fed to all three faces: web, terminal TUI, and desktop.</p>
+<p>Infra and cloud each repay a look: packages like <span class="mono">effect-drizzle-sqlite</span> factor core's persistence foundation into <strong>reusable standalone libs</strong> (Part 9 builds on them); <span class="mono">http-recorder</span> tapes provider HTTP round-trips so the LLM layer's tests <strong>burn no tokens and stay reproducible</strong>. And that whole cloud group runs on Cloudflare or as bots — <strong>none of it starts when you run opencode locally</strong>, so skip it while reading the kernel.</p>
+<p>The cloud group is opencode's "<strong>upper half in the cloud</strong>": <span class="mono">enterprise</span> handles the team edition and sharing, <span class="mono">function</span> handles the GitHub app's auth callbacks, <span class="mono">stats</span> collects anonymous usage, and <span class="mono">identity</span> and <span class="mono">console</span> manage accounts and the console. All are decoupled from the local kernel, so you can stay fully local and touch not a line of cloud code.</p>
+<p>An often-missed point: the <span class="mono">cli</span> package <strong>spans two identities</strong> — it's both a "face" (the command line you type) and a host that bundles core + server into its own process. So it carries the client and host roles at once. This is exactly the V2 shape: one binary, server included, no network service to start first (Lesson 13).</p>
+<p>The cloud group hides one easily-confused point: names like <span class="mono">console</span> and <span class="mono">stats</span> are each <strong>a little tree of their own</strong>, further split into app / core / server inside. So "about 24 packages" is just the rough top-level count — count finely and there are more. But for building a map, the top level is enough; diving into the sub-trees is a job for the specific lesson.</p>
+<p>The infra group also reflects another opencode habit: <strong>distilling general capability into standalone packages</strong>. Database access, HTTP record/replay, build scripts — all could have been scribbled inline here and there, yet they're deliberately extracted, named, and tested on their own. Only with a solid foundation do upper layers dare build on top — which is why the persistence layer feels so clean when you reach Part 9.</p>
+
+<h2>How to use this map</h2>
+<p>Color the real <span class="mono">packages/</span> directory by role and you get this "panorama cheat-sheet" — CORE highlighted, clients warm, cloud blue, infra dimmed a notch:</p>
+<div class="cellgroup">
+  <div class="cg-cap">The real <b>packages/</b> directory (colored by role)</div>
+  <div class="cells">
+    <div class="cell hl">opencode</div><div class="cell hl">core</div><div class="cell hl">llm</div><div class="cell hl">server</div><div class="cell hl">sdk</div><div class="cell hl">plugin</div>
+    <span class="lab">CORE</span>
+  </div>
+  <div class="cells">
+    <div class="cell scale">tui</div><div class="cell scale">cli</div><div class="cell scale">app</div><div class="cell scale">ui</div><div class="cell scale">desktop</div><div class="cell scale">web</div>
+    <span class="lab">Clients</span>
+  </div>
+  <div class="cells">
+    <div class="cell q">enterprise</div><div class="cell q">function</div><div class="cell q">slack</div><div class="cell q">console</div><div class="cell q">identity</div><div class="cell q">containers</div><div class="cell q">stats</div>
+    <span class="lab">Cloud</span>
+  </div>
+  <div class="cells">
+    <div class="cell">effect-drizzle-sqlite</div><div class="cell">effect-sqlite-node</div><div class="cell">http-recorder</div><div class="cell">script</div><div class="cell">storybook</div>
+    <span class="lab">Infra</span>
+  </div>
+</div>
+<p>In practice this guide simply walks CORE, prying open one package at a time. Memorize this "where to find it later" route and the map comes alive:</p>
+<div class="vflow">
+  <div class="step"><b>server · sdk → Part 3</b>　server skeleton, routes, SSE event bus, SDK generation</div>
+  <div class="step"><b>core → Parts 4-5 ★</b>　the V2 session kernel: agent loop + System Context / Context Epoch</div>
+  <div class="step"><b>llm → Part 6 ★</b>　the in-house multi-protocol model layer: protocol adapters, streaming, routing</div>
+  <div class="step"><b>core's tools / config / storage → Parts 7-9</b>　make the agent actually work, be configured, remember</div>
+  <div class="step"><b>tui → Part 10; plugin / LSP / MCP → Part 11</b>　terminal rendering and the extension ecosystem</div>
+</div>
+<p>For example: you want to understand "how a single tool call actually runs." Follow the map — it's in <span class="mono">core</span>'s agent loop (Part 4), the tool's definition and registry are in Part 7, and running several tools <strong>concurrently</strong> pulls in llm and Effect's concurrency primitives (Parts 6 and 2). The map's value is turning one vague question into a few precise landing spots.</p>
+<p>So what this lesson really hands you isn't a list of 24 package names, but a <strong>posture for facing any large unfamiliar repo</strong>: first ask "which actually run at runtime" and circle that small core; then bucket the rest into "faces / cloud / libs" and defer them with a clear conscience. Carry this map forward and every later lesson feels like filling words into a grid already drawn — exactly the line between "drowning in code" and "strolling through it."</p>
+
+<div class="card macro">
+  <div class="tag">🌍 Big picture</div>
+  opencode's monorepo = <strong>four role groups</strong>: <strong>CORE</strong> (opencode · core · llm · server · sdk · plugin, the only one on the runtime agent path) + <strong>clients</strong> (many faces) + <strong>cloud integrations</strong> (run elsewhere) + <strong>infra libs</strong> (reused foundations). Dependencies flow one way: <strong>clients → sdk → server → core(+llm) → provider</strong>. The first filter for reading this repo is to lock onto the 6 CORE packages and look up the rest only when needed.
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  This map's "zoning" is written directly into the repo-root <span class="inline">package.json</span> and <span class="inline">turbo.json</span>: workspaces decide which directories count as packages, and turbo's tasks define how the whole repo runs <span class="mono">typecheck / build / test</span>:
+<pre class="code"><span class="cm">// simplified from repo-root package.json</span>
+{
+  <span class="st">"workspaces"</span>: { <span class="st">"packages"</span>: [
+    <span class="st">"packages/*"</span>,          <span class="cm">// core·llm·server·tui·sdk·opencode …</span>
+    <span class="st">"packages/console/*"</span>,   <span class="cm">// console sub-app tree</span>
+    <span class="st">"packages/stats/*"</span>,
+    <span class="st">"packages/sdk/js"</span>, <span class="st">"packages/slack"</span>
+  ] }
+}
+<span class="cm">// simplified from turbo.json — one build task graph</span>
+{ <span class="st">"tasks"</span>: {
+  <span class="st">"typecheck"</span>: {},
+  <span class="st">"build"</span>: { <span class="st">"outputs"</span>: [<span class="st">"dist/**"</span>] },
+  <span class="st">"opencode#test"</span>: { <span class="st">"dependsOn"</span>: [<span class="st">"^build"</span>] }  <span class="cm">// build upstream first</span>
+} }</pre>
+  The single line <span class="mono">"packages/*"</span> enrolls every directory under <span class="mono">packages/</span> that has a <span class="mono">package.json</span> as a workspace; <span class="mono">opencode#test</span>'s <span class="mono">dependsOn: ["^build"]</span> tells turbo "before testing opencode, build its upstream deps" — one line of config hands the inter-package build order to the build system. The root <span class="mono">package.json</span> also carries a <span class="mono">catalog</span> that pins shared dependency versions (Effect, SolidJS, and so on) once for the whole repo — another way the monorepo saves trouble.
+</div>
+
+<div class="card key">
+  <div class="tag">✅ Key points</div>
+  <ul>
+    <li>opencode is a <strong>Bun + turborepo</strong> monorepo, ~<strong>24 packages</strong> in four role groups.</li>
+    <li>The <strong>six CORE packages</strong> (opencode · core · llm · server · sdk · plugin) are the only ones on the runtime agent path — read them first.</li>
+    <li><strong>opencode</strong> is both a core package and the server host, and still carries V1; <strong>core</strong> is the V2 kernel (Lesson 4).</li>
+    <li>Dependencies flow one way: <strong>clients → sdk → server → core(+llm) → provider</strong>; the sdk is generated backward from the server at build time.</li>
+    <li>The periphery = client faces / cloud services / infra libs, <strong>mostly idle when you run a prompt locally</strong>.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_03 = wip('一次对话的生命周期', 'Lifecycle of one prompt')
 LESSON_04 = wip('V1 与 V2：架构迁移', 'V1 vs V2: the migration')
