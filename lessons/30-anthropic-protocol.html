@@ -328,8 +328,312 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第六部分 · LLM 协议层</span><span class="lang-en">Part 6 · LLM Layer</span></div>
     <h1><span class="lang-zh">Anthropic Messages 协议</span><span class="lang-en">The Anthropic protocol</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《Anthropic Messages 协议》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“Anthropic Messages 协议”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "The Anthropic protocol" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "The Anthropic protocol" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">上一课我们把空白的「两栏表」（<span class="mono">Protocol</span> 接口）认了个透：<span class="mono">body</span> 管出去、<span class="mono">stream</span> 管回来。这一课，我们看<strong>第一份被真正填好的表</strong>——Anthropic Messages 协议。它是 opencode 的「主力方言」（Claude 系列走这条），也是把这张表填得最有个性的一份。读它，不只是学一种协议，更是<strong>第一次看见「骨架如何长出血肉」</strong>。Anthropic 这份填法，有两处签名式的个性，值得你记一辈子：一是<strong>「一切皆块」</strong>——请求和响应的内容都被拆成一个个带类型的「内容块」；二是<strong>「四个缓存断点的预算」</strong>——一个精巧到有点苛刻的约束，逼出了一段很漂亮的预算管理代码。</p>
+<p>为什么挑 Anthropic 打头？因为它的设计<strong>最能体现「协议即方言」这件事的份量</strong>。同样是「发一段对话、收一段回复」，Anthropic 偏要你把内容装进<strong>带标签的盒子</strong>，偏要把系统提示<strong>单拎成一个顶层字段</strong>，还偏要给缓存<strong>设一个会爆 400 的硬上限</strong>。这些「偏要」就是方言的口音。而 opencode 的 <span class="mono">body.from</span>（这家叫 <span class="mono">lower*</span> 系列函数）要做的，就是把 core 那套不带口音的规范请求，一字一句翻成带 Anthropic 口音的话。看懂这份翻译，你就懂了「适配器」三个字的全部重量。</p>
+
+<div class="card analogy">
+  <div class="tag">📦 生活类比</div>
+  想象你在替总指挥，给一家特别讲规矩的承包商（Anthropic）填一份报关单。这家有两条死规矩。<strong>第一条：所有东西都得装进「贴了标签的标准箱」</strong>——文字一个箱（text）、图片一个箱（image）、「请你执行这个工具」一个箱（tool_use）、「这是工具跑出来的结果」又一个箱（tool_result）。不许散装、不许混装，连「系统须知」都得单独放进报关单<strong>抬头那一栏</strong>，不能混在货物里。<strong>第二条更绝：你总共只有 4 张「优先缓存」贴纸。</strong>你想让承包商把某几箱「记住别重算」，就贴一张；可贴纸只有 4 张，贴第 5 张，整张报关单当场被打回（400 错误）。于是你不得不<strong>精打细算</strong>：边装箱边数贴纸，贴完 4 张，后面再想贴的，只能<strong>悄悄记下「这张本来想贴但没贴」，然后放弃</strong>。这两条死规矩——标准箱、贴纸预算——正是 Anthropic 这份协议最鲜明的口音。
+</div>
+
+<h2>一切皆「块」：带类型的内容盒子</h2>
+<p>翻开 <span class="mono">protocols/anthropic-messages.ts</span>，最先扑面而来的就是一长串 <span class="mono">Schema.tag(...)</span> 定义的「块」类型。Anthropic 不像有些协议那样把消息内容塞成一个大字符串，而是要求<strong>每一段内容都是一个带 <span class="mono">type</span> 标签的结构化块</strong>：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">text</div><div class="c-txt">纯文本块</div></div>
+  <div class="cell"><div class="c-tag">image</div><div class="c-txt">图片块（多模态输入）</div></div>
+  <div class="cell"><div class="c-tag">tool_use</div><div class="c-txt">助手要调用一个工具（带 id、name、input）</div></div>
+  <div class="cell"><div class="c-tag">tool_result</div><div class="c-txt">回传工具结果（带 tool_use_id 对应）</div></div>
+  <div class="cell"><div class="c-tag">server_tool_use</div><div class="c-txt">服务端工具（如 web 搜索，供应商自己执行）</div></div>
+  <div class="cell"><div class="c-tag">*_tool_result</div><div class="c-txt">服务端工具结果（web_search/code_execution/web_fetch，整块内联）</div></div>
+</div>
+<p>这种「一切皆块」的设计，好处是<strong>结构清晰、可校验、可携带元数据</strong>——每个块都能单独挂一个 <span class="mono">cache_control</span>（下一节的主角）。这里还藏着一个有意思的不对称：普通的 <span class="mono">tool_use</span>（客户端工具）是「助手开口要求、由 opencode 在本地跑、再把 <span class="mono">tool_result</span> 回传」的<strong>三步往返</strong>；可那几个<strong>服务端工具</strong>（<span class="mono">web_search</span> / <span class="mono">code_execution</span> / <span class="mono">web_fetch</span>）却是供应商<strong>自己执行、把结果整块内联</strong>进助手这一轮——源码注释特意点明，它们「<strong>整块到达，没有流式增量</strong>」，没有客户端这边对应的 <span class="mono">tool_result</span> 往返。一个「块」的类型标签，背后竟编码着「这工具该谁来跑」这样的执行语义差异，可见这套块类型设计之精细。还有个容易忽略的细节：<strong>系统提示（system）在 Anthropic 里不是一条消息，而是请求体顶层一个独立字段</strong>，类型是「一个文本块的数组」。这跟 OpenAI 把 system 当成 messages 里第一条「role: system」的消息，是<strong>截然不同的方言</strong>——而这，正是为什么要有协议适配器：core 那边只有一份规范的 system，到了 Anthropic 这份 <span class="mono">body.from</span> 里，它被翻译成顶层 <span class="mono">system</span> 字段；到了第 31 课 OpenAI 那份里，它又被翻译成 messages 数组的头一条。<strong>同一个规范概念，两种方言两种摆法</strong>，这就是适配器在默默吸收的差异。</p>
+<div class="cols">
+  <div class="col"><h4>Anthropic 的摆法</h4><p><span class="mono">system</span> 是顶层独立字段（文本块数组）；<span class="mono">messages</span> 里每条的 content 是「块数组」。</p></div>
+  <div class="col"><h4>core 的规范</h4><p>core 只有一份不带口音的 system + 消息列表；不知道、也不该知道谁把它摆哪。</p></div>
+</div>
+<p>把这套「翻译」画成流水线，就是下面这条 <span class="mono">body.from</span>（即 <span class="mono">lower*</span> 系列）的工作链：规范请求进来，工具被 <span class="mono">lowerTool</span> 译成带 <span class="mono">input_schema</span> 的 Anthropic 工具、system 被摊成文本块数组放进顶层、每条消息的内容被逐段译成对应的块，最后拼成一个完整的 Anthropic 请求体。整条链上还<strong>串着一根贯穿始终的「缓存预算」红线</strong>（下一节细说），这也是为什么这些 <span class="mono">lower*</span> 函数每个都吃一个 <span class="mono">breakpoints</span> 参数：</p>
+<div class="flow">
+  <div class="f-node">LLMRequest<br><small>规范请求</small></div>
+  <div class="f-arrow">lowerTool →</div>
+  <div class="f-node">tools[]<br><small>带 input_schema</small></div>
+  <div class="f-arrow">+ system →</div>
+  <div class="f-node">顶层 system<br><small>文本块数组</small></div>
+  <div class="f-arrow">+ lowerMessages →</div>
+  <div class="f-node">Anthropic Body<br><small>messages 皆块</small></div>
+</div>
+
+<h2>四个缓存断点的预算：一段漂亮的「省钱」代码</h2>
+<p>这是 Anthropic 协议里我最想让你品的一段。先讲背景：Anthropic 支持<strong>提示缓存（prompt caching）</strong>——你可以在某些块上打一个 <span class="mono">cache_control: {type: ephemeral}</span> 标记，告诉服务端「从开头到这个标记的这一段前缀，请缓存住，下次同样的前缀别重算」。这能<strong>大幅省钱省延迟</strong>（缓存命中的 token 便宜得多）。但 Anthropic 有一条硬约束：<strong>每个请求最多只能打 4 个 <span class="mono">cache_control</span> 断点</strong>，横跨 <span class="mono">tools</span>、<span class="mono">system</span>、<span class="mono">messages</span> 三处一起算。<strong>打到第 5 个，API 直接返回 400</strong>。</p>
+<p>于是 opencode 的 lowering 层要解一道「<strong>预算分配</strong>」题：把规范请求翻成 Anthropic 体时，可能有一大堆地方都「想」打缓存标记，但总共只有 4 个名额。它的解法干净利落——<strong>带着一个可变的「预算计数器」<span class="mono">Breakpoints{remaining, dropped}</span> 穿过所有的 <span class="mono">lower*</span> 函数</strong>，每打一个标记就 <span class="mono">remaining--</span>，名额用完后，后面再想打的，就 <span class="mono">dropped++</span> 然后悄悄放弃（返回 <span class="mono">undefined</span>，不打）。绝不让标记数超过 4，从源头上杜绝那个 400。这里的<strong>顺序</strong>也有讲究：计数器是按 <span class="mono">tools → system → messages</span> 的次序消耗的，也就是说<strong>越靠前缀、越稳定的部分，越优先拿到宝贵的缓存名额</strong>——这恰好和「缓存的是前缀」这件事严丝合缝，把有限的 4 个名额花在最该缓存的地方：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">起</span><span class="t-txt">newBreakpoints(4) → {remaining:4, dropped:0}</span></div>
+  <div class="t-row"><span class="t-num">tools</span><span class="t-txt">某工具想缓存 → remaining 4→3，打 ephemeral 标记</span></div>
+  <div class="t-row"><span class="t-num">system</span><span class="t-txt">系统提示想缓存 → remaining 3→2，打标记</span></div>
+  <div class="t-row"><span class="t-num">messages</span><span class="t-txt">两处历史想缓存 → remaining 2→1→0，打标记</span></div>
+  <div class="t-row"><span class="t-num">第5个</span><span class="t-txt">又有一处想缓存 → remaining=0，dropped++，悄悄放弃（不打）</span></div>
+</div>
+<p>这段代码的<strong>克制</strong>体现在两点。其一，<strong>「悄悄放弃」而非「报错」</strong>：超额的缓存标记被默默丢掉，请求照常发出去——缓存只是优化，不该因为「想多缓存」反而把请求搞挂。其二，<strong>TTL 也被简化成两档</strong>：<span class="mono">ttlBucket</span> 把任何 ≥3600 秒的请求归为 <span class="mono">"1h"</span>，否则就是默认的 5 分钟——因为 Anthropic 只认这两档。还有个值得一提的工程决策：这套「4 个上限 + TTL 两档」的逻辑，被抽到了 <span class="mono">protocols/utils/cache.ts</span> 里<strong>共享</strong>，因为<strong>Bedrock 上的 Claude 也吃同一套规矩</strong>（第 32 课会再遇到它）。同一条供应商约束，被两个协议复用——又一处「把共性抽出来」的复利。</p>
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>预算计数器的核心，就是这个 <span class="mono">cacheControl</span> 函数（简化自 anthropic-messages.ts）：</p>
+  <pre class="code"><span class="cm">// 每个想打缓存标记的地方都调它，共享同一个 breakpoints</span>
+<span class="kw">const</span> <span class="fn">cacheControl</span> = (breakpoints, cache) =&gt; {
+  <span class="kw">if</span> (cache?.type !== <span class="st">"ephemeral"</span> &amp;&amp; cache?.type !== <span class="st">"persistent"</span>) <span class="kw">return</span> undefined
+  <span class="kw">if</span> (breakpoints.remaining &lt;= 0) {   <span class="cm">// 预算用完</span>
+    breakpoints.dropped += 1          <span class="cm">// 记一笔「想打但没打」</span>
+    <span class="kw">return</span> undefined                  <span class="cm">// 悄悄放弃</span>
+  }
+  breakpoints.remaining -= 1          <span class="cm">// 花掉一个名额</span>
+  <span class="kw">return</span> Cache.<span class="fn">ttlBucket</span>(cache.ttlSeconds) === <span class="st">"1h"</span> ? EPHEMERAL_1H : EPHEMERAL_5M
+}</pre>
+  <p>注意 <span class="mono">breakpoints</span> 是一个被各处<strong>共享并就地修改</strong>的对象——这是少见的、刻意的可变状态。为什么这里不学第 29 课 <span class="mono">step</span> 那样「显式传新状态」？因为这是<strong>纯本地、单趟、一次性</strong>的编码过程：在一个 <span class="mono">body.from</span> 调用内，从头到尾串行地把请求各部分翻一遍，用一个共享计数器是最直白的写法。<strong>状态机要可预测、可重放，所以显式传状态；一趟性的预算分配只图直白，所以就地改一个计数器。</strong>什么场景配什么手法，这套代码拿捏得相当精准。</p>
+</div>
+
+<h2>回来的流：Anthropic 的事件词汇表</h2>
+<p>填完 <span class="mono">body</span>（出去），再看 <span class="mono">stream</span>（回来）。Anthropic 的流式响应，有一套自己的 SSE 事件词汇，<span class="mono">stream.step</span> 状态机就是顺着这套词汇把碎片拼回规范 <span class="mono">LLMEvent</span> 的：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">message_start</span><span class="t-txt">一轮回复开始，带初始 usage（输入 token 数等）</span></div>
+  <div class="t-row"><span class="t-num">content_block_start</span><span class="t-txt">一个内容块开始（text / tool_use / 服务端工具结果整块到达）</span></div>
+  <div class="t-row"><span class="t-num">content_block_delta</span><span class="t-txt">块内增量：text_delta 文字片段 / input_json_delta 工具参数片段</span></div>
+  <div class="t-row"><span class="t-num">content_block_stop</span><span class="t-txt">一个块结束</span></div>
+  <div class="t-row"><span class="t-num">message_delta</span><span class="t-txt">带 stop_reason 和最终 usage（输出 token 数）</span></div>
+  <div class="t-row"><span class="t-num">message_stop</span><span class="t-txt">整轮回复结束</span></div>
+</div>
+<p>这正是第 29 课那台状态机的真实样貌：<span class="mono">tool_use</span> 的参数 JSON 通过一串 <span class="mono">input_json_delta</span> <strong>跨多帧</strong>到齐，State 一路把它们拼起来，等 <span class="mono">content_block_stop</span> 才吐出完整工具调用——和我们上一课预想的分毫不差。有几个 Anthropic 特有的处理细节很见功力：<strong>用量要合并</strong>——usage 在 <span class="mono">message_start</span>（输入侧）和 <span class="mono">message_delta</span>（输出侧）<strong>各出现一次</strong>，<span class="mono">mergeUsage</span> 把两半并成一个完整的 Usage；<strong>缓存用量也被翻译</strong>——<span class="mono">cache_read_input_tokens</span> / <span class="mono">cache_creation_input_tokens</span> 被映射成规范 Usage 里的 cacheRead / cacheWrite（你打的那些缓存断点，省没省钱，这里见分晓）；<strong>思考 token 不单列</strong>——Anthropic 把 thinking 算进 output_tokens，所以规范 reasoningTokens 留 <span class="mono">undefined</span>，老老实实不编造。还有 <span class="mono">stop_reason</span> 的翻译：<span class="mono">"tool_use" → "tool-calls"</span> 等，把 Anthropic 的措辞对回规范的 FinishReason。</p>
+<p>单把「用量翻译」这一格拎出来看，最能体现适配器的「<strong>翻译</strong>」本质——左边是 Anthropic 的字段名，右边是 core 认的规范字段，<span class="mono">mapUsage</span> 做的就是这张对照表：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">input_tokens</div><div class="c-txt">→ 规范 inputTokens（未命中缓存的输入）</div></div>
+  <div class="cell"><div class="c-tag">output_tokens</div><div class="c-txt">→ 规范 outputTokens（含 thinking，不单列）</div></div>
+  <div class="cell"><div class="c-tag">cache_read_input_tokens</div><div class="c-txt">→ 规范 cacheRead（缓存命中，便宜）</div></div>
+  <div class="cell"><div class="c-tag">cache_creation_input_tokens</div><div class="c-txt">→ 规范 cacheWrite（首次写缓存）</div></div>
+</div>
+<p>这张小小的对照表，恰恰是第 28 课「反腐层」最具体的注脚：上层的 agent 循环只认 <span class="mono">inputTokens/outputTokens/cacheRead/cacheWrite</span> 这几个规范名字，<strong>从不需要知道</strong> Anthropic 管它们叫 <span class="mono">input_tokens</span> 还是 <span class="mono">cache_creation_input_tokens</span>。供应商今天改个字段名、明天加个计费项，冲击都被挡在 <span class="mono">mapUsage</span> 这一道墙上，墙内岿然不动。<strong>一个适配器的价值，往往就藏在这种不起眼的「字段改名」里</strong>——它把外部世界的善变，翻译成内部世界的安稳。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>L29 给了空白的表，L30 是第一份填好的表——Anthropic 这份方言的全貌：</p>
+  <ul>
+    <li><strong>body（出去）= lower* 系列函数</strong>：把规范请求翻成 Anthropic 体——内容拆成<strong>带类型的块</strong>（text/image/tool_use/tool_result/服务端工具…），system 单拎成<strong>顶层字段</strong>。</li>
+    <li><strong>签名特性①「一切皆块」</strong>：每段内容都是带 <span class="mono">type</span> 的结构化块，可单独挂 <span class="mono">cache_control</span> 元数据。</li>
+    <li><strong>签名特性②「4 个缓存断点预算」</strong>：跨 tools/system/messages 最多 4 个 ephemeral 标记，超额 400；用可变 <span class="mono">Breakpoints{remaining,dropped}</span> 计数器穿过 lower*，超了就悄悄丢。逻辑与 Bedrock <strong>共享</strong>于 utils/cache.ts。</li>
+    <li><strong>stream（回来）</strong>：message_start→content_block_start/delta/stop→message_delta→message_stop；工具参数跨帧累积、usage 两半合并、缓存用量回译、思考 token 不单列。</li>
+  </ul>
+  <p>一条值得你串起来的线：<strong>缓存断点和第 24 课的 Context Epoch 是天作之合</strong>。Context Epoch 拼命维持「基线前缀稳定」，图的是什么？图的正是让 Anthropic 这个缓存前缀<strong>持续命中</strong>——前缀稳，缓存才不失效，省下的就是真金白银。上层「稳住前缀」的苦心，到这一层「缓存断点」上兑现成了账单上的数字。这就是读源码内幕的乐趣：两个相隔六课、看似无关的设计，在这里悄悄咬合上了，彼此成全。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li>Anthropic Messages 协议是第一份「填好的 <span class="mono">Protocol</span> 表」（<span class="mono">protocols/anthropic-messages.ts</span>），opencode 的主力方言（Claude 走这条）。</li>
+    <li><strong>一切皆块</strong>：内容拆成带 <span class="mono">type</span> 的结构化块（text/image/tool_use/tool_result/server_tool_use/服务端工具结果）；<strong>system 是顶层独立字段</strong>（区别于 OpenAI 把它当首条消息）——正是适配器要吸收的方言差异。</li>
+    <li><strong>4 个缓存断点预算</strong>：跨 tools/system/messages 最多 4 个 <span class="mono">cache_control: ephemeral</span> 标记，超额报 400；lowering 层用可变 <span class="mono">Breakpoints{remaining,dropped}</span> 计数器穿过 <span class="mono">lower*</span>，花完名额就 <span class="mono">dropped++</span> 悄悄放弃（不报错）。TTL 两档：≥3600s→"1h"，否则 5m。</li>
+    <li>这套缓存逻辑抽到 <span class="mono">utils/cache.ts</span> 与 <strong>Bedrock 共享</strong>（同一供应商约束，两协议复用）。可变计数器是刻意的本地、单趟手法，区别于状态机的显式传状态。</li>
+    <li><strong>stream</strong>：message_start/content_block_*/message_delta/message_stop；工具参数经 input_json_delta 跨帧累积；usage 两半 <span class="mono">mergeUsage</span> 合并、缓存用量回译为 cacheRead/cacheWrite、思考 token 不单列。缓存断点与第 24 课 Context Epoch「稳基线前缀」遥相呼应。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. Anthropic 协议里，系统提示（system）是怎么摆的？</div>
+  <ol class="opts">
+    <li>请求体顶层一个独立字段（文本块数组），不是 messages 里的一条消息——区别于 OpenAI 把它当首条 role:system 消息</li>
+    <li>Anthropic 不支持系统提示</li>
+    <li>放在 HTTP 请求头里</li>
+    <li>和普通用户消息完全一样，混在 messages 里</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。这正是「协议即方言」最直观的例子：同一个规范 system，Anthropic 的 body.from 把它摆成顶层 system 字段（文本块数组），OpenAI 那份却把它摆成 messages 数组的头一条。core 只有一份不带口音的 system，谁把它摆哪、是适配器在默默吸收的差异。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. Anthropic 的「4 个缓存断点上限」，opencode 的 lowering 层怎么应对？</div>
+  <ol class="opts">
+    <li>从不打任何缓存标记</li>
+    <li>带一个可变计数器 Breakpoints{remaining,dropped} 穿过所有 lower*，每打一个标记 remaining--，超额就 dropped++ 悄悄放弃（不打、不报错）</li>
+    <li>随机丢弃一半标记</li>
+    <li>打满 5 个，让 API 自己报 400</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。Anthropic 每请求最多 4 个 cache_control 断点（跨 tools/system/messages 合计），第 5 个直接 400。opencode 从源头杜绝：一个共享的可变计数器穿过 lower*，按 tools→system→messages 次序消耗名额（越靠前缀越优先），用完后超额的标记只 dropped++ 然后返回 undefined。缓存是优化，不该因「想多缓存」把请求搞挂——所以悄悄丢，不报错。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. 「4 断点 + TTL 两档」的缓存逻辑被抽到 utils/cache.ts 共享，为什么？</div>
+  <ol class="opts">
+    <li>为了让 Anthropic 协议更短</li>
+    <li>因为 Bedrock 上的 Claude 吃同一套规矩——同一供应商约束被两个协议复用，抽出共性免得写两遍</li>
+    <li>纯粹为了让文件更多</li>
+    <li>因为缓存逻辑必须放在 utils 目录</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。Anthropic 和 Bedrock 上的 Claude 共享同一套缓存约束（4 上限、5m/1h 两档 TTL）。把计数器和 TTL 映射抽到 utils/cache.ts，两个协议都引它——又一处「把共性抽出来」的复利，和第 28 课 OpenAI-Compatible 协议复用、第 31 课 Chat/Responses 共享，是同一种省力智慧。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里点出一处「天作之合」：Anthropic 的缓存断点，和第 24 课 Context Epoch 拼命维持的「基线前缀稳定」严丝合缝——前缀稳，缓存才持续命中，省下真金白银。请你顺着这条线，说说为什么「让 prompt 的前缀尽量不变」会同时利好「缓存命中率」和「省钱」；如果上层频繁改写前缀（比如每轮都往最前面插一句变化的内容），会发生什么？</li>
+    <li>课里对比了两种状态管理：第 29 课的 stream.step「显式传新状态」，本课缓存预算的 Breakpoints「就地修改一个共享计数器」。课文说前者图「可预测、可重放」，后者图「一趟性的直白」。结合这两个场景，谈谈你判断「该用不可变显式传递，还是该用可变就地修改」的标准是什么？</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">Last lesson we learned the blank "two-column form" (the <span class="mono">Protocol</span> interface) inside out: <span class="mono">body</span> owns out, <span class="mono">stream</span> owns back. This lesson we look at <strong>the first form actually filled in</strong>—the Anthropic Messages protocol. It's opencode's "primary dialect" (the Claude family rides this), and the one that fills the form with the most personality. Reading it isn't just learning one protocol—it's <strong>the first time we see "the skeleton grow flesh."</strong> Anthropic's filling has two signature quirks worth remembering forever: one, <strong>"everything is a block"</strong>—request and response content are both split into typed "content blocks"; two, <strong>"a budget of four cache breakpoints"</strong>—a constraint so neat it's almost harsh, which forces out a rather beautiful piece of budget-management code.</p>
+<p>Why lead with Anthropic? Because its design <strong>best captures the weight of "protocol = dialect."</strong> The same "send a conversation, take a reply," yet Anthropic insists you pack content into <strong>labeled boxes</strong>, insists the system prompt be <strong>hoisted into its own top-level field</strong>, and insists on a <strong>hard cache cap that 400s if exceeded</strong>. These "insists" are the dialect's accent. And what opencode's <span class="mono">body.from</span> (here a family of <span class="mono">lower*</span> functions) does is translate core's accent-free canonical request, word by word, into Anthropic-accented speech. Understand this translation and you understand the full weight of the word "adapter."</p>
+
+<div class="card analogy">
+  <div class="tag">📦 Analogy</div>
+  Imagine, on behalf of the chief, you fill out a customs form for an especially rule-bound contractor (Anthropic). This one has two dead rules. <strong>Rule one: everything goes into "labeled standard boxes"</strong>—text one box (text), image one box (image), "please run this tool" one box (tool_use), "here's the tool's result" another box (tool_result). No loose packing, no mixed packing, even "system notice" must go alone into the form's <strong>header field</strong>, not mixed in with cargo. <strong>Rule two is even sharper: you get only 4 "priority cache" stickers total.</strong> To make the contractor "remember, don't recompute" certain boxes, you stick one; but there are only 4 stickers, and sticking a 5th gets the whole form bounced on the spot (a 400 error). So you must <strong>budget carefully</strong>: count stickers as you pack, and once 4 are used, anything else you'd have stuck you can only <strong>quietly note "wanted to but didn't," then give up</strong>. These two dead rules—standard boxes, sticker budget—are exactly the sharpest accent of this Anthropic protocol.
+</div>
+
+<h2>Everything is a "block": typed content boxes</h2>
+<p>Open <span class="mono">protocols/anthropic-messages.ts</span> and the first thing hitting you is a long run of "block" types defined by <span class="mono">Schema.tag(...)</span>. Unlike some protocols that stuff message content into one big string, Anthropic requires <strong>every piece of content be a structured block with a <span class="mono">type</span> tag</strong>:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">text</div><div class="c-txt">plain text block</div></div>
+  <div class="cell"><div class="c-tag">image</div><div class="c-txt">image block (multimodal input)</div></div>
+  <div class="cell"><div class="c-tag">tool_use</div><div class="c-txt">assistant wants to call a tool (with id, name, input)</div></div>
+  <div class="cell"><div class="c-tag">tool_result</div><div class="c-txt">returning a tool result (with matching tool_use_id)</div></div>
+  <div class="cell"><div class="c-tag">server_tool_use</div><div class="c-txt">server-side tool (e.g. web search, run by the vendor itself)</div></div>
+  <div class="cell"><div class="c-tag">*_tool_result</div><div class="c-txt">server tool results (web_search/code_execution/web_fetch, inlined whole)</div></div>
+</div>
+<p>This "everything is a block" design buys <strong>clear structure, validatability, and metadata-carrying</strong>—each block can hang its own <span class="mono">cache_control</span> (the star of the next section). There's also an interesting asymmetry hidden here: a regular <span class="mono">tool_use</span> (client tool) is a <strong>three-step round trip</strong> of "assistant asks, opencode runs it locally, sends back a <span class="mono">tool_result</span>"; but those few <strong>server-side tools</strong> (<span class="mono">web_search</span> / <span class="mono">code_execution</span> / <span class="mono">web_fetch</span>) are <strong>run by the vendor itself, with results inlined whole</strong> into the assistant turn—the source comment notes they "<strong>arrive whole, with no streaming deltas</strong>," with no client-side <span class="mono">tool_result</span> round trip. A "block"'s type tag actually encodes an execution-semantics difference of "who runs this tool," showing how refined this block-type design is. Another easily-missed detail: <strong>the system prompt in Anthropic is not a message but a separate top-level field of the request body</strong>, typed as "an array of text blocks." This is a <strong>wholly different dialect</strong> from OpenAI treating system as the first "role: system" message in messages—and this is exactly why protocol adapters exist: core has only one canonical system, which in this Anthropic <span class="mono">body.from</span> becomes the top-level <span class="mono">system</span> field; in lesson 31's OpenAI filling it becomes the first entry of the messages array. <strong>One canonical concept, two dialects, two placements</strong>—the difference the adapter quietly absorbs.</p>
+<div class="cols">
+  <div class="col"><h4>Anthropic's placement</h4><p><span class="mono">system</span> is a top-level field (array of text blocks); each <span class="mono">messages</span> entry's content is a "block array."</p></div>
+  <div class="col"><h4>core's canonical</h4><p>core has only one accent-free system + message list; doesn't and shouldn't know who places it where.</p></div>
+</div>
+<p>Drawn as a pipeline, this "translation" is the work chain of <span class="mono">body.from</span> (the <span class="mono">lower*</span> family) below: the canonical request comes in, tools get translated by <span class="mono">lowerTool</span> into Anthropic tools carrying <span class="mono">input_schema</span>, system gets spread into a text-block array placed top-level, each message's content gets translated segment by segment into matching blocks, finally assembled into a full Anthropic request body. Running through the whole chain is <strong>a red thread of "cache budget"</strong> (next section), which is why each <span class="mono">lower*</span> function eats a <span class="mono">breakpoints</span> parameter:</p>
+<div class="flow">
+  <div class="f-node">LLMRequest<br><small>canonical request</small></div>
+  <div class="f-arrow">lowerTool →</div>
+  <div class="f-node">tools[]<br><small>with input_schema</small></div>
+  <div class="f-arrow">+ system →</div>
+  <div class="f-node">top-level system<br><small>text-block array</small></div>
+  <div class="f-arrow">+ lowerMessages →</div>
+  <div class="f-node">Anthropic Body<br><small>messages all blocks</small></div>
+</div>
+
+<h2>Four cache breakpoints' budget: a beautiful piece of "thrift" code</h2>
+<p>This is the passage in the Anthropic protocol I most want you to savor. First the background: Anthropic supports <strong>prompt caching</strong>—you can mark certain blocks with <span class="mono">cache_control: {type: ephemeral}</span>, telling the server "the prefix from the start to this marker, please cache it, don't recompute the same prefix next time." This <strong>saves serious money and latency</strong> (cache-hit tokens are far cheaper). But Anthropic has a hard constraint: <strong>at most 4 <span class="mono">cache_control</span> breakpoints per request</strong>, counted together across <span class="mono">tools</span>, <span class="mono">system</span>, and <span class="mono">messages</span>. <strong>Hit a 5th and the API returns 400 outright.</strong></p>
+<p>So opencode's lowering layer must solve a "<strong>budget allocation</strong>" puzzle: translating the canonical request into the Anthropic body, many places may "want" a cache marker, but there are only 4 slots total. Its solution is crisp—<strong>carry a mutable "budget counter" <span class="mono">Breakpoints{remaining, dropped}</span> through all the <span class="mono">lower*</span> functions</strong>, decrement <span class="mono">remaining--</span> per marker emitted, and once slots run out, anything else wanting a marker does <span class="mono">dropped++</span> then quietly gives up (returns <span class="mono">undefined</span>, no marker). Never letting the marker count exceed 4, killing that 400 at the source. The <strong>order</strong> matters too: the counter is consumed in <span class="mono">tools → system → messages</span> order, meaning <strong>the more prefix-y and stable a part, the higher its priority for a precious cache slot</strong>—which dovetails exactly with "the cache caches a prefix," spending the limited 4 slots where caching matters most:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">start</span><span class="t-txt">newBreakpoints(4) → {remaining:4, dropped:0}</span></div>
+  <div class="t-row"><span class="t-num">tools</span><span class="t-txt">a tool wants caching → remaining 4→3, emit ephemeral marker</span></div>
+  <div class="t-row"><span class="t-num">system</span><span class="t-txt">system prompt wants caching → remaining 3→2, emit marker</span></div>
+  <div class="t-row"><span class="t-num">messages</span><span class="t-txt">two history spots want caching → remaining 2→1→0, emit markers</span></div>
+  <div class="t-row"><span class="t-num">5th</span><span class="t-txt">another wants caching → remaining=0, dropped++, quietly give up</span></div>
+</div>
+<p>This code's <strong>restraint</strong> shows in two places. First, <strong>"quietly give up" rather than "error"</strong>: excess cache markers are silently dropped, the request goes out as usual—caching is only an optimization, it shouldn't break the request just because you "wanted to cache more." Second, <strong>TTL is also simplified to two buckets</strong>: <span class="mono">ttlBucket</span> maps any request ≥3600 seconds to <span class="mono">"1h"</span>, otherwise the default 5 minutes—because Anthropic only recognizes these two. One more engineering decision worth noting: this "4-cap + two TTL buckets" logic is hoisted into <span class="mono">protocols/utils/cache.ts</span> to be <strong>shared</strong>, because <strong>Claude on Bedrock eats the same rules</strong> (lesson 32 meets it again). One provider constraint, reused by two protocols—another instance of "factor out the commonality" compounding.</p>
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>The heart of the budget counter is this <span class="mono">cacheControl</span> function (simplified from anthropic-messages.ts):</p>
+  <pre class="code"><span class="cm">// every spot wanting a cache marker calls it, sharing one breakpoints</span>
+<span class="kw">const</span> <span class="fn">cacheControl</span> = (breakpoints, cache) =&gt; {
+  <span class="kw">if</span> (cache?.type !== <span class="st">"ephemeral"</span> &amp;&amp; cache?.type !== <span class="st">"persistent"</span>) <span class="kw">return</span> undefined
+  <span class="kw">if</span> (breakpoints.remaining &lt;= 0) {   <span class="cm">// budget exhausted</span>
+    breakpoints.dropped += 1          <span class="cm">// note a "wanted-but-didn't"</span>
+    <span class="kw">return</span> undefined                  <span class="cm">// quietly give up</span>
+  }
+  breakpoints.remaining -= 1          <span class="cm">// spend a slot</span>
+  <span class="kw">return</span> Cache.<span class="fn">ttlBucket</span>(cache.ttlSeconds) === <span class="st">"1h"</span> ? EPHEMERAL_1H : EPHEMERAL_5M
+}</pre>
+  <p>Note <span class="mono">breakpoints</span> is an object <strong>shared and mutated in place</strong> across many spots—a rare, deliberate piece of mutable state. Why not follow lesson 29's <span class="mono">step</span> and "thread new state explicitly"? Because this is a <strong>purely local, single-pass, one-shot</strong> encoding process: within one <span class="mono">body.from</span> call, you serially translate the request's parts start to finish, and a shared counter is the most direct way. <strong>A state machine must be predictable and replayable, so thread state explicitly; a one-pass budget allocation just wants directness, so mutate a counter in place.</strong> Which technique fits which scene—this code gets the call just right.</p>
+</div>
+
+<h2>The stream back: Anthropic's event vocabulary</h2>
+<p>Having filled <span class="mono">body</span> (out), look at <span class="mono">stream</span> (back). Anthropic's streaming response has its own SSE event vocabulary, and the <span class="mono">stream.step</span> state machine follows that vocabulary to piece fragments back into canonical <span class="mono">LLMEvent</span>s:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">message_start</span><span class="t-txt">a reply turn begins, with initial usage (input token count, etc.)</span></div>
+  <div class="t-row"><span class="t-num">content_block_start</span><span class="t-txt">a content block begins (text / tool_use / server tool result arrives whole)</span></div>
+  <div class="t-row"><span class="t-num">content_block_delta</span><span class="t-txt">in-block deltas: text_delta text fragment / input_json_delta tool-arg fragment</span></div>
+  <div class="t-row"><span class="t-num">content_block_stop</span><span class="t-txt">a block ends</span></div>
+  <div class="t-row"><span class="t-num">message_delta</span><span class="t-txt">carries stop_reason and final usage (output token count)</span></div>
+  <div class="t-row"><span class="t-num">message_stop</span><span class="t-txt">the whole reply turn ends</span></div>
+</div>
+<p>This is the real face of lesson 29's state machine: a <span class="mono">tool_use</span>'s argument JSON arrives <strong>across many frames</strong> via a run of <span class="mono">input_json_delta</span>, State pieces them together all the way, and only at <span class="mono">content_block_stop</span> emits the complete tool call—exactly as we predicted last lesson. A few Anthropic-specific handling details show real skill: <strong>usage must be merged</strong>—usage appears <strong>once each</strong> on <span class="mono">message_start</span> (input side) and <span class="mono">message_delta</span> (output side), and <span class="mono">mergeUsage</span> combines the two halves into one complete Usage; <strong>cache usage is translated too</strong>—<span class="mono">cache_read_input_tokens</span> / <span class="mono">cache_creation_input_tokens</span> map to cacheRead / cacheWrite in canonical Usage (whether your cache breakpoints saved money shows up here); <strong>thinking tokens aren't broken out</strong>—Anthropic counts thinking into output_tokens, so canonical reasoningTokens stays <span class="mono">undefined</span>, honestly not fabricating. And <span class="mono">stop_reason</span> translation: <span class="mono">"tool_use" → "tool-calls"</span> etc., mapping Anthropic's wording back to canonical FinishReason.</p>
+<p>Pull out just the "usage translation" cell and it best captures the adapter's "<strong>translation</strong>" essence—left are Anthropic's field names, right are core's recognized canonical fields, and <span class="mono">mapUsage</span> is this lookup table:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">input_tokens</div><div class="c-txt">→ canonical inputTokens (non-cached input)</div></div>
+  <div class="cell"><div class="c-tag">output_tokens</div><div class="c-txt">→ canonical outputTokens (incl. thinking, not broken out)</div></div>
+  <div class="cell"><div class="c-tag">cache_read_input_tokens</div><div class="c-txt">→ canonical cacheRead (cache hit, cheap)</div></div>
+  <div class="cell"><div class="c-tag">cache_creation_input_tokens</div><div class="c-txt">→ canonical cacheWrite (first cache write)</div></div>
+</div>
+<p>This tiny lookup table is the most concrete footnote to lesson 28's "anti-corruption layer": the upper agent loop knows only the canonical names <span class="mono">inputTokens/outputTokens/cacheRead/cacheWrite</span>, and <strong>never needs to know</strong> Anthropic calls them <span class="mono">input_tokens</span> or <span class="mono">cache_creation_input_tokens</span>. The vendor renaming a field today, adding a billing item tomorrow—the impact is all blocked at the <span class="mono">mapUsage</span> wall, the inside unmoved. <strong>An adapter's value often hides in such unremarkable "field renames"</strong>—translating the outside world's fickleness into the inside world's calm.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>L29 gave the blank form, L30 is the first filled-in form—the full picture of Anthropic's dialect:</p>
+  <ul>
+    <li><strong>body (out) = the lower* family</strong>: translates the canonical request into the Anthropic body—content split into <strong>typed blocks</strong> (text/image/tool_use/tool_result/server tools…), system hoisted into a <strong>top-level field</strong>.</li>
+    <li><strong>Signature quirk ① "everything is a block"</strong>: each piece of content is a structured block with a <span class="mono">type</span>, able to hang its own <span class="mono">cache_control</span> metadata.</li>
+    <li><strong>Signature quirk ② "4 cache breakpoints budget"</strong>: at most 4 ephemeral markers across tools/system/messages, 400 if exceeded; a mutable <span class="mono">Breakpoints{remaining,dropped}</span> counter threads through lower*, dropping silently past the cap. Logic <strong>shared</strong> with Bedrock in utils/cache.ts.</li>
+    <li><strong>stream (back)</strong>: message_start→content_block_start/delta/stop→message_delta→message_stop; tool args accumulate across frames, usage's two halves merged, cache usage back-translated, thinking tokens not broken out.</li>
+  </ul>
+  <p>A thread worth tying together: <strong>cache breakpoints and lesson 24's Context Epoch are a match made in heaven</strong>. Context Epoch works hard to keep the "baseline prefix stable"—for what? Precisely to keep this Anthropic cache prefix <strong>hitting continuously</strong>—a stable prefix means the cache doesn't invalidate, and what's saved is hard cash. The upper layer's pains to "hold the prefix steady" cash out, at this "cache breakpoint" layer, into numbers on the bill. That's the joy of reading source internals: two designs six lessons apart, seemingly unrelated, quietly mesh here, each completing the other.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li>The Anthropic Messages protocol is the first "filled-in <span class="mono">Protocol</span> form" (<span class="mono">protocols/anthropic-messages.ts</span>), opencode's primary dialect (Claude rides this).</li>
+    <li><strong>Everything is a block</strong>: content split into structured blocks with a <span class="mono">type</span> (text/image/tool_use/tool_result/server_tool_use/server tool results); <strong>system is a top-level field</strong> (vs OpenAI treating it as the first message)—exactly the dialect difference the adapter absorbs.</li>
+    <li><strong>4 cache breakpoints budget</strong>: at most 4 <span class="mono">cache_control: ephemeral</span> markers across tools/system/messages, 400 if exceeded; the lowering layer threads a mutable <span class="mono">Breakpoints{remaining,dropped}</span> counter through <span class="mono">lower*</span>, and once slots are spent does <span class="mono">dropped++</span> and quietly gives up (no error). Two TTL buckets: ≥3600s→"1h", else 5m.</li>
+    <li>This cache logic is hoisted into <span class="mono">utils/cache.ts</span> and <strong>shared with Bedrock</strong> (one provider constraint, two protocols reusing). The mutable counter is a deliberate local, single-pass technique, distinct from a state machine's explicit state threading.</li>
+    <li><strong>stream</strong>: message_start/content_block_*/message_delta/message_stop; tool args accumulate across frames via input_json_delta; usage's two halves <span class="mono">mergeUsage</span>'d, cache usage back-translated to cacheRead/cacheWrite, thinking tokens not broken out. Cache breakpoints echo lesson 24's Context Epoch "stable baseline prefix."</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. In the Anthropic protocol, how is the system prompt placed?</div>
+  <ol class="opts">
+    <li>A separate top-level field of the request body (text-block array), not a message in messages — unlike OpenAI treating it as the first role:system message</li>
+    <li>Anthropic doesn't support system prompts</li>
+    <li>Put in an HTTP header</li>
+    <li>Exactly like a normal user message, mixed into messages</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. This is the most vivid example of "protocol = dialect": the same canonical system, Anthropic's body.from places as a top-level system field (text-block array), while OpenAI's places it as the first entry of the messages array. core has only one accent-free system; who places it where is the difference the adapter quietly absorbs.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. How does opencode's lowering layer handle Anthropic's "4 cache-breakpoint cap"?</div>
+  <ol class="opts">
+    <li>Never emit any cache marker</li>
+    <li>Thread a mutable counter Breakpoints{remaining,dropped} through all lower*; each marker does remaining--, and past the cap does dropped++ and quietly gives up (no marker, no error)</li>
+    <li>Randomly drop half the markers</li>
+    <li>Emit 5 and let the API throw 400 itself</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Anthropic allows at most 4 cache_control breakpoints per request (counted across tools/system/messages); a 5th 400s outright. opencode kills it at the source: a shared mutable counter threads through lower*, consuming slots in tools→system→messages order (prefix-y parts prioritized), and past the cap excess markers just dropped++ then return undefined. Caching is an optimization, it shouldn't break the request for "wanting more cache" — so drop silently, no error.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. The "4-breakpoint + two-TTL-bucket" cache logic is hoisted into utils/cache.ts to be shared. Why?</div>
+  <ol class="opts">
+    <li>To make the Anthropic protocol shorter</li>
+    <li>Because Claude on Bedrock eats the same rules — one provider constraint reused by two protocols, factor out the commonality to avoid writing it twice</li>
+    <li>Purely to have more files</li>
+    <li>Because cache logic must live in a utils directory</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Anthropic and Claude-on-Bedrock share the same cache constraint (4-cap, 5m/1h TTL buckets). Hoisting the counter and TTL mapping into utils/cache.ts lets both protocols import it — another instance of "factor out the commonality" compounding, the same labor-saving wisdom as lesson 28's OpenAI-Compatible reuse and lesson 31's Chat/Responses sharing.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson points out a "match made in heaven": Anthropic's cache breakpoints dovetail with lesson 24's Context Epoch effort to keep the "baseline prefix stable" — a stable prefix means the cache keeps hitting, saving hard cash. Follow this thread: explain why "keeping the prompt's prefix as unchanged as possible" benefits both "cache hit rate" and "cost." If the upper layer frequently rewrites the prefix (e.g. inserting a changing line at the very front each turn), what happens?</li>
+    <li>The lesson contrasts two styles of state management: lesson 29's stream.step "threads new state explicitly," while this lesson's cache budget Breakpoints "mutates a shared counter in place." The text says the former seeks "predictability and replayability," the latter "single-pass directness." Using these two scenarios, discuss your criteria for deciding "immutable explicit threading vs mutable in-place modification."</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="29-protocol-adapters.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">协议适配器</span><span class="lang-en">Protocol adapters</span></div></a><a class="next" href="31-openai-protocol.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">OpenAI Chat/Responses 协议</span><span class="lang-en">The OpenAI protocols</span></div></a></div>
 </div>
 <script>

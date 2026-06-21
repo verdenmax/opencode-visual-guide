@@ -1282,6 +1282,47 @@ QUIZZES = {
             {"zh": "本课说六种协议「要解决的问题是同构的」，于是用一个 Protocol 接口钉成一张所有协议都填的表。回想你接触过的「多个后端/多种格式但本质同构」的场景（如多种支付渠道、多种导出格式），如果当初也抽出这样一张「统一接口表」，会让新增一种渠道/格式变得多容易？反过来，没抽会怎样？", "en": "This lesson says the six protocols solve an \"isomorphic problem,\" so it nails them into one Protocol interface every protocol fills. Recall a \"many backends/formats but essentially isomorphic\" scenario you've met (e.g. multiple payment channels, multiple export formats). Had you abstracted such a \"unified interface form,\" how much easier would adding a new channel/format become? Conversely, what happens without it?"},
         ],
     },
+    "30-anthropic-protocol.html": {
+        "mcq": [
+            {
+                "q": {"zh": "Anthropic 协议里，系统提示（system）是怎么摆的？", "en": "In the Anthropic protocol, how is the system prompt placed?"},
+                "opts": [
+                    {"zh": "请求体顶层一个独立字段（文本块数组），不是 messages 里的一条消息——区别于 OpenAI 把它当首条 role:system 消息", "en": "A separate top-level field of the request body (text-block array), not a message in messages — unlike OpenAI treating it as the first role:system message"},
+                    {"zh": "和普通用户消息完全一样，混在 messages 里", "en": "Exactly like a normal user message, mixed into messages"},
+                    {"zh": "Anthropic 不支持系统提示", "en": "Anthropic doesn't support system prompts"},
+                    {"zh": "放在 HTTP 请求头里", "en": "Put in an HTTP header"},
+                ],
+                "answer": 0,
+                "why": {"zh": "这正是「协议即方言」最直观的例子：同一个规范 system，Anthropic 的 body.from 把它摆成顶层 system 字段（文本块数组），OpenAI 那份却把它摆成 messages 数组的头一条。core 只有一份不带口音的 system，谁把它摆哪、是适配器在默默吸收的差异。", "en": "This is the most vivid example of \"protocol = dialect\": the same canonical system, Anthropic's body.from places as a top-level system field (text-block array), while OpenAI's places it as the first entry of the messages array. core has only one accent-free system; who places it where is the difference the adapter quietly absorbs."},
+            },
+            {
+                "q": {"zh": "Anthropic 的「4 个缓存断点上限」，opencode 的 lowering 层怎么应对？", "en": "How does opencode's lowering layer handle Anthropic's \"4 cache-breakpoint cap\"?"},
+                "opts": [
+                    {"zh": "带一个可变计数器 Breakpoints{remaining,dropped} 穿过所有 lower*，每打一个标记 remaining--，超额就 dropped++ 悄悄放弃（不打、不报错）", "en": "Thread a mutable counter Breakpoints{remaining,dropped} through all lower*; each marker does remaining--, and past the cap does dropped++ and quietly gives up (no marker, no error)"},
+                    {"zh": "打满 5 个，让 API 自己报 400", "en": "Emit 5 and let the API throw 400 itself"},
+                    {"zh": "从不打任何缓存标记", "en": "Never emit any cache marker"},
+                    {"zh": "随机丢弃一半标记", "en": "Randomly drop half the markers"},
+                ],
+                "answer": 0,
+                "why": {"zh": "Anthropic 每请求最多 4 个 cache_control 断点（跨 tools/system/messages 合计），第 5 个直接 400。opencode 从源头杜绝：一个共享的可变计数器穿过 lower*，按 tools→system→messages 次序消耗名额（越靠前缀越优先），用完后超额的标记只 dropped++ 然后返回 undefined。缓存是优化，不该因「想多缓存」把请求搞挂——所以悄悄丢，不报错。", "en": "Anthropic allows at most 4 cache_control breakpoints per request (counted across tools/system/messages); a 5th 400s outright. opencode kills it at the source: a shared mutable counter threads through lower*, consuming slots in tools→system→messages order (prefix-y parts prioritized), and past the cap excess markers just dropped++ then return undefined. Caching is an optimization, it shouldn't break the request for \"wanting more cache\" — so drop silently, no error."},
+            },
+            {
+                "q": {"zh": "「4 断点 + TTL 两档」的缓存逻辑被抽到 utils/cache.ts 共享，为什么？", "en": "The \"4-breakpoint + two-TTL-bucket\" cache logic is hoisted into utils/cache.ts to be shared. Why?"},
+                "opts": [
+                    {"zh": "因为 Bedrock 上的 Claude 吃同一套规矩——同一供应商约束被两个协议复用，抽出共性免得写两遍", "en": "Because Claude on Bedrock eats the same rules — one provider constraint reused by two protocols, factor out the commonality to avoid writing it twice"},
+                    {"zh": "纯粹为了让文件更多", "en": "Purely to have more files"},
+                    {"zh": "因为缓存逻辑必须放在 utils 目录", "en": "Because cache logic must live in a utils directory"},
+                    {"zh": "为了让 Anthropic 协议更短", "en": "To make the Anthropic protocol shorter"},
+                ],
+                "answer": 0,
+                "why": {"zh": "Anthropic 和 Bedrock 上的 Claude 共享同一套缓存约束（4 上限、5m/1h 两档 TTL）。把计数器和 TTL 映射抽到 utils/cache.ts，两个协议都引它——又一处「把共性抽出来」的复利，和第 28 课 OpenAI-Compatible 协议复用、第 31 课 Chat/Responses 共享，是同一种省力智慧。", "en": "Anthropic and Claude-on-Bedrock share the same cache constraint (4-cap, 5m/1h TTL buckets). Hoisting the counter and TTL mapping into utils/cache.ts lets both protocols import it — another instance of \"factor out the commonality\" compounding, the same labor-saving wisdom as lesson 28's OpenAI-Compatible reuse and lesson 31's Chat/Responses sharing."},
+            },
+        ],
+        "open": [
+            {"zh": "课里点出一处「天作之合」：Anthropic 的缓存断点，和第 24 课 Context Epoch 拼命维持的「基线前缀稳定」严丝合缝——前缀稳，缓存才持续命中，省下真金白银。请你顺着这条线，说说为什么「让 prompt 的前缀尽量不变」会同时利好「缓存命中率」和「省钱」；如果上层频繁改写前缀（比如每轮都往最前面插一句变化的内容），会发生什么？", "en": "The lesson points out a \"match made in heaven\": Anthropic's cache breakpoints dovetail with lesson 24's Context Epoch effort to keep the \"baseline prefix stable\" — a stable prefix means the cache keeps hitting, saving hard cash. Follow this thread: explain why \"keeping the prompt's prefix as unchanged as possible\" benefits both \"cache hit rate\" and \"cost.\" If the upper layer frequently rewrites the prefix (e.g. inserting a changing line at the very front each turn), what happens?"},
+            {"zh": "课里对比了两种状态管理：第 29 课的 stream.step「显式传新状态」，本课缓存预算的 Breakpoints「就地修改一个共享计数器」。课文说前者图「可预测、可重放」，后者图「一趟性的直白」。结合这两个场景，谈谈你判断「该用不可变显式传递，还是该用可变就地修改」的标准是什么？", "en": "The lesson contrasts two styles of state management: lesson 29's stream.step \"threads new state explicitly,\" while this lesson's cache budget Breakpoints \"mutates a shared counter in place.\" The text says the former seeks \"predictability and replayability,\" the latter \"single-pass directness.\" Using these two scenarios, discuss your criteria for deciding \"immutable explicit threading vs mutable in-place modification.\""},
+        ],
+    },
 }
 
 def render(fname, lang):
