@@ -1528,6 +1528,47 @@ QUIZZES = {
             {"zh": "Copilot 的认证用「令牌交换」：先拿长期的 GitHub OAuth 凭证，换一个短期、限定用途的 Copilot token，再拿它去认证。课里说这是「最小权限 + 短时效凭证」的安全惯例，且这套复杂流程被整个封装进 auth 这一件、不惊动协议层。请论证：为什么「不直接把长期凭证发给推理端点，而是换一个短期 token」更安全？把这种安全复杂性隔离在 auth 这一层（而非散落各处），对整个系统的可维护性和可审计性有什么好处？", "en": "Copilot's auth uses \"token exchange\": take the long-lived GitHub OAuth credential, exchange for a short-lived, purpose-limited Copilot token, then authenticate with it. The lesson calls this the \"least privilege + short-lived credential\" security convention, with the whole complex flow encapsulated into the auth piece, undisturbing the protocol layer. Argue: why is \"not sending the long-lived credential to inference endpoints, but exchanging for a short-lived token\" more secure? What does isolating this security complexity in the auth layer (rather than scattering it) do for the system's maintainability and auditability?"},
         ],
     },
+    "40-other-tools.html": {
+        "mcq": [
+            {
+                "q": {"zh": "webfetch/websearch/question/todowrite 这四个工具，相比前面的文件/搜索/执行工具，新增了什么？", "en": "What do webfetch/websearch/question/todowrite add compared to the earlier file/search/exec tools?"},
+                "opts": [
+                    {"zh": "把 agent 的「手」从本地代码库伸向三个新去处：网络（webfetch/websearch）、人（question）、agent 自身状态（todowrite）", "en": "Extend the agent's \"hands\" from the local codebase to three new destinations: the network (webfetch/websearch), people (question), the agent's own state (todowrite)"},
+                    {"zh": "只是前面工具的别名", "en": "Just aliases of the earlier tools"},
+                    {"zh": "它们不是工具，是配置项", "en": "They're not tools but config options"},
+                    {"zh": "它们替换了文件工具", "en": "They replace the file tools"},
+                ],
+                "answer": 0,
+                "why": {"zh": "前面工具几乎都指向本地文件系统；这四个沿两条新轴外推：向外伸向网络（webfetch 读指定页、websearch 搜开放网，破「只懂本地」「知识截止日」两墙），转内朝向人与自己（question 从用户拉回答案、todowrite 维护 agent 自己的待办）。一个 agent 的能力边界很大程度由「手能伸到哪」决定。四者仍是第 36 课 Config 表的不同填法。", "en": "Earlier tools almost all pointed at the local filesystem; these four push along two new axes: outward to the network (webfetch reads a specific page, websearch searches the open net, breaking the \"only local\" and \"knowledge cutoff\" walls), inward to people and self (question pulls answers from the user, todowrite maintains the agent's own todos). An agent's capability boundary is largely set by \"where its hands can reach.\" All four are still different fillings of lesson 36's Config form."},
+            },
+            {
+                "q": {"zh": "opencode 的 websearch 工具和「供应商自带的 web search」有什么区别？为什么 opencode 要自己做一个本地的？", "en": "How does opencode's websearch tool differ from \"the provider's own web search,\" and why does opencode make a local one?"},
+                "opts": [
+                    {"zh": "本课 websearch 是 opencode 自己跑的本地工具（背后 Exa/Parallel），在 opencode 侧执行；供应商自带的在供应商侧执行。自己做→搜网能力不被模型供应商绑定，换供应商行为一致", "en": "This websearch is opencode's own local tool (backed by Exa/Parallel), executing on opencode's side; the provider's executes provider-side. Making its own → web-search capability isn't bound to the model provider, behavior consistent across provider switches"},
+                    {"zh": "两者完全一样", "en": "They're identical"},
+                    {"zh": "本地的更慢但更便宜", "en": "The local one is slower but cheaper"},
+                    {"zh": "供应商自带的不存在", "en": "The provider's doesn't exist"},
+                ],
+                "answer": 0,
+                "why": {"zh": "「让模型搜网」有两条路：opencode 拿 Exa/Parallel key 在本地搜（本课 websearch），或用供应商内建搜索（在供应商服务器跑）。opencode 把本地这条做成标准工具，于是搜网能力不依赖「你用的供应商支不支持」——无论今天 Anthropic、明天 Gemini，行为都一致，且 opencode 自主决定接哪家后端、怎么调参。这是「把能力下沉到自己这层、不被上游绑定」（呼应第 28 课）。description 还注入当前年份补模型时间盲区。", "en": "\"Letting the model search the web\" has two paths: opencode searching locally with an Exa/Parallel key (this websearch), or using the provider's built-in search (running on the provider's server). opencode makes the local path a standard tool, so web-search capability doesn't depend on \"whether your provider supports it\" — Anthropic today or Gemini tomorrow, behavior stays consistent, and opencode independently decides which backend and tuning. This is \"sink the capability to your own layer, not bound by the upstream\" (echoing lesson 28). The description also injects the current year to fill the model's time blind spot."},
+            },
+            {
+                "q": {"zh": "todowrite 工具的「作用对象」有什么特别？", "en": "What's special about todowrite's \"target of effect\"?"},
+                "opts": [
+                    {"zh": "它不改外部世界，只维护 agent 自己的一份会话待办清单（SessionTodo）——是「外置工作记忆」，帮长任务里的模型不忘全局、让用户看见进度", "en": "It changes nothing external, only maintaining the agent's own session todo list (SessionTodo) — an \"externalized working memory,\" helping the model in long tasks not forget the big picture and letting the user see progress"},
+                    {"zh": "它直接修改用户的文件系统", "en": "It directly modifies the user's filesystem"},
+                    {"zh": "它向网络发请求", "en": "It makes network requests"},
+                    {"zh": "它会重启 agent", "en": "It restarts the agent"},
+                ],
+                "answer": 0,
+                "why": {"zh": "绝大多数工具把意志推向外部（改文件、跑命令、搜网），todowrite 却作用于 agent 自己的状态——维护「当前会话的结构化待办」（接 SessionTodo）。在动辄十几步的长任务里，模型注意力被当前步占满、易忘全局；todowrite 把计划与进度从模型易失的脑内挪到一份持久可见的清单上，既帮模型不跑偏、也让用户实时看到「打算干啥、做到哪」。它还把 agent 的思路外化成可观测产物，这种透明是信任的基础。", "en": "Most tools push the will outward (change files, run commands, search); todowrite acts on the agent's own state — maintaining \"the current session's structured todos\" (backed by SessionTodo). In a dozen-plus-step long task, the model's attention is consumed by the current step and easily forgets the big picture; todowrite moves plan and progress from the model's volatile mind to a persistent, visible list, helping the model stay on track and letting the user see in real time \"what it plans, where it's at.\" It also externalizes the agent's thinking into an observable artifact, and this transparency is the basis of trust."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说 question 是整个工具集里的「异类」——别的工具都把 agent 的意志推向外部，它却从人那里把信息拉回来。请谈谈一个能「在该问的时候问」的 agent，比一个「永远自作主张」的 agent 好在哪？又：什么样的决策该问用户、什么样的该自己定？过度地问（事事都问）和过度地不问（重大抉择也擅自决定）各有什么害处？", "en": "The lesson calls question the \"oddball\" of the toolset—other tools push the agent's will outward, but it pulls info back from a person. Discuss how an agent that \"asks when it should\" beats one that \"always decides alone.\" Also: what decisions should be asked of the user, which decided alone? What are the harms of over-asking (asking everything) versus under-asking (deciding major choices unilaterally)?"},
+            {"zh": "课里反复出现一个主题：工具的「用户」是个模型，于是定义里处处藏着对模型的体贴——webfetch 默认转 markdown、websearch 注入当前年份、format 可省略默认 markdown。请再举一个「为 LLM 调用而设计」与「为人调用而设计」会做出不同取舍的接口细节（如返回格式、默认值、错误信息、字段命名）。为模型设计接口时，你会特别优化什么？", "en": "A recurring theme: the tool's \"user\" is a model, so the definitions hide care for the model everywhere—webfetch defaults to markdown, websearch injects the current year, format is omittable defaulting to markdown. Give another interface detail where \"designed for LLM calls\" vs \"designed for human calls\" would make a different tradeoff (return format, defaults, error messages, field naming). Designing an interface for a model, what would you especially optimize?"},
+        ],
+    },
     "39-search-exec-tools.html": {
         "mcq": [
             {

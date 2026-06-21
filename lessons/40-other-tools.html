@@ -328,8 +328,278 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第七部分 · 工具系统</span><span class="lang-en">Part 7 · Tool System</span></div>
     <h1><span class="lang-zh">其他内置工具</span><span class="lang-en">Other built-in tools</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《其他内置工具》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“其他内置工具”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Other built-in tools" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Other built-in tools" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">前两课的工具，都在 agent <strong>自己的工坊</strong>里干活——改本地文件、搜本地代码、跑本地命令。但一个真正有用的 coding agent，不能是个<strong>封死在房间里的工人</strong>。它得能<strong>往外看</strong>（查网上的最新文档、搜知识截止日之后的信息）、能<strong>向人求助</strong>（拿不准时反问用户）、还得能<strong>给自己记笔记</strong>（多步任务里写个待办、追踪进度）。这一课的四个工具，正是把 agent 的「手」从本地代码库，伸向了<strong>网络</strong>与<strong>人</strong>：<span class="mono">webfetch</span>（抓网页）、<span class="mono">websearch</span>（搜网络）、<span class="mono">question</span>（反问用户）、<span class="mono">todowrite</span>（写待办）。</p>
+<p>它们看似杂，其实沿着<strong>两条新轴</strong>展开。一条是<strong>向外、伸向网络</strong>：webfetch 让 agent 读一个指定网页、websearch 让它搜整个互联网——突破「只懂本地代码」和「知识停在训练截止日」两道墙。另一条是<strong>转向人与自己</strong>：question 是少见的「<strong>反向</strong>」工具，别的工具都是 agent 把意志<strong>推向外部</strong>（改文件、跑命令），它却是<strong>从人那里把信息拉回来</strong>；todowrite 更特别，它作用的不是外部世界，而是 agent <strong>自己的状态</strong>（一份待办清单），是一块「<strong>外置的工作记忆</strong>」。看懂这两条轴，你就明白一个 agent 是怎么从「闷头干活」长成「<strong>会查、会问、会规划</strong>」的协作者。</p>
+
+<div class="card analogy">
+  <div class="tag">🪟 生活类比</div>
+  如果说前两课的工具是 agent 在自己工坊里的双手，那这四个工具，是给这间工坊<strong>开了三样新东西</strong>。<strong>webfetch</strong> 像一扇<strong>能指定朝向的窗</strong>——「让我看看那个网址后面是什么」，把外面的景象（网页）取进来。<strong>websearch</strong> 像工坊里一部<strong>能问图书管理员的电话</strong>——「最近有什么关于 X 的新消息？」，问的是<strong>当下、训练截止之后</strong>的事。<strong>question</strong> 像墙上一台<strong>对讲机</strong>——拿不准、不该自己拍板时，按下去问一句「老板，这步你要 A 还是 B？」。<strong>todowrite</strong> 则是一块<strong>个人待办白板</strong>——多步的活儿，先把计划写上去，做一步划一步，自己和老板都能一眼看到进度。从「<strong>只会埋头干</strong>」，到「<strong>会往外看、会开口问、会记下来</strong>」——这四样，把一个工人变成了一个靠谱的协作者。
+</div>
+
+<h2>四个工具：两条新轴</h2>
+<p>先把四个工具并排，注意它们<strong>仍在填第 36 课那张 <span class="mono">Config</span> 表</strong>，只是「手」伸的方向变了：</p>
+<table class="t">
+  <tr><th>工具</th><th>干什么</th><th>伸向</th><th>input 要点</th></tr>
+  <tr><td>webfetch</td><td>抓取一个 URL 的内容</td><td>网络（指定页）</td><td>url, format(默认 markdown), timeout?</td></tr>
+  <tr><td>websearch</td><td>搜索互联网</td><td>网络（开放搜）</td><td>query, numResults?(默认8), type?</td></tr>
+  <tr><td>question</td><td>反问用户、取回答案</td><td>人（拉回信息）</td><td>questions[]（多选题）</td></tr>
+  <tr><td>todowrite</td><td>写/更新会话待办清单</td><td>自己（外置记忆）</td><td>todos[]（带状态）</td></tr>
+</table>
+<p>这张表的「伸向」一列，是这一课的<strong>骨架</strong>。前面所有工具几乎都指向「<strong>本地文件系统</strong>」；而这四个，把方向拆成了三个全新去处——<strong>网络、人、agent 自身</strong>。一个 agent 的能力边界，很大程度上就由「它的手能伸到哪」决定：只能改本地文件的 agent，遇到「这个库最新版的 API 怎么用」就抓瞎；而能 webfetch / websearch 的 agent，能现查现学。能力的扩展，本质是<strong>「手能触及的世界」的扩展</strong>。也正因为方向不同，这四个工具触发的「信任与风险」也不同：读网络要防内容污染、问用户要打断对方、写待办只动自己——把它们按「伸向」归类，不只是好记，更暗示了各自该配怎样的边界与许可（这条线第 41 课会接上）。</p>
+<div class="cols">
+  <div class="col"><h4>向外 · 伸向网络</h4><p><span class="mono">webfetch</span>（读指定页）+ <span class="mono">websearch</span>（搜开放网）。突破「只懂本地」与「知识截止日」两道墙，让 agent 现查现学。</p></div>
+  <div class="col"><h4>转内 · 人与自己</h4><p><span class="mono">question</span>（从人拉回决策）+ <span class="mono">todowrite</span>（写自己的待办）。让 agent 会求助、会规划，而非闷头硬扛。</p></div>
+</div>
+
+<h2>向外：webfetch 与 websearch</h2>
+<p>先看伸向网络的两个。<span class="mono">webfetch</span> 抓一个 HTTP(S) URL 的内容，有个值得注意的默认：<strong>format 默认是 <span class="mono">markdown</span></strong>（可选 text / html）。为什么不默认给原始 HTML？因为网页的原始 HTML 里塞满了标签、脚本、样式——对模型来说既<strong>耗 token</strong>又<strong>难读</strong>。webfetch 默认把网页<strong>转成干净的 markdown</strong> 再给模型，正文清清爽爽。这又是「<strong>对模型用人话</strong>」的一贯思路（第 36 课 content 那一面）：不是把外部世界原样倒给模型，而是<strong>翻译成模型最好消化的形态</strong>。它当然也带 timeout 上限——抓一个慢站点不能让 agent 干等。三种 format 各有所用：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">markdown（默认）</div><div class="c-txt">HTML→干净 markdown，正文清爽、省 token，模型最好读</div></div>
+  <div class="cell"><div class="c-tag">text</div><div class="c-txt">纯文本，连 markdown 标记都不要，只要字</div></div>
+  <div class="cell"><div class="c-tag">html</div><div class="c-txt">原始 HTML，当模型确实要看标签结构时才用</div></div>
+</div>
+<p><span class="mono">websearch</span> 则搜索整个互联网，专治「<strong>知识截止日之后</strong>」的问题。这里藏着一个容易被忽略、却很重要的架构区分：</p>
+<div class="cols">
+  <div class="col"><h4>本地 websearch（本课这个）</h4><p>opencode 自己跑的、与供应商无关的本地工具，背后接 <strong>Exa 或 Parallel</strong> 搜索服务。在 opencode 这一侧执行。</p></div>
+  <div class="col"><h4>供应商自带的 web search</h4><p>另一回事：由模型<strong>供应商</strong>提供、在<strong>供应商那一侧</strong>执行（route 拥有，回忆第 30 课 Anthropic 的 server_tool）。</p></div>
+</div>
+<p>换句话说，「让模型能搜网」其实有<strong>两条路</strong>：一条是 opencode 自己拿一个 Exa/Parallel key 在本地搜（这个 <span class="mono">websearch</span> 工具），另一条是直接用供应商内建的搜索（在供应商服务器上跑）。opencode 把<strong>本地这条</strong>做成一个标准工具，于是「搜网能力」不依赖于「你用的模型供应商支不支持」——又是一处「把能力下沉到自己这层、不被上游绑定」的设计（呼应第 28 课「不被供应商绑架」）。这么做的好处很实在：无论你今天用 Anthropic、明天换 Gemini，<strong>搜网这件事的行为都一致</strong>，不会因为换了供应商就时有时无、忽强忽弱；而且 opencode 能自主决定接哪家搜索后端（Exa / Parallel）、怎么调参，主动权握在自己手里。还有个小细节很见用心：websearch 的 description 里<strong>注入了「当前年份」</strong>，提醒模型「搜最新信息时带上今年」——因为模型自己的「今天」停在训练截止日，不告诉它真实年份，它可能拿着过时的年份去搜。<strong>一句话的注入，补上了模型的「时间感」。</strong></p>
+
+<h2>转内：question 与 todowrite</h2>
+<p>另外两个工具，方向掉头朝内。<span class="mono">question</span> 是整个工具集里的<strong>异类</strong>——绝大多数工具是 agent 把意志<strong>推向外部</strong>（我要改这个文件、跑这条命令），而 question 是<strong>反着来</strong>：agent 主动<strong>把问题抛给用户、等一个答案回来</strong>。它存在的意义，是让 agent 学会<strong>在该问的时候问</strong>，而不是在歧义和重大抉择前自作主张。它的设计也透着对协作 UX 的讲究：鼓励<strong>多选题</strong>（让用户点选最快），且 description 明确叮嘱模型<strong>别自己加「其他」选项</strong>——因为当 <span class="mono">custom</span> 开启（默认）时，UI 会<strong>自动</strong>补一个「输入你自己的答案」。这条「别加 Other、让 UI 加」的约定，避免了模型和 UI 各加一个、重复别扭。把 question 的几个 UX 约定列出来，能看出它对「人机协作」的细心：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">多选优先</div><div class="c-txt">尽量给选项让用户点，比让用户打字快、也更省事</div></div>
+  <div class="cell"><div class="c-tag">UI 自动补 freeform</div><div class="c-txt">custom 默认开 → UI 自动加「输入自己的答案」</div></div>
+  <div class="cell"><div class="c-tag">别加 Other</div><div class="c-txt">模型不要自己塞「其他」选项，免得和 UI 的 freeform 重复</div></div>
+</div>
+<p><span class="mono">todowrite</span> 则更哲学一点：它是个<strong>作用于 agent 自己状态</strong>的工具。它不改外部世界的任何东西，只维护「<strong>当前会话的一份结构化待办清单</strong>」（接 <span class="mono">SessionTodo</span> 服务）。模型在做多步任务时，用它<strong>写下计划、随做随更新状态</strong>。把它想成一块「<strong>外置的工作记忆</strong>」：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">写计划</div><div class="c-txt">多步任务开始，把要做的几步列成 todos（各带状态）</div></div>
+  <div class="cell"><div class="c-tag">追进度</div><div class="c-txt">每做完一步，更新对应 todo 的状态（pending→done…）</div></div>
+  <div class="cell"><div class="c-tag">不忘事</div><div class="c-txt">长任务里靠这份清单锚住「还剩哪些」，模型与用户都看得见</div></div>
+</div>
+<p>为什么一个 agent 需要「写待办」这种工具？因为在一个动辄十几步的长任务里，模型很容易<strong>做着做着忘了全局</strong>——它的注意力被当前这一步占满，可能漏掉后面该做的。todowrite 把「计划与进度」<strong>从模型易失的脑内，挪到一份持久、可见的清单上</strong>，既帮模型自己不跑偏，也让用户能实时看到「它打算干什么、做到哪了」。这其实是把人类做复杂工作时「<strong>列个清单、做一项划一项</strong>」的朴素智慧，做成了 agent 的一个工具。<strong>一个会列待办、会追踪进度的 agent，远比一个只会一头扎进去的 agent 靠谱。</strong>更深一层看，todowrite 还把 agent 的「思路」<strong>外化成了可观测的产物</strong>：用户不必猜「它到底打算怎么做」，而是直接看那份清单——这种<strong>透明</strong>本身就是信任的基础。一个把计划摊在明处、做一步划一步的 agent，让人敢把更复杂的活儿交给它。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这四个工具，把 agent 的能力边界从「本地代码库」沿两条新轴大幅外推：</p>
+  <ul>
+    <li><strong>向外·网络</strong>：<span class="mono">webfetch</span>（抓指定 URL，<strong>默认转 markdown</strong> 喂给模型、带 timeout）+ <span class="mono">websearch</span>（搜开放网，破知识截止日；<strong>本地 Exa/Parallel</strong> 工具，区别于供应商自带的 server-side 搜索；description 注入当前年份）。</li>
+    <li><strong>转内·人与自己</strong>：<span class="mono">question</span>（<strong>反向</strong>工具，从用户拉回答案；多选优先、UI 自动补 freeform、别加 Other）+ <span class="mono">todowrite</span>（作用于 agent 自身状态，维护会话待办，是「外置工作记忆」）。</li>
+    <li><strong>仍是同一张 Config 表</strong>：四个工具各声明 input/output schema + execute，套权限——再次印证第 36 课「一张表、各自填空」，只是「手」伸向了网络、人、自身。</li>
+    <li><strong>能力 = 手能触及的世界</strong>：只会改本地文件的 agent 遇到「最新 API 怎么用」就抓瞎；能查、能问、能规划的 agent，才是个靠谱协作者。</li>
+  </ul>
+  <p>到这里，opencode 的<strong>内置工具全家福</strong>就集齐了：文件（read/write/edit/apply-patch）、搜索执行（glob/grep/bash）、网络与协作（webfetch/websearch/question/todowrite），外加后面第 43 课的 skill。下一课（第 41 课）我们回头处理一条贯穿所有工具的横切线——<strong>权限系统</strong>：前面每个工具都出现过的 <span class="mono">withPermission</span> / <span class="mono">permission.assert</span>，到底是怎么评估、怎么把「这步准不准做」的决定权交还给用户的。工具讲完「能做什么」，权限讲「准做什么」——前者是能力，后者是边界，二者合起来才是一个既有用又可控的 agent。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">webfetch</span> 的 format 默认值用了一个优雅的 schema 写法（简化自 webfetch.ts）：</p>
+  <pre class="code"><span class="cm">// format 三选一，解码时缺省自动填 "markdown"</span>
+format: Schema.<span class="fn">Literals</span>([<span class="st">"text"</span>, <span class="st">"markdown"</span>, <span class="st">"html"</span>])
+  .pipe(Schema.<span class="fn">withDecodingDefault</span>(() =&gt; <span class="st">"markdown"</span>))
+
+<span class="cm">// websearch：把当前年份写进给模型的 description</span>
+description = <span class="st">`...The current year is ${'$'}{new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
+  <p>两处都体现了「<strong>把对模型的体贴写进定义里</strong>」。<span class="mono">withDecodingDefault</span> 让模型<strong>可以不传 format</strong>——不传就当 markdown，省去模型每次都要想「我要什么格式」的负担，默认就给它最好消化的那种。而 websearch 把 <span class="mono">new Date().getFullYear()</span> 拼进 description，是在<strong>每次构建工具定义时</strong>动态算出真实年份注进去——模型的训练知识有「时间盲区」，它不知道「现在是哪年」，这一句注入就把这个盲区补上了。<strong>这些细节都不改变工具「能做什么」，却显著改善模型「用得好不好」</strong>——好的工具，不只给模型能力，还替模型把「怎么用好」想在前面。这正是「工具的用户是个模型」这一前提，催生出的一整套体贴。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>四个工具沿两条新轴外推 agent 能力</strong>（<span class="mono">tool/{webfetch,websearch,question,todowrite}.ts</span>），全是第 36 课 Config 表的不同填法。</li>
+    <li><strong>webfetch</strong>：抓 HTTP(S) URL，<strong>format 默认 markdown</strong>（text/html 可选）——把网页转成模型好消化的干净正文，而非原始 HTML；带 timeout 上限。</li>
+    <li><strong>websearch</strong>：搜开放网破「知识截止日」。是 opencode 的<strong>本地工具</strong>（背后 <strong>Exa/Parallel</strong>），区别于「供应商自带、在供应商侧执行」的 web search——「搜网能力」不被模型供应商绑定。description <strong>注入当前年份</strong>补模型的时间盲区。</li>
+    <li><strong>question</strong>：少见的<strong>反向</strong>工具，从用户拉回答案（处理歧义/重大抉择）。多选优先；<span class="mono">custom</span> 默认开时 UI <strong>自动补 freeform</strong>，故叮嘱模型<strong>别自己加「Other」</strong>。</li>
+    <li><strong>todowrite</strong>：作用于 <strong>agent 自身状态</strong>（接 <span class="mono">SessionTodo</span>），维护会话待办、随做随更新状态——一块「<strong>外置工作记忆</strong>」，帮长任务里的模型不忘全局、让用户看见进度。能查/能问/能规划，是靠谱协作者的标志。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. webfetch/websearch/question/todowrite 这四个工具，相比前面的文件/搜索/执行工具，新增了什么？</div>
+  <ol class="opts">
+    <li>它们替换了文件工具</li>
+    <li>把 agent 的「手」从本地代码库伸向三个新去处：网络（webfetch/websearch）、人（question）、agent 自身状态（todowrite）</li>
+    <li>它们不是工具，是配置项</li>
+    <li>只是前面工具的别名</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。前面工具几乎都指向本地文件系统；这四个沿两条新轴外推：向外伸向网络（webfetch 读指定页、websearch 搜开放网，破「只懂本地」「知识截止日」两墙），转内朝向人与自己（question 从用户拉回答案、todowrite 维护 agent 自己的待办）。一个 agent 的能力边界很大程度由「手能伸到哪」决定。四者仍是第 36 课 Config 表的不同填法。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. opencode 的 websearch 工具和「供应商自带的 web search」有什么区别？为什么 opencode 要自己做一个本地的？</div>
+  <ol class="opts">
+    <li>供应商自带的不存在</li>
+    <li>本地的更慢但更便宜</li>
+    <li>本课 websearch 是 opencode 自己跑的本地工具（背后 Exa/Parallel），在 opencode 侧执行；供应商自带的在供应商侧执行。自己做→搜网能力不被模型供应商绑定，换供应商行为一致</li>
+    <li>两者完全一样</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。「让模型搜网」有两条路：opencode 拿 Exa/Parallel key 在本地搜（本课 websearch），或用供应商内建搜索（在供应商服务器跑）。opencode 把本地这条做成标准工具，于是搜网能力不依赖「你用的供应商支不支持」——无论今天 Anthropic、明天 Gemini，行为都一致，且 opencode 自主决定接哪家后端、怎么调参。这是「把能力下沉到自己这层、不被上游绑定」（呼应第 28 课）。description 还注入当前年份补模型时间盲区。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. todowrite 工具的「作用对象」有什么特别？</div>
+  <ol class="opts">
+    <li>它不改外部世界，只维护 agent 自己的一份会话待办清单（SessionTodo）——是「外置工作记忆」，帮长任务里的模型不忘全局、让用户看见进度</li>
+    <li>它向网络发请求</li>
+    <li>它直接修改用户的文件系统</li>
+    <li>它会重启 agent</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。绝大多数工具把意志推向外部（改文件、跑命令、搜网），todowrite 却作用于 agent 自己的状态——维护「当前会话的结构化待办」（接 SessionTodo）。在动辄十几步的长任务里，模型注意力被当前步占满、易忘全局；todowrite 把计划与进度从模型易失的脑内挪到一份持久可见的清单上，既帮模型不跑偏、也让用户实时看到「打算干啥、做到哪」。它还把 agent 的思路外化成可观测产物，这种透明是信任的基础。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里说 question 是整个工具集里的「异类」——别的工具都把 agent 的意志推向外部，它却从人那里把信息拉回来。请谈谈一个能「在该问的时候问」的 agent，比一个「永远自作主张」的 agent 好在哪？又：什么样的决策该问用户、什么样的该自己定？过度地问（事事都问）和过度地不问（重大抉择也擅自决定）各有什么害处？</li>
+    <li>课里反复出现一个主题：工具的「用户」是个模型，于是定义里处处藏着对模型的体贴——webfetch 默认转 markdown、websearch 注入当前年份、format 可省略默认 markdown。请再举一个「为 LLM 调用而设计」与「为人调用而设计」会做出不同取舍的接口细节（如返回格式、默认值、错误信息、字段命名）。为模型设计接口时，你会特别优化什么？</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">The prior two lessons' tools all worked in the agent's <strong>own workshop</strong>—changing local files, searching local code, running local commands. But a truly useful coding agent can't be a <strong>worker sealed in a room</strong>. It must be able to <strong>look outward</strong> (check the latest docs online, search for info past its knowledge cutoff), <strong>ask for help</strong> (ask the user back when unsure), and <strong>take notes for itself</strong> (write todos in multi-step tasks, track progress). This lesson's four tools extend the agent's "hands" from the local codebase to the <strong>network</strong> and to <strong>people</strong>: <span class="mono">webfetch</span> (fetch web pages), <span class="mono">websearch</span> (web search), <span class="mono">question</span> (ask the user back), <span class="mono">todowrite</span> (write todos).</p>
+<p>They look miscellaneous but unfold along <strong>two new axes</strong>. One is <strong>outward, toward the network</strong>: webfetch lets the agent read a specific web page, websearch lets it search the whole internet—breaking through the two walls of "only knows local code" and "knowledge frozen at training cutoff." The other is <strong>turning toward people and self</strong>: question is the rare "<strong>reverse</strong>" tool—all other tools push the agent's will <strong>outward</strong> (change files, run commands), but it <strong>pulls info back from a person</strong>; todowrite is even more special, acting not on the external world but on the agent's <strong>own state</strong> (a todo list), a piece of "<strong>externalized working memory</strong>." Grasp these two axes and you'll understand how an agent grows from "head-down worker" into a collaborator who <strong>can search, ask, and plan</strong>.</p>
+
+<div class="card analogy">
+  <div class="tag">🪟 Analogy</div>
+  If the prior lessons' tools are the agent's hands in its own workshop, these four open <strong>three new things</strong> for that workshop. <strong>webfetch</strong> is like a <strong>window you can aim</strong>—"let me see what's behind that URL," bringing the outside view (a web page) in. <strong>websearch</strong> is like a <strong>phone to ask the librarian</strong>—"any recent news on X?", asking about the <strong>present, past the training cutoff</strong>. <strong>question</strong> is like an <strong>intercom on the wall</strong>—when unsure, when you shouldn't decide alone, press it and ask "boss, A or B for this step?". <strong>todowrite</strong> is a <strong>personal to-do whiteboard</strong>—for multi-step work, write the plan up, check off as you go, so you and the boss can see progress at a glance. From "<strong>only head-down working</strong>" to "<strong>can look out, can speak up, can write down</strong>"—these four turn a worker into a reliable collaborator.
+</div>
+
+<h2>Four tools: two new axes</h2>
+<p>First lay the four side by side, noting they <strong>still fill lesson 36's <span class="mono">Config</span> form</strong>, only the "hand" reaches a new direction:</p>
+<table class="t">
+  <tr><th>Tool</th><th>Does what</th><th>Reaches toward</th><th>input gist</th></tr>
+  <tr><td>webfetch</td><td>fetch a URL's content</td><td>network (specific page)</td><td>url, format(default markdown), timeout?</td></tr>
+  <tr><td>websearch</td><td>search the internet</td><td>network (open search)</td><td>query, numResults?(default 8), type?</td></tr>
+  <tr><td>question</td><td>ask the user, get answers back</td><td>people (pull info back)</td><td>questions[] (multiple choice)</td></tr>
+  <tr><td>todowrite</td><td>write/update the session todo list</td><td>self (externalized memory)</td><td>todos[] (with status)</td></tr>
+</table>
+<p>This table's "reaches toward" column is this lesson's <strong>skeleton</strong>. Almost all prior tools pointed at the "<strong>local filesystem</strong>"; these four split the direction into three brand-new destinations—<strong>network, people, the agent itself</strong>. An agent's capability boundary is largely set by "where its hands can reach": an agent that can only change local files is stumped by "how do I use this library's latest API"; an agent that can webfetch / websearch can look it up on the fly. Extending capability is essentially extending <strong>"the world the hands can touch."</strong> And because the directions differ, the "trust and risk" these four trigger also differ: reading the network must guard against content poisoning, asking the user interrupts them, writing todos only touches the self—classifying them by "reaches toward" isn't just mnemonic but hints at what boundary and permission each deserves (lesson 41 picks up this thread).</p>
+<div class="cols">
+  <div class="col"><h4>Outward · toward the network</h4><p><span class="mono">webfetch</span> (read a specific page) + <span class="mono">websearch</span> (search the open net). Breaking the "only knows local" and "knowledge cutoff" walls, letting the agent look up on the fly.</p></div>
+  <div class="col"><h4>Inward · people and self</h4><p><span class="mono">question</span> (pull a decision from a person) + <span class="mono">todowrite</span> (write its own todos). Letting the agent ask for help and plan, rather than tough it out head-down.</p></div>
+</div>
+
+<h2>Outward: webfetch and websearch</h2>
+<p>First the two reaching toward the network. <span class="mono">webfetch</span> fetches an HTTP(S) URL's content, with a noteworthy default: <strong>format defaults to <span class="mono">markdown</span></strong> (text / html optional). Why not default to raw HTML? Because a page's raw HTML is stuffed with tags, scripts, styles—both <strong>token-costly</strong> and <strong>hard to read</strong> for the model. webfetch by default <strong>converts the page to clean markdown</strong> before giving it to the model, the body crisp. This is again the consistent "<strong>plain language for the model</strong>" thinking (lesson 36's content side): not dumping the external world raw to the model, but <strong>translating it into the form the model digests best</strong>. It carries a timeout cap too—fetching a slow site shouldn't leave the agent waiting. The three formats each have their use:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">markdown (default)</div><div class="c-txt">HTML→clean markdown, crisp body, token-saving, best for the model to read</div></div>
+  <div class="cell"><div class="c-tag">text</div><div class="c-txt">plain text, not even markdown marks, just the words</div></div>
+  <div class="cell"><div class="c-tag">html</div><div class="c-txt">raw HTML, for when the model really needs to see the tag structure</div></div>
+</div>
+<p><span class="mono">websearch</span> searches the whole internet, specially treating the "<strong>past knowledge cutoff</strong>" problem. Hidden here is an easy-to-miss but important architectural distinction:</p>
+<div class="cols">
+  <div class="col"><h4>local websearch (this lesson's)</h4><p>opencode's own, provider-independent local tool, backed by <strong>Exa or Parallel</strong> search services. Executes on opencode's side.</p></div>
+  <div class="col"><h4>provider-hosted web search</h4><p>A different thing: provided by the model <strong>provider</strong>, executing on the <strong>provider's side</strong> (route-owned, recall lesson 30's Anthropic server_tool).</p></div>
+</div>
+<p>In other words, "letting the model search the web" actually has <strong>two paths</strong>: one is opencode taking an Exa/Parallel key and searching locally (this <span class="mono">websearch</span> tool), the other is using the provider's built-in search (running on the provider's server). opencode makes <strong>the local path</strong> a standard tool, so "web-search capability" doesn't depend on "whether your model provider supports it"—again a design of "sink the capability to your own layer, not bound by the upstream" (echoing lesson 28's "not held hostage by the provider"). The benefit is concrete: whether you use Anthropic today or switch to Gemini tomorrow, <strong>web search's behavior stays consistent</strong>, not flickering on/off or strong/weak with the provider switch; and opencode can independently decide which search backend (Exa / Parallel) to use and how to tune it, keeping the initiative in its own hands. One more thoughtful detail: websearch's description <strong>injects "the current year"</strong>, reminding the model "include this year when searching for recent info"—because the model's own "today" is frozen at the training cutoff, and without being told the real year, it may search with a stale year. <strong>A one-line injection fills in the model's "sense of time."</strong></p>
+
+<h2>Inward: question and todowrite</h2>
+<p>The other two tools turn inward. <span class="mono">question</span> is the <strong>oddball</strong> of the whole toolset—the vast majority of tools push the agent's will <strong>outward</strong> (I want to change this file, run this command), but question goes <strong>the reverse</strong>: the agent proactively <strong>throws a question to the user and awaits an answer</strong>. Its reason for being is to teach the agent to <strong>ask when it should</strong>, rather than deciding alone before ambiguity and major choices. Its design shows care for collaboration UX too: it encourages <strong>multiple choice</strong> (fastest for the user to click), and the description explicitly tells the model <strong>not to add its own "Other" option</strong>—because when <span class="mono">custom</span> is on (default), the UI <strong>auto-adds</strong> a "type your own answer." This "don't add Other, let the UI add it" convention avoids the model and UI each adding one, duplicate and awkward. Listing question's UX conventions shows its care for "human-machine collaboration":</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">multiple choice first</div><div class="c-txt">give options for the user to click where possible, faster than typing, easier too</div></div>
+  <div class="cell"><div class="c-tag">UI auto-adds freeform</div><div class="c-txt">custom on by default → UI auto-adds "type your own answer"</div></div>
+  <div class="cell"><div class="c-tag">don't add Other</div><div class="c-txt">the model shouldn't stuff its own "Other," lest it duplicate the UI's freeform</div></div>
+</div>
+<p><span class="mono">todowrite</span> is more philosophical: a tool acting <strong>on the agent's own state</strong>. It changes nothing in the external world, only maintaining "<strong>a structured todo list for the current session</strong>" (backed by the <span class="mono">SessionTodo</span> service). In multi-step tasks the model uses it to <strong>write down the plan, updating statuses as it goes</strong>. Think of it as a piece of "<strong>externalized working memory</strong>":</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">write the plan</div><div class="c-txt">multi-step task starts, list the steps as todos (each with status)</div></div>
+  <div class="cell"><div class="c-tag">track progress</div><div class="c-txt">after each step, update the corresponding todo's status (pending→done…)</div></div>
+  <div class="cell"><div class="c-tag">don't forget</div><div class="c-txt">in long tasks, anchor "what's left" via this list, visible to model and user</div></div>
+</div>
+<p>Why does an agent need a "write todos" tool? Because in a long task of a dozen-plus steps, the model easily <strong>forgets the big picture mid-work</strong>—its attention is consumed by the current step, possibly missing what's due later. todowrite moves "plan and progress" <strong>from the model's volatile mind to a persistent, visible list</strong>, helping the model stay on track and letting the user see in real time "what it plans to do, where it's gotten." This is essentially making the humble wisdom of "list it, check off as you go" into an agent tool. <strong>An agent that lists todos and tracks progress is far more reliable than one that only dives in head-first.</strong> Deeper still, todowrite <strong>externalizes the agent's "thinking" into an observable artifact</strong>: the user needn't guess "how exactly does it plan to do this," but looks straight at that list—this <strong>transparency</strong> is itself the basis of trust. An agent that lays its plan in the open, checking off step by step, makes people dare to hand it more complex work.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>These four tools push the agent's capability boundary far beyond "the local codebase" along two new axes:</p>
+  <ul>
+    <li><strong>Outward · network</strong>: <span class="mono">webfetch</span> (fetch a specific URL, <strong>default-converts to markdown</strong> for the model, with timeout) + <span class="mono">websearch</span> (search the open net, breaking the knowledge cutoff; a <strong>local Exa/Parallel</strong> tool, distinct from the provider's own server-side search; description injects the current year).</li>
+    <li><strong>Inward · people and self</strong>: <span class="mono">question</span> (a <strong>reverse</strong> tool, pulling answers from the user; multiple-choice first, UI auto-adds freeform, don't add Other) + <span class="mono">todowrite</span> (acts on the agent's own state, maintaining session todos, an "externalized working memory").</li>
+    <li><strong>Still the same Config form</strong>: each tool declares input/output schema + execute, wrapped in permission—again confirming lesson 36's "one form, each fills blanks," only the "hand" reaches toward network, people, self.</li>
+    <li><strong>Capability = the world the hands can touch</strong>: an agent that can only change local files is stumped by "how to use the latest API"; an agent that can search, ask, and plan is a reliable collaborator.</li>
+  </ul>
+  <p>By here, opencode's <strong>built-in tool family</strong> is complete: file (read/write/edit/apply-patch), search & exec (glob/grep/bash), network & collaboration (webfetch/websearch/question/todowrite), plus lesson 43's skill later. The next lesson (41) turns back to a cross-cutting line running through all tools—the <strong>permission system</strong>: the <span class="mono">withPermission</span> / <span class="mono">permission.assert</span> appearing in every tool above—how it evaluates, and how it hands the "may this step be done" decision back to the user. Tools cover "what can be done," permissions cover "what's allowed"—the former is capability, the latter the boundary; together they make an agent both useful and controllable.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p><span class="mono">webfetch</span>'s format default uses an elegant schema idiom (simplified from webfetch.ts):</p>
+  <pre class="code"><span class="cm">// format three-way; on decode, the default fills "markdown" automatically</span>
+format: Schema.<span class="fn">Literals</span>([<span class="st">"text"</span>, <span class="st">"markdown"</span>, <span class="st">"html"</span>])
+  .pipe(Schema.<span class="fn">withDecodingDefault</span>(() =&gt; <span class="st">"markdown"</span>))
+
+<span class="cm">// websearch: write the current year into the model-facing description</span>
+description = <span class="st">`...The current year is ${'$'}{new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
+  <p>Both embody "<strong>write the care for the model into the definition</strong>." <span class="mono">withDecodingDefault</span> lets the model <strong>omit format</strong>—omit it and it's markdown, sparing the model the burden of thinking "which format do I want" each time, defaulting to the most digestible. And websearch splicing <span class="mono">new Date().getFullYear()</span> into the description dynamically computes the real year <strong>each time the tool definition is built</strong>—the model's training knowledge has a "time blind spot," it doesn't know "what year it is now," and this one injection fills that blind spot. <strong>These details change nothing about "what the tool can do," yet markedly improve "how well the model uses it"</strong>—a good tool gives the model not just capability but also thinks ahead about "how to use it well" for the model. This is the whole set of thoughtfulness born from the premise "the tool's user is a model."</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>Four tools push the agent's capability along two new axes</strong> (<span class="mono">tool/{webfetch,websearch,question,todowrite}.ts</span>), all different fillings of lesson 36's Config form.</li>
+    <li><strong>webfetch</strong>: fetch an HTTP(S) URL, <strong>format defaults to markdown</strong> (text/html optional)—converting the page to model-digestible clean body, not raw HTML; carries a timeout cap.</li>
+    <li><strong>websearch</strong>: search the open net, breaking the "knowledge cutoff." It's opencode's <strong>local tool</strong> (backed by <strong>Exa/Parallel</strong>), distinct from "provider's own, executing provider-side" web search—"web-search capability" not bound to the model provider. The description <strong>injects the current year</strong> to fill the model's time blind spot.</li>
+    <li><strong>question</strong>: the rare <strong>reverse</strong> tool, pulling answers from the user (handling ambiguity/major choices). Multiple-choice first; with <span class="mono">custom</span> on by default the UI <strong>auto-adds freeform</strong>, so it tells the model <strong>not to add "Other."</strong></li>
+    <li><strong>todowrite</strong>: acts on the <strong>agent's own state</strong> (backed by <span class="mono">SessionTodo</span>), maintaining session todos, updating status as it goes—an "<strong>externalized working memory</strong>" helping the model in long tasks not forget the big picture and letting the user see progress. Can-search/ask/plan is the mark of a reliable collaborator.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. What do webfetch/websearch/question/todowrite add compared to the earlier file/search/exec tools?</div>
+  <ol class="opts">
+    <li>They replace the file tools</li>
+    <li>Extend the agent's "hands" from the local codebase to three new destinations: the network (webfetch/websearch), people (question), the agent's own state (todowrite)</li>
+    <li>They're not tools but config options</li>
+    <li>Just aliases of the earlier tools</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Earlier tools almost all pointed at the local filesystem; these four push along two new axes: outward to the network (webfetch reads a specific page, websearch searches the open net, breaking the "only local" and "knowledge cutoff" walls), inward to people and self (question pulls answers from the user, todowrite maintains the agent's own todos). An agent's capability boundary is largely set by "where its hands can reach." All four are still different fillings of lesson 36's Config form.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. How does opencode's websearch tool differ from "the provider's own web search," and why does opencode make a local one?</div>
+  <ol class="opts">
+    <li>The provider's doesn't exist</li>
+    <li>The local one is slower but cheaper</li>
+    <li>This websearch is opencode's own local tool (backed by Exa/Parallel), executing on opencode's side; the provider's executes provider-side. Making its own → web-search capability isn't bound to the model provider, behavior consistent across provider switches</li>
+    <li>They're identical</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. "Letting the model search the web" has two paths: opencode searching locally with an Exa/Parallel key (this websearch), or using the provider's built-in search (running on the provider's server). opencode makes the local path a standard tool, so web-search capability doesn't depend on "whether your provider supports it" — Anthropic today or Gemini tomorrow, behavior stays consistent, and opencode independently decides which backend and tuning. This is "sink the capability to your own layer, not bound by the upstream" (echoing lesson 28). The description also injects the current year to fill the model's time blind spot.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. What's special about todowrite's "target of effect"?</div>
+  <ol class="opts">
+    <li>It changes nothing external, only maintaining the agent's own session todo list (SessionTodo) — an "externalized working memory," helping the model in long tasks not forget the big picture and letting the user see progress</li>
+    <li>It makes network requests</li>
+    <li>It directly modifies the user's filesystem</li>
+    <li>It restarts the agent</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. Most tools push the will outward (change files, run commands, search); todowrite acts on the agent's own state — maintaining "the current session's structured todos" (backed by SessionTodo). In a dozen-plus-step long task, the model's attention is consumed by the current step and easily forgets the big picture; todowrite moves plan and progress from the model's volatile mind to a persistent, visible list, helping the model stay on track and letting the user see in real time "what it plans, where it's at." It also externalizes the agent's thinking into an observable artifact, and this transparency is the basis of trust.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson calls question the "oddball" of the toolset—other tools push the agent's will outward, but it pulls info back from a person. Discuss how an agent that "asks when it should" beats one that "always decides alone." Also: what decisions should be asked of the user, which decided alone? What are the harms of over-asking (asking everything) versus under-asking (deciding major choices unilaterally)?</li>
+    <li>A recurring theme: the tool's "user" is a model, so the definitions hide care for the model everywhere—webfetch defaults to markdown, websearch injects the current year, format is omittable defaulting to markdown. Give another interface detail where "designed for LLM calls" vs "designed for human calls" would make a different tradeoff (return format, defaults, error messages, field naming). Designing an interface for a model, what would you especially optimize?</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="39-search-exec-tools.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">搜索与执行工具</span><span class="lang-en">Search &amp; exec tools</span></div></a><a class="next" href="41-permissions.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">权限系统</span><span class="lang-en">Permissions</span></div></a></div>
 </div>
 <script>
