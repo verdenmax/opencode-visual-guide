@@ -11,7 +11,7 @@
 | `part-4.md` | Session 与 agent 循环 | L14–20 | 已完成 |
 | `part-5.md` | Context Epoch 系统 | L21–27 | 已完成 |
 | `part-6.md` | LLM 协议层 | L28–35 | 已完成 |
-| `part-7.md` | 工具系统 | L36–43 | 待填充 |
+| `part-7.md` | 工具系统 | L36–43 | 已完成 |
 | `part-8.md` | 配置·Agents·Provider | L44–47 | 待填充 |
 | `part-9.md` | 持久化 | L48–51 | 待填充 |
 | `part-10.md` | TUI | L52–56 | 待填充 |
