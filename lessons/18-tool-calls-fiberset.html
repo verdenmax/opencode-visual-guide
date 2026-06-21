@@ -328,8 +328,310 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第四部分 · Session 与 agent 循环</span><span class="lang-en">Part 4 · Session Core</span></div>
     <h1><span class="lang-zh">工具调用与 FiberSet</span><span class="lang-en">Tool calls &amp; FiberSet</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《工具调用与 FiberSet》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“工具调用与 FiberSet”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Tool calls & FiberSet" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Tool calls & FiberSet" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">上一课，我们站在高处俯瞰了 agent 循环：「想→调工具→看结果→再想」。其中「调工具」那一步被一笔带过——「丢进 FiberSet 并发跑、等齐再走」。这一课，我们<strong>蹲下来，把那一步拆到底</strong>：工具是怎么被「亮」给模型看的（而且只亮它有权用的）？一次调用具体怎么被执行、结果怎么安顿？那个 <span class="mono">FiberSet</span> 凭什么能让一群并发的工具「要么齐头并进、要么一声令下全体召回」？还有，模型正调着工具时被中断，怎么保证不留下半拉子的烂摊子？这一课是循环的<strong>引擎舱里的引擎舱</strong>——工具执行的精密机械。</p>
+<p>为什么值得为「调工具」单开一课？因为工具是 agent <strong>伸向真实世界的手</strong>。模型本身只会生成文本，是工具让它能读文件、改代码、跑命令——可一旦能「动手」，安全与正确就成了头等大事：不该让模型用的工具，绝不能亮给它；并发跑的工具，必须能被干净地整体叫停；动到一半被打断，绝不能把数据撕成两半；产出一大坨输出，不能把会话历史撑爆。这一课就看 opencode 用 <span class="mono">ToolRegistry</span>、<span class="mono">FiberSet</span> 和一套中断纪律，怎么把「让模型安全地动手」这件险事，办得稳稳当当。</p>
+
+<div class="card analogy">
+  <div class="tag">🏗️ 生活类比</div>
+  把工具执行想成一个<strong>工地的调度台</strong>。开工前，门口的<strong>器械库管理员</strong>（ToolRegistry）按你的<strong>权限</strong>发料：你的工牌能领什么，台账上就只列什么——没权限的电锯，连出现在清单上的资格都没有（这就是「按权限亮工具」）。开工后，调度台把活派给一支<strong>工人队</strong>：可以一口气派出三个人同时干（并发），调度板上<strong>记着每一个人</strong>（FiberSet），既能等全队收工，也能在任一人出事时立刻知道——更关键的是，一声哨响能把<strong>全队整建制召回</strong>，绝不留下还在角落里闷头干的散兵。还有两条规矩：工人干活时可以中途叫停，但<strong>必须等记录员把这一笔写完账</strong>，才准撤（不留烂账）；干出来的大件成品不堆在办公桌上，而是<strong>送进仓库、桌上只留一张提货单</strong>（输出落盘、消息里只存路径）。看懂这个调度台，你就看懂了 opencode 的工具执行。
+</div>
+
+<h2>materialize：只把「有权用的」工具亮给模型</h2>
+<p>一切的起点，是 <span class="mono">ToolRegistry.materialize(permissions)</span>（<span class="mono">tool/registry.ts</span>）。它做两件事，产出一个 <span class="mono">Materialization</span>：一份要<strong>亮给模型看</strong>的工具清单（<span class="mono">definitions</span>），和一个<strong>用来执行单次调用</strong>的 <span class="mono">settle</span> 函数。这里最要紧的，是 <span class="mono">definitions</span> 的生成<strong>带着权限过滤</strong>：</p>
+<pre class="code"><span class="cm">// 简化自 tool/registry.ts —— materialize 时按权限筛掉禁用工具</span>
+<span class="kw">for</span> (<span class="kw">const</span> name <span class="kw">of</span> registrations.<span class="fn">keys</span>()) {
+  <span class="kw">if</span> (<span class="fn">whollyDisabled</span>(<span class="fn">permission</span>(tool, name), permissions))
+    registrations.<span class="fn">delete</span>(name)        <span class="cm">// ← 没权限的工具，直接从清单移除</span>
+}
+<span class="kw">return</span> { definitions: ..., settle: ... }   <span class="cm">// 只有"亮得出来"的，才进 definitions</span></pre>
+<p>这一步的分量，怎么强调都不过分。模型能调什么工具，<strong>不是模型说了算，是权限说了算</strong>。一个被权限「完全禁用」的工具，根本<strong>不会出现在亮给模型的清单里</strong>——模型连它的存在都不知道，自然无从调起。这比「模型调了、我们再拦」要干净得多：<strong>最好的拦截，是让那个选项压根不出现</strong>。这又是全书反复出现的那个思路——把约束做进「形状」里，而不是事后补救。materialize 产出的 <span class="mono">definitions</span>，就是这一轮模型眼中「世界上存在哪些工具」的<strong>完整且唯一</strong>的真相。</p>
+<p>这里还藏着一个微妙却重要的点：权限过滤发生在 <span class="mono">materialize</span> 这个<strong>每轮都会重跑</strong>的环节，而不是一次性写死在某处。这意味着权限是<strong>动态、随上下文生效</strong>的——同一个工具，在权限收紧的语境下这一轮就可能不出现，在放开的语境下又重新亮出来。把「亮哪些工具」做成每轮按当前权限重算的结果，而非启动时定死的清单，agent 才谈得上「在不同 agent、不同场景下，能力边界随之伸缩」（第 45 课的 agent 会用到这点）。<strong>权限不是一道一次性的闸门，而是每轮重新校准的视野。</strong></p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">definitions</div><div class="v">亮给模型的工具清单——已按权限筛过，禁用的不出现</div></div>
+  <div class="cell"><div class="k">settle(call)</div><div class="v">执行单次调用，产出 Settlement（result / output / outputPaths）</div></div>
+</div>
+
+<h2>settle：一次调用的落地</h2>
+<p>模型在流里抛出一个 <span class="mono">tool-call</span>（比如 <span class="mono">read(file.ts)</span>），循环就调 <span class="mono">toolMaterialization.settle({sessionID, agent, assistantMessageID, call})</span>。这个 <span class="mono">settle</span> 顺着注册表找到对应的工具实现，执行它，再把产物打包成一个 <span class="mono">Settlement</span> 交回来。回顾上一课的纪律：这次执行<strong>之前</strong>，那条 <span class="mono">tool-call</span> 已经被 durably 记成 pending 的 tool part 了；<span class="mono">settle</span> 跑完，结果（成功的 <span class="mono">result</span>、失败的 <span class="mono">error</span>）再按类型写回那台 <span class="mono">ToolState</span> 状态机（第 14 课）。<span class="mono">settle</span> 是「契约」与「真实副作用」之间的<strong>那道门</strong>：门内是声明好的工具定义，门外是真去读文件、真去跑命令。</p>
+<div class="flow">
+  <div class="node">materialize<span class="sub">按权限出清单</span></div>
+  <div class="arrow">definitions →</div>
+  <div class="node">模型这一轮<span class="sub">只见有权工具</span></div>
+  <div class="arrow">tool-call →</div>
+  <div class="node">settle<span class="sub">找实现·执行</span></div>
+  <div class="arrow">Settlement →</div>
+  <div class="node">写回 state<span class="sub">completed/error</span></div>
+</div>
+
+<h2>FiberSet：一群工人，一声召回</h2>
+<p>关键来了：一轮里若有多个 <span class="mono">tool-call</span>，循环不是一个个排队跑，而是把每个 <span class="mono">settle</span> <strong>作为一个 fiber 丢进同一个 <span class="mono">FiberSet</span></strong>（<span class="mono">FiberSet.run(toolFibers)</span>），让它们<strong>并发</strong>。但 <span class="mono">FiberSet</span> 的精髓，远不止「并发」二字——它是一个<strong>被整体管理的 fiber 集合</strong>。看它的几个动作：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">make</span><span class="t-txt">建一个空集合：toolFibers = FiberSet.make()</span></div>
+  <div class="t-row"><span class="t-num">run</span><span class="t-txt">每个工具调用 → FiberSet.run(toolFibers)，并发起跑、纳入集合</span></div>
+  <div class="t-row"><span class="t-num">await</span><span class="t-txt">raceFirst(join, awaitEmpty)：要么全完成、要么一出错就立刻知道</span></div>
+  <div class="t-row"><span class="t-num">clear</span><span class="t-txt">一旦被中断（Cause.hasInterrupts）→ FiberSet.clear：全体召回</span></div>
+</div>
+<p>把它和最朴素的 <span class="mono">Promise.all</span> 比一比，差别就出来了。<span class="mono">Promise.all</span> 是「发射后不管」：你启动一批 Promise，它们就在外面野跑，你<strong>没法把它们叫回来</strong>——某个失败了，其余的还在闷头跑，徒耗资源。<span class="mono">FiberSet</span> 不一样：集合里的每个 fiber 都<strong>被记着、可召回</strong>。所以当这一轮被中断（用户喊停、或某工具失败要求收场），一句 <span class="mono">FiberSet.clear</span> 就能把<strong>所有还在飞的工具 fiber 干净地全部取消</strong>，绝不留下「主流程都结束了、某个工具还在后台改文件」的幽灵。这正是第 7 课<strong>结构化并发</strong>的灵魂：<strong>开出去多少，就能一口气收回多少</strong>，不留野线程。</p>
+<div class="cols">
+  <div class="col"><h4>Promise.all：发射后不管</h4><p>启动一批就撒手。失败时其余仍野跑，无法整体取消。出了范围还在跑的，成了幽灵。</p></div>
+  <div class="col"><h4>FiberSet：记账可召回</h4><p>每个 fiber 纳入集合、可整体 clear。中断时一声令下全员撤，开多少收多少，不留野线程。</p></div>
+</div>
+
+<h2>中断纪律与输出仓库</h2>
+<p>能「整体召回」带来一个新问题：工人正干到一半被叫停，会不会把账记成半拉子？opencode 用 <span class="mono">Effect.uninterruptibleMask((restore) =&gt; restore(settle(...)))</span> 这个第 7 课的招式来守住。它的意思是：默认这块是<strong>不可中断</strong>的（保护那些记账式的关键操作不被撕开），但用 <span class="mono">restore</span> 把<strong>真正执行工具</strong>的那段重新「开放」成可中断——于是<strong>长跑的工具可以被干净地打断，而它周围的记账逻辑却始终原子完整</strong>。中断来了，撕开的是工具执行本身，绝不是「记一半的账」。<strong>该能停的地方能停，该完整的地方完整</strong>，这条线划得清清楚楚。</p>
+<div class="cols">
+  <div class="col"><h4>外层·不可中断（默认）</h4><p>记账式的关键操作——发起记录、写回状态——被保护，绝不会被中断撕成一半。</p></div>
+  <div class="col"><h4>内层·restore 还原可中断</h4><p>真正执行工具的那段重新开放：长跑的命令/读写可被干净打断，不连累周围记账。</p></div>
+</div>
+<p>为什么这个「默认锁死、局部开放」的方向是对的，而不是反过来？因为对一个要持久、要可恢复的系统来说，<strong>「记账的完整」比「执行能停」优先级更高</strong>。设想反过来——默认可中断、只在执行工具时临时锁住——那么发起记录、写回状态这些动作就暴露在中断的刀口下，一旦在「写了一半 state」时被砍，留下的就是一条<strong>谁也读不懂的烂记录</strong>，比工具没跑完还糟。opencode 选择「外层锁死、内层用 restore 开一扇可中断的窗」，正是把这个优先级<strong>编码进了中断的默认方向</strong>：宁可让长跑工具多挨一会儿才停，也绝不容许账本被撕裂。中断是把锋利的刀，而 <span class="mono">uninterruptibleMask</span> 决定的，是这把刀<strong>只许落在哪儿</strong>。</p>
+<p>最后一个零件，关乎「工具吐出一大坨输出」怎么办。想象模型让你 <span class="mono">cat</span> 一个十万行的日志——若把这十万行原样塞进消息历史，下一轮喂给模型时，光这一坨就能把上下文窗口撑爆。opencode 的对策是 <span class="mono">ToolOutputStore</span>：超过阈值（<span class="mono">MAX_LINES = 2000</span> 行 / <span class="mono">MAX_BYTES = 50KB</span>）的输出，<strong>落到磁盘上的一个专门目录</strong>，消息里只留一个 <span class="mono">outputPaths</span> 引用。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">MAX_LINES / MAX_BYTES</div><div class="v">2000 行 / 50KB —— 超了就不塞进消息</div></div>
+  <div class="cell"><div class="k">outputPaths</div><div class="v">大输出落盘，消息里只存「提货单」（路径引用）</div></div>
+  <div class="cell"><div class="k">RETENTION</div><div class="v">落盘文件保留 7 天，到期清理</div></div>
+</div>
+<p>这一招的妙处，是<strong>把「给模型看的」和「完整留存的」分了家</strong>。模型的上下文寸土寸金，不该被一坨日志霸占；但那坨日志又不能直接丢——万一用户要看全貌呢？落盘 + 路径引用，让消息保持轻盈、上下文不被撑爆，同时完整产物一份不少地存在仓库里、随时可取。这正是第 42 课「有界输出」的雏形，也再次呼应第 14 课那个反复出现的智慧：<strong>轻的身份与重的内容，分开存。</strong>把这条原则从会话层一路贯彻到工具输出层，正是这套设计前后一致的体现。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>这一课把上一课循环里「调工具」那一步，拆成了一套精密机械：</p>
+  <ul>
+    <li><strong>materialize</strong>：按<strong>权限</strong>产出 <span class="mono">definitions</span>（亮给模型，禁用的不出现）+ <span class="mono">settle</span>（执行单次调用）。最好的拦截是让选项压根不出现。</li>
+    <li><strong>settle</strong>：契约与真实副作用之间的那道门；结果按类型写回 ToolState 状态机。</li>
+    <li><strong>FiberSet</strong>：被整体管理的并发 fiber 集合——可 <span class="mono">run</span> 并发、可 <span class="mono">await</span> 等齐、可 <span class="mono">clear</span> 一声召回。结构化并发，开多少收多少。</li>
+    <li><strong>中断纪律</strong>：<span class="mono">uninterruptibleMask + restore</span> 让工具执行可停、记账逻辑原子。<strong>输出仓库</strong>：大输出落盘、消息存路径。</li>
+  </ul>
+  <p>到这里，「工具怎么被安全地调」讲透了。但循环每轮都在「重读投影历史」——那份被反复重读、由一堆事件投影出来的「历史」，到底是怎么从第 15 课那些只追加的事件，变成模型能读的一段干净对话的？那是下一课——<strong>投影历史（第 19 课）</strong>——要揭开的魔术。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>「并发跑、能召回」这套结构化并发，在 <span class="mono">llm.ts</span> 里就是 <span class="mono">FiberSet</span> 的几个动作串起来的：</p>
+  <pre class="code"><span class="cm">// 简化自 session/runner/llm.ts</span>
+<span class="kw">const</span> toolFibers = <span class="kw">yield</span>* FiberSet.<span class="fn">make</span>()              <span class="cm">// 建集合</span>
+<span class="cm">// …每个 tool-call：</span>
+<span class="fn">settle</span>(call).<span class="fn">pipe</span>(FiberSet.<span class="fn">run</span>(toolFibers))           <span class="cm">// 并发起跑、纳入集合</span>
+
+<span class="cm">// 等齐：要么全空、要么一出错就返回</span>
+<span class="kw">const</span> awaitToolFibers = Effect.<span class="fn">raceFirst</span>(
+  FiberSet.<span class="fn">join</span>(fibers), FiberSet.<span class="fn">awaitEmpty</span>(fibers))
+
+<span class="kw">if</span> (Cause.<span class="fn">hasInterrupts</span>(cause)) <span class="kw">yield</span>* FiberSet.<span class="fn">clear</span>(toolFibers)  <span class="cm">// 中断→全体召回</span></pre>
+  <p>读 <span class="mono">awaitToolFibers</span> 那行：<span class="mono">raceFirst(join, awaitEmpty)</span>——<span class="mono">awaitEmpty</span> 在「全部干完」时返回，<span class="mono">join</span> 在「任一个失败」时返回，两者赛跑取先到。于是这一句话同时表达了两个意图：<strong>正常时等所有工具齐活，异常时第一时间炸出来</strong>。而 <span class="mono">Cause.hasInterrupts</span> 一旦为真，<span class="mono">FiberSet.clear</span> 立刻把残余 fiber 全部取消——这就是「整体召回」落到代码上的样子。短短几行，把并发、等齐、错误传播、整体取消，全说清了。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>materialize 按权限亮工具</strong>：被禁用的工具<strong>根本不出现</strong>在给模型的 <span class="mono">definitions</span> 里——最好的拦截是让选项压根不出现。</li>
+    <li><strong>settle</strong> 是「工具定义」与「真实副作用」之间的门：执行单次调用，结果按类型写回 ToolState 状态机。</li>
+    <li><strong>FiberSet</strong> 是被整体管理的并发 fiber 集合：<span class="mono">run</span>（并发）/<span class="mono">awaitToolFibers</span>（等齐或速错）/<span class="mono">clear</span>（一声召回）——结构化并发，开多少收多少，不留野线程。</li>
+    <li><strong>对比 <span class="mono">Promise.all</span></strong>：FiberSet 可整体取消，Promise.all 发射后不管；中断时这是「干净收场」与「留下幽灵」的分野。</li>
+    <li><strong>中断纪律</strong> <span class="mono">uninterruptibleMask+restore</span>：工具执行可停、记账原子完整；<strong>ToolOutputStore</strong> 把大输出（&gt;2000 行/50KB）落盘、消息只存 <span class="mono">outputPaths</span>，防上下文被撑爆。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. ToolRegistry.materialize 在「按权限亮工具」上做了什么？</div>
+  <ol class="opts">
+    <li>把所有工具都亮出来，调用时再拦</li>
+    <li>在启动时一次性写死工具清单</li>
+    <li>让模型自己决定能用哪些</li>
+    <li>被权限完全禁用的工具，根本不出现在给模型的 definitions 里——模型无从知晓、无从调用</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。materialize 每轮按当前权限筛 definitions：whollyDisabled 的工具直接从清单移除。最好的拦截是让选项压根不出现——把约束做进形状，而非事后补救。且每轮重算，权限因此是动态、随上下文生效的视野。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. FiberSet 相比 Promise.all 的关键优势是什么？</div>
+  <ol class="opts">
+    <li>FiberSet 跑得更快</li>
+    <li>两者完全一样</li>
+    <li>FiberSet 不需要 await</li>
+    <li>集合里每个 fiber 都被记着、可整体召回（clear）——中断时一声令下全员干净取消，不留野线程</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。Promise.all 是「发射后不管」：失败时其余仍野跑、无法整体取消、出范围成幽灵。FiberSet 把每个 fiber 纳入集合可整体 clear——这是第 7 课结构化并发「开多少收多少」的灵魂，中断时干净收场 vs 留下幽灵的分野。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. uninterruptibleMask((restore) => restore(settle)) 这个写法保护了什么？</div>
+  <ol class="opts">
+    <li>加快工具执行</li>
+    <li>让所有代码都不可中断</li>
+    <li>让所有代码都可中断</li>
+    <li>默认锁死记账式关键操作，仅用 restore 把工具执行那段开放成可中断——工具可停、账本完整</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。对持久可恢复的系统，「记账完整」优先于「执行能停」。默认不可中断保护发起记录/写回状态不被撕成半拉子；restore 只把真正执行工具那段开放成可中断。uninterruptibleMask 决定的，是中断这把刀只许落在哪儿。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里说权限过滤发生在「每轮重跑的 materialize」，而非启动时写死，于是权限成了「每轮重新校准的视野」。这种动态权限对「同一工具在不同 agent/场景下能力边界伸缩」有什么意义？</li>
+    <li>ToolOutputStore 把超过 2000 行/50KB 的输出落盘、消息只存 outputPaths。这和第 14 课「Session 只装元数据、内容在 Message 那层」是同一种智慧吗？说说「轻身份/重内容分开存」这条原则在本书出现过的地方。</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">Last lesson we surveyed the agent loop from on high: "think→call tool→see result→think again." The "call tool" step was glossed over — "toss into a FiberSet, run concurrently, await all." This lesson, we <strong>crouch down and take that step apart to the bottom</strong>: how are tools "shown" to the model (and only the ones it's permitted)? How is one call actually executed and its result settled? What lets that <span class="mono">FiberSet</span> make a crowd of concurrent tools "either advance together or all be recalled on one command"? And, if the model is interrupted mid-tool-call, how is no half-built mess left behind? This lesson is the loop's <strong>engine room within the engine room</strong> — the precise machinery of tool execution.</p>
+<p>Why a whole lesson for "calling tools"? Because tools are the agent's <strong>hand reaching into the real world</strong>. The model itself only generates text; tools are what let it read files, edit code, run commands — but once it can "act," safety and correctness become paramount: a tool the model shouldn't use must never be shown to it; concurrently-running tools must be cleanly halt-able as a whole; an interruption mid-action must never tear the data in two; a huge output must not blow up the session history. This lesson sees how opencode uses <span class="mono">ToolRegistry</span>, <span class="mono">FiberSet</span>, and an interruption discipline to handle the risky business of "letting the model act safely" with steady poise.</p>
+
+<div class="card analogy">
+  <div class="tag">🏗️ Analogy</div>
+  Think of tool execution as a <strong>construction dispatch desk</strong>. Before work begins, the gate's <strong>equipment-depot keeper</strong> (ToolRegistry) issues gear by your <strong>permit</strong>: only what your badge allows is even listed on the ledger — a chainsaw you lack clearance for doesn't even get to appear on the list ("show tools by permission"). Once work starts, the desk assigns jobs to a <strong>work crew</strong>: it can send three people at once (concurrent), the dispatch board <strong>tracks every one</strong> (FiberSet), can wait for the whole crew to finish, and knows instantly if anyone hits trouble — and crucially, one whistle <strong>recalls the entire crew as a unit</strong>, never leaving stragglers grinding away in a corner. Two more rules: a worker can be stopped mid-task, but <strong>only after the clerk finishes that ledger entry</strong> (no torn records); and bulky finished goods aren't piled on the desk but <strong>sent to a warehouse, leaving only a claim slip on the desk</strong> (output to disk, message holds only a path). See this dispatch desk and you've seen opencode's tool execution.
+</div>
+
+<h2>materialize: show the model only the tools it may use</h2>
+<p>It all begins with <span class="mono">ToolRegistry.materialize(permissions)</span> (<span class="mono">tool/registry.ts</span>). It does two things, producing a <span class="mono">Materialization</span>: a list of tools to <strong>show the model</strong> (<span class="mono">definitions</span>), and a <span class="mono">settle</span> function to <strong>execute one call</strong>. The most important part is that <span class="mono">definitions</span> is generated <strong>with permission filtering</strong>:</p>
+<pre class="code"><span class="cm">// simplified from tool/registry.ts — materialize filters out disabled tools by permission</span>
+<span class="kw">for</span> (<span class="kw">const</span> name <span class="kw">of</span> registrations.<span class="fn">keys</span>()) {
+  <span class="kw">if</span> (<span class="fn">whollyDisabled</span>(<span class="fn">permission</span>(tool, name), permissions))
+    registrations.<span class="fn">delete</span>(name)        <span class="cm">// ← a tool without permission, removed from the list</span>
+}
+<span class="kw">return</span> { definitions: ..., settle: ... }   <span class="cm">// only "showable" ones enter definitions</span></pre>
+<p>This step's weight can't be overstated. What tools the model can call is <strong>not the model's call but the permission's</strong>. A tool "wholly disabled" by permission simply <strong>won't appear in the list shown to the model</strong> — the model doesn't even know it exists, so it can't call it. This is far cleaner than "the model called it, then we block it": <strong>the best interception is making the option not appear at all</strong>. This is again the book's recurring idea — bake the constraint into the "shape," not patch it after. The <span class="mono">definitions</span> materialize produces is the <strong>complete and sole</strong> truth of "what tools exist in the world" in the model's eyes this round.</p>
+<p>There's also a subtle but important point here: permission filtering happens in <span class="mono">materialize</span>, a step that <strong>reruns every round</strong>, not hard-coded once somewhere. This means permissions are <strong>dynamic, taking effect by context</strong> — the same tool may not appear this round in a permission-tightened context, and reappear in a loosened one. By making "which tools to show" the result of recomputing against current permissions each round, rather than a list fixed at startup, an agent can have "its capability boundary flex with different agents and scenarios" (Lesson 45's agents use this). <strong>Permission isn't a one-time gate but a field of view recalibrated each round.</strong></p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">definitions</div><div class="v">the tool list shown to the model — already permission-filtered, disabled ones absent</div></div>
+  <div class="cell"><div class="k">settle(call)</div><div class="v">execute one call, producing a Settlement (result / output / outputPaths)</div></div>
+</div>
+
+<h2>settle: landing one call</h2>
+<p>The model throws a <span class="mono">tool-call</span> in the stream (e.g. <span class="mono">read(file.ts)</span>), and the loop calls <span class="mono">toolMaterialization.settle({sessionID, agent, assistantMessageID, call})</span>. This <span class="mono">settle</span> follows the registry to find the matching tool implementation, executes it, then packs the products into a <span class="mono">Settlement</span> to hand back. Recall last lesson's discipline: <strong>before</strong> this execution, that <span class="mono">tool-call</span> was already durably recorded as a pending tool part; once <span class="mono">settle</span> runs, the result (a success's <span class="mono">result</span>, a failure's <span class="mono">error</span>) is written back by type into that <span class="mono">ToolState</span> machine (Lesson 14). <span class="mono">settle</span> is <strong>the door</strong> between "contract" and "real side effect": inside is the declared tool definition, outside is actually reading the file, actually running the command.</p>
+<div class="flow">
+  <div class="node">materialize<span class="sub">list by permission</span></div>
+  <div class="arrow">definitions →</div>
+  <div class="node">model this round<span class="sub">sees only permitted tools</span></div>
+  <div class="arrow">tool-call →</div>
+  <div class="node">settle<span class="sub">find impl · execute</span></div>
+  <div class="arrow">Settlement →</div>
+  <div class="node">write back state<span class="sub">completed/error</span></div>
+</div>
+
+<h2>FiberSet: a crew of workers, one recall</h2>
+<p>Here's the key: if a round has multiple <span class="mono">tool-call</span>s, the loop doesn't queue them one by one but tosses each <span class="mono">settle</span> <strong>as a fiber into one <span class="mono">FiberSet</span></strong> (<span class="mono">FiberSet.run(toolFibers)</span>), running them <strong>concurrently</strong>. But <span class="mono">FiberSet</span>'s essence is far more than "concurrency" — it's a <strong>collectively-managed set of fibers</strong>. See its few actions:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">make</span><span class="t-txt">build an empty set: toolFibers = FiberSet.make()</span></div>
+  <div class="t-row"><span class="t-num">run</span><span class="t-txt">each tool call → FiberSet.run(toolFibers), start concurrently, enter the set</span></div>
+  <div class="t-row"><span class="t-num">await</span><span class="t-txt">raceFirst(join, awaitEmpty): either all finish, or know the instant one errors</span></div>
+  <div class="t-row"><span class="t-num">clear</span><span class="t-txt">once interrupted (Cause.hasInterrupts) → FiberSet.clear: recall everyone</span></div>
+</div>
+<p>Compare it with the plainest <span class="mono">Promise.all</span> and the difference shows. <span class="mono">Promise.all</span> is "fire and forget": you start a batch of Promises and they run wild outside, you <strong>can't call them back</strong> — one fails and the rest grind on, wasting resources. <span class="mono">FiberSet</span> is different: every fiber in the set is <strong>tracked, recallable</strong>. So when this round is interrupted (user halts, or a tool fails forcing a wrap-up), one <span class="mono">FiberSet.clear</span> can <strong>cleanly cancel all still-flying tool fibers</strong>, never leaving the ghost of "the main flow ended but some tool is still editing a file in the background." This is exactly Lesson 7's <strong>structured concurrency</strong> soul: <strong>collect back as many as you sent out</strong>, leaving no stray threads.</p>
+<div class="cols">
+  <div class="col"><h4>Promise.all: fire and forget</h4><p>Start a batch and let go. On failure the rest run wild, no whole-set cancel. What runs past scope becomes a ghost.</p></div>
+  <div class="col"><h4>FiberSet: tracked, recallable</h4><p>Each fiber enters the set, whole-set clear-able. On interrupt, one command recalls all; collect as many as you sent, no stray threads.</p></div>
+</div>
+
+<h2>Interruption discipline and the output warehouse</h2>
+<p>Being able to "recall as a whole" brings a new problem: if a worker is stopped mid-task, won't the ledger be left half-written? opencode guards this with Lesson 7's move <span class="mono">Effect.uninterruptibleMask((restore) =&gt; restore(settle(...)))</span>. It means: this block is by default <strong>uninterruptible</strong> (protecting the ledger-like critical operations from being torn open), but <span class="mono">restore</span> reopens <strong>the part that actually executes the tool</strong> as interruptible — so <strong>a long-running tool can be cleanly interrupted, while the bookkeeping around it stays atomic and whole</strong>. When interruption comes, what's torn is the tool execution itself, never "a half-written ledger." <strong>What should be stoppable is stoppable, what should be whole is whole</strong>, the line drawn cleanly.</p>
+<div class="cols">
+  <div class="col"><h4>outer · uninterruptible (default)</h4><p>Ledger-like critical ops — recording the initiation, writing back state — are protected, never torn in half by an interrupt.</p></div>
+  <div class="col"><h4>inner · restore reopens interruptible</h4><p>The part that actually executes the tool is reopened: a long-running command/IO can be cleanly interrupted, without dragging the surrounding bookkeeping.</p></div>
+</div>
+<p>Why is this direction of "lock by default, open locally" right, not the reverse? Because for a system that must be durable and recoverable, <strong>"ledger integrity" outranks "execution being stoppable."</strong> Imagine the reverse — interruptible by default, locked only while executing the tool — then recording the initiation and writing back state are exposed to the interrupt's blade, and if cut "mid-write of state," what's left is <strong>a record no one can read</strong>, worse than a tool that didn't finish. opencode chooses "lock the outer, open an interruptible window inner via restore," precisely <strong>encoding this priority into the default direction of interruption</strong>: rather let a long tool take a bit longer to stop than ever allow the ledger to be torn. Interruption is a sharp knife, and what <span class="mono">uninterruptibleMask</span> decides is <strong>where the knife may land</strong>.</p>
+<p>The last piece concerns what to do when "a tool spews a huge output." Imagine the model asks you to <span class="mono">cat</span> a hundred-thousand-line log — stuffing those hundred thousand lines verbatim into the message history would, on the next round's feed to the model, blow up the context window by itself. opencode's countermeasure is <span class="mono">ToolOutputStore</span>: output exceeding a threshold (<span class="mono">MAX_LINES = 2000</span> lines / <span class="mono">MAX_BYTES = 50KB</span>) <strong>lands in a dedicated directory on disk</strong>, with the message holding only an <span class="mono">outputPaths</span> reference.</p>
+<div class="cellgroup">
+  <div class="cell"><div class="k">MAX_LINES / MAX_BYTES</div><div class="v">2000 lines / 50KB — beyond it, not stuffed into the message</div></div>
+  <div class="cell"><div class="k">outputPaths</div><div class="v">big output to disk, message holds only a "claim slip" (path reference)</div></div>
+  <div class="cell"><div class="k">RETENTION</div><div class="v">on-disk files kept 7 days, cleaned on expiry</div></div>
+</div>
+<p>The beauty of this move is <strong>separating "what's shown to the model" from "what's fully retained."</strong> The model's context is precious real estate, not to be hogged by a log dump; yet that log can't just be discarded — what if the user wants the full picture? Disk + path reference keeps the message light and the context unblown, while the complete product sits in the warehouse, every bit retained, retrievable anytime. This is the prototype of Lesson 42's "bounded output," and again echoes Lesson 14's recurring wisdom: <strong>store the light identity and the heavy content separately.</strong> Carrying this principle all the way from the session layer to the tool-output layer is exactly what makes this design coherent.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The big picture</div>
+  <p>This lesson takes apart the "call tool" step of last lesson's loop into a piece of precise machinery:</p>
+  <ul>
+    <li><strong>materialize</strong>: produce <span class="mono">definitions</span> by <strong>permission</strong> (shown to the model, disabled ones absent) + <span class="mono">settle</span> (execute one call). The best interception is making the option not appear.</li>
+    <li><strong>settle</strong>: the door between contract and real side effect; results written back by type into the ToolState machine.</li>
+    <li><strong>FiberSet</strong>: a collectively-managed set of concurrent fibers — <span class="mono">run</span> (concurrent), <span class="mono">await</span> (all-done or fail-fast), <span class="mono">clear</span> (recall on one command). Structured concurrency, collect as many as you send.</li>
+    <li><strong>Interruption discipline</strong>: <span class="mono">uninterruptibleMask + restore</span> makes tool execution stoppable, bookkeeping atomic. <strong>Output warehouse</strong>: big output to disk, message holds paths.</li>
+  </ul>
+  <p>By here, "how tools are called safely" is fully covered. But the loop "rereads projected history" each round — that repeatedly-reread "history," projected from a pile of events, how does it turn Lesson 15's append-only events into a clean conversation the model can read? That's the magic the next lesson — <strong>projected history (Lesson 19)</strong> — unveils.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source detail</div>
+  <p>This structured concurrency of "run concurrently, recallable" is, in <span class="mono">llm.ts</span>, just a few <span class="mono">FiberSet</span> actions strung together:</p>
+  <pre class="code"><span class="cm">// simplified from session/runner/llm.ts</span>
+<span class="kw">const</span> toolFibers = <span class="kw">yield</span>* FiberSet.<span class="fn">make</span>()              <span class="cm">// build the set</span>
+<span class="cm">// …each tool-call:</span>
+<span class="fn">settle</span>(call).<span class="fn">pipe</span>(FiberSet.<span class="fn">run</span>(toolFibers))           <span class="cm">// start concurrently, enter the set</span>
+
+<span class="cm">// await all: return either when all empty, or when one errors</span>
+<span class="kw">const</span> awaitToolFibers = Effect.<span class="fn">raceFirst</span>(
+  FiberSet.<span class="fn">join</span>(fibers), FiberSet.<span class="fn">awaitEmpty</span>(fibers))
+
+<span class="kw">if</span> (Cause.<span class="fn">hasInterrupts</span>(cause)) <span class="kw">yield</span>* FiberSet.<span class="fn">clear</span>(toolFibers)  <span class="cm">// interrupt → recall all</span></pre>
+  <p>Read the <span class="mono">awaitToolFibers</span> line: <span class="mono">raceFirst(join, awaitEmpty)</span> — <span class="mono">awaitEmpty</span> returns when "all done," <span class="mono">join</span> returns when "any one fails," racing for whichever comes first. So this one line expresses two intents at once: <strong>normally await all tools to finish, abnormally blow up at the first failure</strong>. And once <span class="mono">Cause.hasInterrupts</span> is true, <span class="mono">FiberSet.clear</span> immediately cancels all remaining fibers — that's "recall as a whole" landed in code. A few short lines say it all: concurrency, await-all, error propagation, whole-set cancellation.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li><strong>materialize shows tools by permission</strong>: a disabled tool <strong>simply doesn't appear</strong> in the <span class="mono">definitions</span> given to the model — the best interception is making the option not appear at all.</li>
+    <li><strong>settle</strong> is the door between "tool definition" and "real side effect": execute one call, result written back by type into the ToolState machine.</li>
+    <li><strong>FiberSet</strong> is a collectively-managed set of concurrent fibers: <span class="mono">run</span> (concurrent) / <span class="mono">awaitToolFibers</span> (all-done or fail-fast) / <span class="mono">clear</span> (recall on one command) — structured concurrency, collect as many as you send, no stray threads.</li>
+    <li><strong>vs <span class="mono">Promise.all</span></strong>: FiberSet is whole-set cancellable, Promise.all is fire-and-forget; on interrupt this is the divide between "clean wrap-up" and "leaving ghosts."</li>
+    <li><strong>Interruption discipline</strong> <span class="mono">uninterruptibleMask+restore</span>: tool execution stoppable, bookkeeping atomic; <strong>ToolOutputStore</strong> lands big output (&gt;2000 lines/50KB) on disk, message holds only <span class="mono">outputPaths</span>, preventing context blow-up.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. What does ToolRegistry.materialize do for "showing tools by permission"?</div>
+  <ol class="opts">
+    <li>Show all tools, then block at call time</li>
+    <li>Hard-code the tool list once at startup</li>
+    <li>Let the model decide which it may use</li>
+    <li>A wholly-disabled tool simply doesn't appear in the definitions given to the model — unknown to it, uncallable</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. materialize filters definitions by current permission each round: a whollyDisabled tool is removed from the list. The best interception makes the option not appear — constraint in the shape, not patched after. Recomputed each round, so permission is a dynamic, context-sensitive field of view.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. What's FiberSet's key advantage over Promise.all?</div>
+  <ol class="opts">
+    <li>FiberSet runs faster</li>
+    <li>They are identical</li>
+    <li>FiberSet needs no await</li>
+    <li>Every fiber in the set is tracked and whole-set recallable (clear) — on interrupt, one command cleanly cancels all, no stray threads</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. Promise.all is fire-and-forget: on failure the rest run wild, no whole cancel, ghosts past scope. FiberSet tracks each fiber for whole-set clear — Lesson 7's structured-concurrency soul of "collect as many as you send," the divide between clean wrap-up and leaving ghosts on interrupt.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. What does uninterruptibleMask((restore) => restore(settle)) protect?</div>
+  <ol class="opts">
+    <li>Speeds up tool execution</li>
+    <li>Makes all code uninterruptible</li>
+    <li>Makes all code interruptible</li>
+    <li>Locks ledger-like critical ops by default, reopening only the tool-execution part as interruptible via restore — tool stoppable, ledger intact</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. For a durable, recoverable system, ledger integrity outranks execution being stoppable. Uninterruptible-by-default protects recording/state-write from being torn; restore reopens only the tool execution. uninterruptibleMask decides where the interrupt knife may land.</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson says permission filtering happens in "materialize, which reruns each round," not fixed at startup, so permission becomes "a field of view recalibrated each round." What does this dynamic permission mean for "the same tool's capability boundary flexing across agents/scenarios"?</li>
+    <li>ToolOutputStore lands output over 2000 lines/50KB on disk, the message holding only outputPaths. Is this the same wisdom as Lesson 14's "Session holds only metadata, content lives at the Message layer"? Name where this "separate light identity from heavy content" principle has appeared in the book.</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="17-agent-loop.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">V2 agent 循环</span><span class="lang-en">The V2 agent loop</span></div></a><a class="next" href="19-projected-history.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">投影历史</span><span class="lang-en">Projected history</span></div></a></div>
 </div>
 <script>

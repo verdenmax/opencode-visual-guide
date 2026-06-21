@@ -790,6 +790,47 @@ QUIZZES = {
             {"zh": "MAX_STEPS=25 给内层循环套了个硬环，而不是 while(true)。结合「模型并不总知道自己该停」，说说这个上限在「自由迭代」和「绝不失控」之间扮演的角色。", "en": "MAX_STEPS=25 puts a hard ring on the inner loop instead of while(true). Given \"the model doesn't always know to stop,\" discuss the role this ceiling plays between \"free iteration\" and \"never run wild.\""},
         ],
     },
+    "18-tool-calls-fiberset.html": {
+        "mcq": [
+            {
+                "q": {"zh": "ToolRegistry.materialize 在「按权限亮工具」上做了什么？", "en": "What does ToolRegistry.materialize do for \"showing tools by permission\"?"},
+                "opts": [
+                    {"zh": "被权限完全禁用的工具，根本不出现在给模型的 definitions 里——模型无从知晓、无从调用", "en": "A wholly-disabled tool simply doesn't appear in the definitions given to the model — unknown to it, uncallable"},
+                    {"zh": "把所有工具都亮出来，调用时再拦", "en": "Show all tools, then block at call time"},
+                    {"zh": "让模型自己决定能用哪些", "en": "Let the model decide which it may use"},
+                    {"zh": "在启动时一次性写死工具清单", "en": "Hard-code the tool list once at startup"},
+                ],
+                "answer": 0,
+                "why": {"zh": "materialize 每轮按当前权限筛 definitions：whollyDisabled 的工具直接从清单移除。最好的拦截是让选项压根不出现——把约束做进形状，而非事后补救。且每轮重算，权限因此是动态、随上下文生效的视野。", "en": "materialize filters definitions by current permission each round: a whollyDisabled tool is removed from the list. The best interception makes the option not appear — constraint in the shape, not patched after. Recomputed each round, so permission is a dynamic, context-sensitive field of view."},
+            },
+            {
+                "q": {"zh": "FiberSet 相比 Promise.all 的关键优势是什么？", "en": "What's FiberSet's key advantage over Promise.all?"},
+                "opts": [
+                    {"zh": "集合里每个 fiber 都被记着、可整体召回（clear）——中断时一声令下全员干净取消，不留野线程", "en": "Every fiber in the set is tracked and whole-set recallable (clear) — on interrupt, one command cleanly cancels all, no stray threads"},
+                    {"zh": "FiberSet 跑得更快", "en": "FiberSet runs faster"},
+                    {"zh": "FiberSet 不需要 await", "en": "FiberSet needs no await"},
+                    {"zh": "两者完全一样", "en": "They are identical"},
+                ],
+                "answer": 0,
+                "why": {"zh": "Promise.all 是「发射后不管」：失败时其余仍野跑、无法整体取消、出范围成幽灵。FiberSet 把每个 fiber 纳入集合可整体 clear——这是第 7 课结构化并发「开多少收多少」的灵魂，中断时干净收场 vs 留下幽灵的分野。", "en": "Promise.all is fire-and-forget: on failure the rest run wild, no whole cancel, ghosts past scope. FiberSet tracks each fiber for whole-set clear — Lesson 7's structured-concurrency soul of \"collect as many as you send,\" the divide between clean wrap-up and leaving ghosts on interrupt."},
+            },
+            {
+                "q": {"zh": "uninterruptibleMask((restore) => restore(settle)) 这个写法保护了什么？", "en": "What does uninterruptibleMask((restore) => restore(settle)) protect?"},
+                "opts": [
+                    {"zh": "默认锁死记账式关键操作，仅用 restore 把工具执行那段开放成可中断——工具可停、账本完整", "en": "Locks ledger-like critical ops by default, reopening only the tool-execution part as interruptible via restore — tool stoppable, ledger intact"},
+                    {"zh": "让所有代码都不可中断", "en": "Makes all code uninterruptible"},
+                    {"zh": "让所有代码都可中断", "en": "Makes all code interruptible"},
+                    {"zh": "加快工具执行", "en": "Speeds up tool execution"},
+                ],
+                "answer": 0,
+                "why": {"zh": "对持久可恢复的系统，「记账完整」优先于「执行能停」。默认不可中断保护发起记录/写回状态不被撕成半拉子；restore 只把真正执行工具那段开放成可中断。uninterruptibleMask 决定的，是中断这把刀只许落在哪儿。", "en": "For a durable, recoverable system, ledger integrity outranks execution being stoppable. Uninterruptible-by-default protects recording/state-write from being torn; restore reopens only the tool execution. uninterruptibleMask decides where the interrupt knife may land."},
+            },
+        ],
+        "open": [
+            {"zh": "课里说权限过滤发生在「每轮重跑的 materialize」，而非启动时写死，于是权限成了「每轮重新校准的视野」。这种动态权限对「同一工具在不同 agent/场景下能力边界伸缩」有什么意义？", "en": "The lesson says permission filtering happens in \"materialize, which reruns each round,\" not fixed at startup, so permission becomes \"a field of view recalibrated each round.\" What does this dynamic permission mean for \"the same tool's capability boundary flexing across agents/scenarios\"?"},
+            {"zh": "ToolOutputStore 把超过 2000 行/50KB 的输出落盘、消息只存 outputPaths。这和第 14 课「Session 只装元数据、内容在 Message 那层」是同一种智慧吗？说说「轻身份/重内容分开存」这条原则在本书出现过的地方。", "en": "ToolOutputStore lands output over 2000 lines/50KB on disk, the message holding only outputPaths. Is this the same wisdom as Lesson 14's \"Session holds only metadata, content lives at the Message layer\"? Name where this \"separate light identity from heavy content\" principle has appeared in the book."},
+        ],
+    },
 }
 
 def render(fname, lang):
