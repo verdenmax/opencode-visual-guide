@@ -328,8 +328,302 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第六部分 · LLM 协议层</span><span class="lang-en">Part 6 · LLM Layer</span></div>
     <h1><span class="lang-zh">OpenAI Chat/Responses 协议</span><span class="lang-en">The OpenAI protocols</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《OpenAI Chat/Responses 协议》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“OpenAI Chat/Responses 协议”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "The OpenAI protocols" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "The OpenAI protocols" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">第 30 课我们看了 Anthropic 这份「填好的表」。这一课的主角换成 OpenAI——而它有个别家都没有的特殊之处：<strong>OpenAI 自己就要两份协议</strong>。一份是老牌的 Chat Completions（<span class="mono">/chat/completions</span>），一份是新生的 Responses（<span class="mono">/responses</span>）。为什么一家供应商要填两张表？这背后是一段「<strong>API 正在新老交替</strong>」的真实历史，opencode 选择<strong>两边都支持</strong>。更妙的是，正因为「协议」和「供应商」是解耦的（第 28 课），那份老牌的 Chat 协议还顺手撑起了<strong>大半个生态</strong>——一个只有 24 行的小文件，就让一大票「OpenAI 兼容」厂商免费接了进来。这一课，你会亲眼看到第 28 课那句「实现一次、白嫖整个生态」<strong>如何在源码里兑现</strong>。</p>
+<p>这一课的看点有三：其一，<strong>为什么 OpenAI 要两份协议</strong>，两份各自长什么样、差在哪；其二，新的 Responses 协议带来了一个 Anthropic 那边见过、但解法不同的东西——<strong>把「推理」当成一等公民</strong>；其三，也是最过瘾的，<strong>那个 24 行的「兼容」协议</strong>，如何用近乎白送的代价，把「协议≠供应商」这条设计原则的回报，一次性兑现给你看。</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 生活类比</div>
+  想象 OpenAI 是一家老牌电器厂，正处在「换插头制式」的过渡期。<strong>旧制式（Chat）</strong>用了多年、满世界都是，几乎成了行业事实标准——连别家厂的电器，都纷纷做成「兼容这个旧制式」的样子。<strong>新制式（Responses）</strong>是这家厂刚推的，更先进：能记住电器「上次运转到哪」（服务端状态）、还专门留了个插孔记录「机器思考的过程」（推理）。这家厂自己<strong>新旧两种插座都装</strong>，让你按需用。而最划算的一幕是：因为「插头制式」和「具体电器」是两回事，opencode 只要实现了那个<strong>旧制式插座</strong>，那一大票「兼容旧制式」的别家电器——OpenRouter、xAI、本地模型……——<strong>全都自动能插上，一行新代码都不用加</strong>。同一套插座，白白多接了半个行业的电器，这就是「制式与电器解耦」的复利。
+</div>
+
+<h2>为什么 OpenAI 要两份协议</h2>
+<p>翻开 <span class="mono">protocols/</span> 目录，你会发现 OpenAI 占了<strong>两个文件</strong>：<span class="mono">openai-chat.ts</span> 和 <span class="mono">openai-responses.ts</span>。这不是冗余，而是忠实地反映了现实——OpenAI 的 API <strong>正处在从 Chat 向 Responses 迁移的中途</strong>。Chat Completions 是那个用了多年、被全世界当成事实标准的老接口；Responses 是 OpenAI 新设计的、更强大的接口。两者都还活着、都有人用，opencode 于是<strong>两份都填</strong>，让用户按模型按需选。把两份表并排看，差异一目了然：</p>
+<div class="cols">
+  <div class="col"><h4>Chat（<span class="mono">/chat/completions</span>）老牌</h4><p>消息是<strong>扁平的角色联合</strong>：system / user / assistant（带 tool_calls）/ tool（带 tool_call_id）。content 多为字符串，工具调用挂在 assistant 上。简单、稳定、举世通用。</p></div>
+  <div class="col"><h4>Responses（<span class="mono">/responses</span>）新锐</h4><p>输入输出都是<strong>带类型的「条目」数组</strong>：input_text / output_text / reasoning / function_call / function_call_output / item_reference。能携带服务端状态、把推理当一等公民。更结构化、更强大。</p></div>
+</div>
+<p>先看老牌的 Chat。它的消息模型是一个<strong>按 role 标签的联合类型</strong>，朴素得让人安心：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">system</div><div class="c-txt">系统提示，content 是字符串（区别于 Anthropic 的顶层字段！）</div></div>
+  <div class="cell"><div class="c-tag">user</div><div class="c-txt">用户消息</div></div>
+  <div class="cell"><div class="c-tag">assistant</div><div class="c-txt">助手回复，工具调用挂在 tool_calls: [{type:function, function:{name,arguments}}]</div></div>
+  <div class="cell"><div class="c-tag">tool</div><div class="c-txt">工具结果，靠 tool_call_id 对应回某次调用</div></div>
+</div>
+<p>这套模型为什么能成为「事实标准」？恰恰因为它<strong>足够朴素</strong>：四种角色、一个扁平数组、工具调用就是 assistant 上挂个列表——没有花哨的嵌套、没有特立独行的字段。越朴素的东西越容易被模仿，于是别家厂商照着它做「兼容」也最省事。这是个反直觉的道理：<strong>Chat 协议的「不够先进」，反而成就了它的「无处不在」</strong>。而 Responses 的先进（条目、推理托管、服务端状态），代价就是别家很难照搬——所以你几乎听不到「Responses 兼容」的厂商，却遍地是「Chat 兼容」的厂商。设计上的取舍，就这样写进了生态的版图，也写进了 opencode「为何独独给 OpenAI 备两份协议」的决定里。</p>
+<p>对照第 30 课你会立刻品出方言的不同：Anthropic 把 system 拎成顶层字段、把工具调用做成内容块；OpenAI Chat 却把 system 当成 <span class="mono">messages</span> 里普通的一条、把工具调用做成 assistant 消息上的 <span class="mono">tool_calls</span> 数组。<strong>同一套规范概念，两家摆法南辕北辙</strong>——而 core 对这些一无所知，全靠两份 <span class="mono">body.from</span> 各自吸收。流式这边，Chat 用 <span class="mono">delta</span> 增量推送 content 和 tool_calls 片段，末尾给一个 <span class="mono">finish_reason</span>，状态机照样跨帧把工具参数拼起来——和第 29 课的预想严丝合缝：</p>
+<div class="flow">
+  <div class="f-node">choices[].delta<br><small>content 文字片段</small></div>
+  <div class="f-arrow">累积 →</div>
+  <div class="f-node">delta.tool_calls<br><small>工具参数 JSON 跨帧</small></div>
+  <div class="f-arrow">攒齐 →</div>
+  <div class="f-node">finish_reason<br><small>本轮收尾，吐完整事件</small></div>
+</div>
+
+<h2>Responses 的新东西：把「推理」当一等公民</h2>
+<p>再看新锐的 Responses。它最重要的革新，是把过去藏在模型肚子里的<strong>「推理过程」也变成了协议里的一等条目</strong>。在它的条目类型里，赫然有一个 <span class="mono">reasoning</span> 条目，还带着一个意味深长的字段 <span class="mono">encrypted_content</span>：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">input_text / input_image</div><div class="c-txt">输入条目：文字、图片</div></div>
+  <div class="cell"><div class="c-tag">output_text</div><div class="c-txt">输出条目：模型生成的文字</div></div>
+  <div class="cell"><div class="c-tag">reasoning</div><div class="c-txt">推理条目，带 encrypted_content（加密的思考过程）</div></div>
+  <div class="cell"><div class="c-tag">function_call / _output</div><div class="c-txt">工具调用与结果（结果可含图片等多模态）</div></div>
+  <div class="cell"><div class="c-tag">item_reference</div><div class="c-txt">引用服务端已存的条目（靠 id，无需重发）</div></div>
+</div>
+<p><span class="mono">encrypted_content</span> 这个字段很有故事。模型「想」的那一长串推理，OpenAI 不直接明文给你（怕被滥用/蒸馏），而是给你一团<strong>加密的密文</strong>。你看不懂它，但下一轮把它<strong>原样塞回去</strong>，模型就能「想起」自己上次的思路，接着往下推。这样多轮之间，模型的「思维链」得以延续，而你始终<strong>只是个忠实的搬运工</strong>——拿着一团你读不懂、却能让模型自我延续的密文。这跟第 30 课 Anthropic 的 <span class="mono">signature</span>（给推理块盖个密码学签名）异曲同工：<strong>两家都要解决「让模型信任自己上一轮的推理」，只是一个用签名验真、一个用密文托管。</strong>同一个问题，两种方言两种解法——又一次印证了「协议即方言」。把三家的「推理处理」并排放，这种「同题异解」看得最清楚：</p>
+<table class="t">
+  <tr><th>协议</th><th>推理是否一等公民</th><th>怎么跨轮延续推理</th></tr>
+  <tr><td>OpenAI Chat（老）</td><td>否，无专门表示</td><td>不延续（老接口没这概念）</td></tr>
+  <tr><td>OpenAI Responses</td><td>是，reasoning 条目</td><td>encrypted_content 密文，原样回传</td></tr>
+  <tr><td>Anthropic Messages</td><td>是，thinking 块</td><td>signature 密码学签名验真</td></tr>
+</table>
+<p>Responses 还有几处「新接口才有的讲究」：<span class="mono">store</span> 字段决定要不要把这次响应<strong>存在服务端</strong>；配合 <span class="mono">item_reference</span>，下一轮你可以<strong>只用 id 引用</strong>之前的条目、不必整段重发——这是把状态<strong>外包给服务端</strong>的思路，和 Chat「每轮带全量历史」的无状态风格截然不同。它的流式也升级成<strong>基于条目的事件</strong>（条目添加 / 增量 / 完成），State 里专门留了一个 <span class="mono">reasoningItems</span> 记录，把跨帧到达的多段推理摘要<strong>折叠</strong>进同一个条目里再吐出。结构更复杂，但表达力也更强。</p>
+
+<h2>24 行的魔法：一份协议撑起半个生态</h2>
+<p>现在来看这一课最过瘾的部分。OpenAI 的 Chat 协议，因为太通用，早已成了<strong>事实标准</strong>——市面上一大票厂商（OpenRouter、xAI、各种本地模型服务……）都把自己的 API 做成「OpenAI Chat 兼容」的样子。opencode 要接住它们，需要为每家重写一遍协议吗？<strong>完全不用。</strong>看 <span class="mono">openai-compatible-chat.ts</span> 这个文件——它<strong>总共只有 24 行</strong>：</p>
+<pre class="code"><span class="cm">// openai-compatible-chat.ts 的全部精华</span>
+<span class="kw">export const</span> route = Route.<span class="fn">make</span>({
+  id: ADAPTER,
+  protocol: OpenAIChat.protocol,        <span class="cm">// ← 整份复用 Chat 协议！</span>
+  endpoint: Endpoint.<span class="fn">path</span>(<span class="st">"/chat/completions"</span>),  <span class="cm">// 只改端点</span>
+  framing: Framing.sse,
+})</pre>
+<p>它做的事，就一句话：<strong>把 <span class="mono">OpenAIChat.protocol</span> 整个拿过来用</strong>，只覆盖一个 route id（好让不同厂商各自解析、不撞车）和端点路径。请求怎么编码、响应怎么解码——<strong>一个字都没重写</strong>，全是 Chat 协议的原班人马。这 24 行，就是第 28 课那句「把线缆格式抽象成协议、实现一次白嫖整个生态」最掷地有声的证明。其中的杠杆是惊人的：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">投入</span><span class="t-txt">实现 OpenAIChat.protocol 一次（请求编码 + 流解码）</span></div>
+  <div class="t-row"><span class="t-num">复用</span><span class="t-txt">openai-compatible-chat：24 行，整份引用 Chat 协议</span></div>
+  <div class="t-row"><span class="t-num">收获</span><span class="t-txt">OpenRouter / xAI / 本地模型… 一大票「兼容」厂商全部接入</span></div>
+  <div class="t-row"><span class="t-num">增量</span><span class="t-txt">再多一家兼容厂商？协议代码一行不加，配个端点即可</span></div>
+</div>
+<p>这就是「协议 ≠ 供应商」这条设计原则的<strong>现金回报</strong>。如果当初把协议和供应商揉成一团（每家一套 if 分支），新增一家「OpenAI 兼容」厂商就得复制粘贴一大坨编解码逻辑；而解耦之后，新增一家的成本，<strong>趋近于零</strong>。一个 24 行的文件，胜过千言万语的架构布道。值得再多想一层的是：这 24 行之所以能这么短，<strong>不是因为偷懒，而是因为前面的功夫下到了位</strong>——正因为 Chat 协议把「请求编码」「流解码」干干净净地封装成了一个可复用的 <span class="mono">protocol</span> 对象，复用它才像「拿来即用」这么轻松。<strong>好的抽象，回报往往迟到，但一定会到</strong>：你在 Chat 协议上多花的那份「把编解码和网络分开」的心思，到这里、到每一个新接入的兼容厂商身上，连本带利地还给你。这也是为什么第 29 课要反复强调那张「两栏表」的边界——边界划得清，复用才来得爽。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  <p>OpenAI 这一课，把「协议即方言」和「协议≠供应商」两条主线同时推到了高潮：</p>
+  <ul>
+    <li><strong>一家供应商，两份协议</strong>：Chat（老牌、举世通用的 <span class="mono">/chat/completions</span>）+ Responses（新锐、更结构化的 <span class="mono">/responses</span>）。反映 OpenAI API 新老迁移的真实历史，opencode 两边都填。</li>
+    <li><strong>方言对比</strong>：Chat 用扁平角色联合（system/user/assistant+tool_calls/tool）、system 是普通消息；Responses 用带类型条目数组、推理是一等公民。同一规范概念，摆法迥异。</li>
+    <li><strong>Responses 的推理一等公民</strong>：<span class="mono">reasoning</span> 条目带 <span class="mono">encrypted_content</span>（加密思维链，原样回传即可续上）+ <span class="mono">store</span>/<span class="mono">item_reference</span>（状态外包服务端）。与第 30 课 Anthropic <span class="mono">signature</span> 殊途同归。</li>
+    <li><strong>24 行的复利</strong>：<span class="mono">openai-compatible-chat</span> 整份复用 Chat 协议、只改 id+端点，就让一大票「OpenAI 兼容」厂商免费接入——第 28 课「实现一次白嫖生态」的源码铁证。</li>
+  </ul>
+  <p>把第 30、31 两课连起来看，你已经摸清了「主流三大家」里的两家半：Anthropic（块 + 缓存预算）、OpenAI Chat（扁平角色 + 生态基石）、OpenAI Responses（条目 + 推理托管）。下一课轮到 <strong>Gemini 与 Bedrock</strong>，你会看到更多方言，以及 Bedrock 那套独特的二进制事件流——但骨架始终是第 29 课那张表，你只需继续问：「这家的 body.from 和 stream.step，特别在哪？」</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>为什么 24 行就能复用整份协议？关键在 <span class="mono">Route</span> 和 <span class="mono">Protocol</span> 是<strong>正交</strong>的两层。<span class="mono">Route.make</span> 把「协议（怎么编解码）」「端点（打哪个 URL）」「framing（流怎么分帧）」当成<strong>三个可独立替换的零件</strong>拼起来：</p>
+  <pre class="code"><span class="cm">// 同一个 protocol，配不同 endpoint，就是不同的 route</span>
+OpenAIChat.route       = Route.make({ protocol: OpenAIChat.protocol, endpoint: <span class="st">"openai 官方"</span>, ... })
+OpenAICompatible.route = Route.make({ protocol: OpenAIChat.protocol, endpoint: <span class="st">"/chat/completions"</span>, ... })</pre>
+  <p>因为编解码逻辑被封装在 <span class="mono">protocol</span> 这个零件里、和「打哪个端点」彻底分开，所以「换个供应商」往往只是「<strong>换个端点、复用同一个 protocol</strong>」。这正是第 29 课强调的分层在这里结出的果：<span class="mono">Protocol</span> 只管方言的编解码、不管网络去向，于是同一种方言能服务无数个说这种方言的供应商。下一课的 Bedrock 会展示反面——同样的 Anthropic 方言，却因为<strong>传输和认证</strong>不同（走 AWS），需要另一份协议；可见 protocol/route 这套正交切分，把「方言相同但网络不同」「网络相同但方言不同」两种情况都拆解得干干净净，各自只动该动的那个零件。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>OpenAI 独有「两份协议」</strong>：<span class="mono">openai-chat.ts</span>（老牌 <span class="mono">/chat/completions</span>）+ <span class="mono">openai-responses.ts</span>（新锐 <span class="mono">/responses</span>），反映其 API 新老迁移；opencode 两边都支持。</li>
+    <li><strong>Chat = 扁平角色联合</strong>：system/user/assistant(带 tool_calls)/tool(带 tool_call_id)，system 是普通消息、工具调用挂 assistant——与 Anthropic 的「块 + 顶层 system」是两种方言。</li>
+    <li><strong>Responses = 带类型条目 + 推理一等公民</strong>：<span class="mono">reasoning</span> 条目带 <span class="mono">encrypted_content</span>（加密思维链，原样回传即续上，与 Anthropic <span class="mono">signature</span> 殊途同归）；<span class="mono">store</span>/<span class="mono">item_reference</span> 把状态外包服务端；流式基于条目事件、用 <span class="mono">reasoningItems</span> 折叠多段推理。</li>
+    <li><strong>24 行的复利</strong>：<span class="mono">openai-compatible-chat.ts</span> 整份复用 <span class="mono">OpenAIChat.protocol</span>、只改 route id + 端点，就让一大票「OpenAI 兼容」厂商（OpenRouter/xAI/本地模型…）免费接入——第 28 课「实现一次白嫖生态」的铁证。</li>
+    <li><strong>Route 与 Protocol 正交</strong>：Route.make 把 protocol（编解码）/endpoint（URL）/framing（分帧）当独立零件，「换供应商」常常只是「换端点、复用 protocol」。新增一家兼容厂商成本趋近于零。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. 为什么 OpenAI 在 opencode 里独占两份协议文件（openai-chat 和 openai-responses）？</div>
+  <ol class="opts">
+    <li>一份处理请求、一份处理响应</li>
+    <li>一份给付费用户、一份给免费用户</li>
+    <li>OpenAI 的 API 正从老的 Chat Completions 迁移到新的 Responses，两者都还活着、都有人用，opencode 两边都支持</li>
+    <li>纯属代码冗余，应该合并</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。这不是冗余，而是忠实反映现实：OpenAI 正处在 Chat→Responses 的 API 迁移途中。Chat（/chat/completions）是用了多年、被当成事实标准的老接口；Responses（/responses）是更强大的新接口（带类型条目、推理一等公民、服务端状态）。两者都有人用，opencode 于是两份都填，让用户按模型按需选。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. openai-compatible-chat.ts 只有 24 行，它是怎么做到「撑起半个生态」的？</div>
+  <ol class="opts">
+    <li>整份复用 OpenAIChat.protocol，只覆盖 route id + 端点路径——编解码一个字不重写，一大票「OpenAI 兼容」厂商即可免费接入</li>
+    <li>它用 AI 自动生成每家厂商的适配代码</li>
+    <li>它把所有厂商的逻辑压缩进 24 行</li>
+    <li>它只支持 24 家厂商</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。因为「协议」和「供应商」解耦（第 28 课），Chat 协议这套通用线缆格式早成事实标准。compatible-chat 整份引用 OpenAIChat.protocol，只改 id 和端点 /chat/completions——请求编码、响应解码全是 Chat 原班人马。于是 OpenRouter/xAI/本地模型…一大票兼容厂商全自动接入，再多一家也只需配端点、协议代码一行不加。这是「协议≠供应商」最掷地有声的现金回报。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. Responses 协议的 reasoning 条目带 encrypted_content，它和 Anthropic 的 signature 解决的是同一个什么问题？</div>
+  <ol class="opts">
+    <li>压缩 token 用量</li>
+    <li>「让模型跨轮信任/延续自己上一轮的推理」——Responses 用加密密文托管、Anthropic 用密码学签名验真，同题异解</li>
+    <li>防止网络中间人攻击</li>
+    <li>加密用户的隐私数据</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。两家都把「推理」当一等公民，都要让模型在多轮间延续自己的思维链，又都不愿把明文推理直接交给客户端。Responses 给你一团加密 encrypted_content，你原样回传、模型自行解开续上；Anthropic 给推理块盖个 signature 签名，回传时验真。同一个问题、两种方言两种解法——正是「协议即方言」的又一例证。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里有个反直觉的论断：「Chat 协议的『不够先进』，反而成就了它的『无处不在』」——因为越朴素越好模仿，所以遍地是「Chat 兼容」厂商，却几乎没有「Responses 兼容」厂商。结合你见过的技术标准（如 HTTP、JSON、Markdown），谈谈「简单」在一项标准能否成为事实标准里，扮演了多重要的角色？「先进」有时为什么反而是普及的阻力？</li>
+    <li>课里强调 Route 与 Protocol 是正交的两层：protocol 管编解码、route 管端点/分帧/认证，于是「换供应商常常只是换端点、复用 protocol」。下一课的 Bedrock 是反例——同样的 Anthropic 方言，却因传输/认证走 AWS 而需另一份协议。请你想象：如果当初没有把 protocol 和 route 拆开，而是把端点、认证都写死在协议里，新增「OpenAI 兼容」厂商和「Bedrock 上的 Claude」会分别变得多痛苦？</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">Lesson 30 looked at Anthropic's "filled-in form." This lesson's lead is OpenAI—and it has something no other vendor does: <strong>OpenAI alone needs two protocols</strong>. One is the veteran Chat Completions (<span class="mono">/chat/completions</span>), one is the newborn Responses (<span class="mono">/responses</span>). Why does one vendor fill two forms? Behind it is a real history of "<strong>an API mid-migration</strong>," and opencode chooses to <strong>support both sides</strong>. Even better, precisely because "protocol" and "provider" are decoupled (lesson 28), that veteran Chat protocol also props up <strong>half an ecosystem</strong>—a tiny 24-line file lets a crowd of "OpenAI-compatible" vendors plug in for free. This lesson, you'll see with your own eyes how lesson 28's "implement once, free-ride the whole ecosystem" <strong>cashes out in the source</strong>.</p>
+<p>Three things to watch this lesson: one, <strong>why OpenAI needs two protocols</strong>, what each looks like and how they differ; two, the new Responses protocol brings something we saw on the Anthropic side but solved differently—<strong>treating "reasoning" as a first-class citizen</strong>; three, and most satisfying, <strong>that 24-line "compatible" protocol</strong>, and how at near-zero cost it cashes out, in one shot, the reward of the "protocol ≠ provider" design principle.</p>
+
+<div class="card analogy">
+  <div class="tag">🔌 Analogy</div>
+  Imagine OpenAI is a veteran appliance maker, mid-transition on "changing the plug standard." The <strong>old standard (Chat)</strong> has been used for years and is everywhere, all but the industry's de facto standard—even other makers' appliances are built to "be compatible with this old standard." The <strong>new standard (Responses)</strong> is freshly pushed by this maker, more advanced: it can remember "where the appliance left off" (server-side state), and has a dedicated socket recording "the machine's thinking process" (reasoning). The maker installs <strong>both old and new sockets</strong> itself, letting you use as needed. And the most cost-effective scene: because "plug standard" and "specific appliance" are two different things, once opencode implements that <strong>old-standard socket</strong>, the whole crowd of "old-standard-compatible" appliances from other makers—OpenRouter, xAI, local models…—<strong>all plug in automatically, not a line of new code added</strong>. One socket, half an industry's appliances connected for free—that's the compound interest of "decoupling standard from appliance."
+</div>
+
+<h2>Why OpenAI needs two protocols</h2>
+<p>Open the <span class="mono">protocols/</span> directory and you'll find OpenAI takes <strong>two files</strong>: <span class="mono">openai-chat.ts</span> and <span class="mono">openai-responses.ts</span>. This isn't redundancy but a faithful reflection of reality—OpenAI's API is <strong>midway through migrating from Chat to Responses</strong>. Chat Completions is the old interface, used for years and treated worldwide as a de facto standard; Responses is OpenAI's newly designed, more powerful interface. Both are still alive and used, so opencode <strong>fills both forms</strong>, letting users choose per model as needed. Lay the two forms side by side and the difference is plain:</p>
+<div class="cols">
+  <div class="col"><h4>Chat (<span class="mono">/chat/completions</span>) veteran</h4><p>Messages are a <strong>flat role union</strong>: system / user / assistant (with tool_calls) / tool (with tool_call_id). content is mostly a string, tool calls hang on the assistant. Simple, stable, universally adopted.</p></div>
+  <div class="col"><h4>Responses (<span class="mono">/responses</span>) upstart</h4><p>Input and output are both <strong>typed "item" arrays</strong>: input_text / output_text / reasoning / function_call / function_call_output / item_reference. Can carry server-side state, treats reasoning as first-class. More structured, more powerful.</p></div>
+</div>
+<p>First the veteran Chat. Its message model is a <strong>role-tagged union</strong>, reassuringly plain:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">system</div><div class="c-txt">system prompt, content is a string (vs Anthropic's top-level field!)</div></div>
+  <div class="cell"><div class="c-tag">user</div><div class="c-txt">user message</div></div>
+  <div class="cell"><div class="c-tag">assistant</div><div class="c-txt">assistant reply, tool calls hang on tool_calls: [{type:function, function:{name,arguments}}]</div></div>
+  <div class="cell"><div class="c-tag">tool</div><div class="c-txt">tool result, matched back to a call via tool_call_id</div></div>
+</div>
+<p>Why could this model become the "de facto standard"? Precisely because it's <strong>plain enough</strong>: four roles, one flat array, tool calls just a list hung on the assistant—no fancy nesting, no idiosyncratic fields. The plainer a thing, the easier to mimic, so other vendors building "compatibility" against it have the least work. It's a counterintuitive truth: <strong>Chat protocol's "not-advanced-enough" is exactly what made it "ubiquitous."</strong> And Responses' advancement (items, reasoning custody, server-side state) costs others dearly to copy—so you almost never hear of "Responses-compatible" vendors, while "Chat-compatible" vendors are everywhere. A design tradeoff thus writes itself into the ecosystem's map.</p>
+<p>Against lesson 30 you'll immediately taste the dialect difference: Anthropic hoists system into a top-level field, makes tool calls content blocks; OpenAI Chat treats system as an ordinary entry in <span class="mono">messages</span>, makes tool calls a <span class="mono">tool_calls</span> array on the assistant message. <strong>The same canonical concepts, two wildly different placements</strong>—and core knows none of this, relying on the two <span class="mono">body.from</span>s to each absorb it. On streaming, Chat pushes content and tool_calls fragments incrementally via <span class="mono">delta</span>, ending with a <span class="mono">finish_reason</span>, and the state machine still pieces tool args across frames—dovetailing exactly with lesson 29's prediction:</p>
+<div class="flow">
+  <div class="f-node">choices[].delta<br><small>content text fragment</small></div>
+  <div class="f-arrow">accumulate →</div>
+  <div class="f-node">delta.tool_calls<br><small>tool-arg JSON across frames</small></div>
+  <div class="f-arrow">assembled →</div>
+  <div class="f-node">finish_reason<br><small>turn wraps, emit whole event</small></div>
+</div>
+
+<h2>Responses' new thing: reasoning as a first-class citizen</h2>
+<p>Now the upstart Responses. Its most important innovation is turning the <strong>"reasoning process," once hidden inside the model, into a first-class item in the protocol</strong>. Among its item types sits, prominently, a <span class="mono">reasoning</span> item, carrying a meaningful field <span class="mono">encrypted_content</span>:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">input_text / input_image</div><div class="c-txt">input items: text, image</div></div>
+  <div class="cell"><div class="c-tag">output_text</div><div class="c-txt">output item: text the model generates</div></div>
+  <div class="cell"><div class="c-tag">reasoning</div><div class="c-txt">reasoning item, with encrypted_content (encrypted thinking)</div></div>
+  <div class="cell"><div class="c-tag">function_call / _output</div><div class="c-txt">tool call and result (result may include images etc.)</div></div>
+  <div class="cell"><div class="c-tag">item_reference</div><div class="c-txt">reference a server-stored item (by id, no resend)</div></div>
+</div>
+<p>The <span class="mono">encrypted_content</span> field has a story. The long run of reasoning the model "thinks," OpenAI doesn't give you in plaintext (fearing abuse/distillation), but as a blob of <strong>encrypted ciphertext</strong>. You can't read it, but feed it back <strong>verbatim</strong> next turn and the model "recalls" its prior train of thought and keeps reasoning onward. So across turns, the model's "chain of thought" persists, while you remain <strong>just a faithful carrier</strong>—holding a blob you can't read yet that lets the model continue itself. This rhymes with lesson 30's Anthropic <span class="mono">signature</span> (stamping a cryptographic signature on reasoning blocks): <strong>both solve "let the model trust its own prior reasoning," one via signature verification, one via ciphertext custody.</strong> The same problem, two dialects, two solutions—once more confirming "protocol = dialect." Lay the three vendors' "reasoning handling" side by side and this "same question, different answers" is clearest:</p>
+<table class="t">
+  <tr><th>Protocol</th><th>Reasoning first-class?</th><th>How reasoning persists across turns</th></tr>
+  <tr><td>OpenAI Chat (old)</td><td>No, no dedicated form</td><td>Doesn't persist (old API lacks the concept)</td></tr>
+  <tr><td>OpenAI Responses</td><td>Yes, reasoning item</td><td>encrypted_content ciphertext, fed back verbatim</td></tr>
+  <tr><td>Anthropic Messages</td><td>Yes, thinking block</td><td>signature cryptographic verification</td></tr>
+</table>
+<p>Responses has a few more "new-interface-only" niceties: the <span class="mono">store</span> field decides whether to <strong>store this response server-side</strong>; paired with <span class="mono">item_reference</span>, next turn you can <strong>reference prior items by id only</strong>, no need to resend whole segments—an idea of <strong>outsourcing state to the server</strong>, starkly different from Chat's stateless "carry full history each turn." Its streaming also upgrades to <strong>item-based events</strong> (item added / delta / done), with State keeping a dedicated <span class="mono">reasoningItems</span> record that <strong>folds</strong> multi-part reasoning summaries arriving across frames into the same item before emitting. More complex structure, but more expressive too.</p>
+
+<h2>The 24-line magic: one protocol props up half an ecosystem</h2>
+<p>Now the most satisfying part of this lesson. OpenAI's Chat protocol, being so universal, long ago became a <strong>de facto standard</strong>—a crowd of vendors (OpenRouter, xAI, all kinds of local model servers…) build their APIs to be "OpenAI Chat compatible." To catch them, must opencode rewrite the protocol for each? <strong>Not at all.</strong> Look at <span class="mono">openai-compatible-chat.ts</span>—it's <strong>24 lines total</strong>:</p>
+<pre class="code"><span class="cm">// the entire essence of openai-compatible-chat.ts</span>
+<span class="kw">export const</span> route = Route.<span class="fn">make</span>({
+  id: ADAPTER,
+  protocol: OpenAIChat.protocol,        <span class="cm">// ← reuse the whole Chat protocol!</span>
+  endpoint: Endpoint.<span class="fn">path</span>(<span class="st">"/chat/completions"</span>),  <span class="cm">// override only the endpoint</span>
+  framing: Framing.sse,
+})</pre>
+<p>What it does is one sentence: <strong>take <span class="mono">OpenAIChat.protocol</span> wholesale</strong>, override only a route id (so different vendors resolve separately without colliding) and the endpoint path. How the request encodes, how the response decodes—<strong>not a single word rewritten</strong>, all the Chat protocol's original cast. These 24 lines are the most resounding proof of lesson 28's "abstract the wire format into a protocol, implement once, free-ride the whole ecosystem." The leverage is staggering:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">invest</span><span class="t-txt">implement OpenAIChat.protocol once (request encode + stream decode)</span></div>
+  <div class="t-row"><span class="t-num">reuse</span><span class="t-txt">openai-compatible-chat: 24 lines, reference the whole Chat protocol</span></div>
+  <div class="t-row"><span class="t-num">reap</span><span class="t-txt">OpenRouter / xAI / local models… a crowd of "compatible" vendors all connect</span></div>
+  <div class="t-row"><span class="t-num">marginal</span><span class="t-txt">one more compatible vendor? Not a line of protocol code, just configure an endpoint</span></div>
+</div>
+<p>This is the <strong>cash reward</strong> of the "protocol ≠ provider" design principle. Had protocol and provider been mashed together originally (a set of if-branches per vendor), adding one "OpenAI-compatible" vendor would mean copy-pasting a big lump of codec logic; after decoupling, the cost of adding one <strong>approaches zero</strong>. A 24-line file outweighs a thousand words of architecture preaching. Worth one more layer of thought: these 24 lines can be this short <strong>not from laziness but because the earlier work was done right</strong>—precisely because the Chat protocol cleanly encapsulates "request encode" and "stream decode" into one reusable <span class="mono">protocol</span> object, reusing it is as easy as "plug and play." <strong>A good abstraction's reward often arrives late, but it arrives</strong>: the extra care you spent on the Chat protocol to "separate codec from network" is paid back here, with interest, at every newly-connected compatible vendor. This is why lesson 29 kept stressing that "two-column form"'s boundary—draw the boundary cleanly and reuse comes joyfully.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>The OpenAI lesson pushes both threads—"protocol = dialect" and "protocol ≠ provider"—to a climax at once:</p>
+  <ul>
+    <li><strong>One vendor, two protocols</strong>: Chat (veteran, universal <span class="mono">/chat/completions</span>) + Responses (upstart, more structured <span class="mono">/responses</span>). Reflecting OpenAI's real API old-to-new migration; opencode fills both.</li>
+    <li><strong>Dialect contrast</strong>: Chat uses a flat role union (system/user/assistant+tool_calls/tool), system is an ordinary message; Responses uses typed item arrays, reasoning is first-class. Same canonical concepts, divergent placements.</li>
+    <li><strong>Responses' first-class reasoning</strong>: <span class="mono">reasoning</span> item with <span class="mono">encrypted_content</span> (encrypted chain of thought, fed back verbatim to continue) + <span class="mono">store</span>/<span class="mono">item_reference</span> (state outsourced server-side). Converges with lesson 30's Anthropic <span class="mono">signature</span> by a different road.</li>
+    <li><strong>The 24-line compounding</strong>: <span class="mono">openai-compatible-chat</span> reuses the Chat protocol wholesale, overriding only id+endpoint, letting a crowd of "OpenAI-compatible" vendors connect for free—the source-level ironclad proof of lesson 28's "implement once, free-ride the ecosystem."</li>
+  </ul>
+  <p>Connect lessons 30 and 31 and you've grasped two-and-a-half of the "big three": Anthropic (blocks + cache budget), OpenAI Chat (flat roles + ecosystem bedrock), OpenAI Responses (items + reasoning custody). Next up is <strong>Gemini and Bedrock</strong>, where you'll see more dialects, plus Bedrock's distinctive binary event stream—but the skeleton is always lesson 29's form, you need only keep asking: "how is this vendor's body.from and stream.step special?"</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>Why can 24 lines reuse a whole protocol? The key is that <span class="mono">Route</span> and <span class="mono">Protocol</span> are <strong>orthogonal</strong> layers. <span class="mono">Route.make</span> assembles "protocol (how to codec)," "endpoint (which URL to hit)," and "framing (how to frame the stream)" as <strong>three independently swappable parts</strong>:</p>
+  <pre class="code"><span class="cm">// same protocol, different endpoint, is a different route</span>
+OpenAIChat.route       = Route.make({ protocol: OpenAIChat.protocol, endpoint: <span class="st">"openai official"</span>, ... })
+OpenAICompatible.route = Route.make({ protocol: OpenAIChat.protocol, endpoint: <span class="st">"/chat/completions"</span>, ... })</pre>
+  <p>Because the codec logic is encapsulated in the <span class="mono">protocol</span> part, fully separate from "which endpoint to hit," "switching providers" is often just "switch endpoint, reuse the same protocol." This is lesson 29's emphasized layering bearing fruit: <span class="mono">Protocol</span> owns only the dialect's codec, not the network destination, so one dialect can serve countless providers speaking it. Next lesson's Bedrock shows the flip side—the same Anthropic dialect, yet because <strong>transport and auth</strong> differ (over AWS), it needs another protocol; showing how this protocol/route orthogonal split cleanly disentangles both "same dialect but different network" and "same network but different dialect," each touching only the part that should change.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>OpenAI uniquely has "two protocols"</strong>: <span class="mono">openai-chat.ts</span> (veteran <span class="mono">/chat/completions</span>) + <span class="mono">openai-responses.ts</span> (upstart <span class="mono">/responses</span>), reflecting its API old-to-new migration; opencode supports both.</li>
+    <li><strong>Chat = flat role union</strong>: system/user/assistant(with tool_calls)/tool(with tool_call_id), system is an ordinary message, tool calls hang on the assistant—a different dialect from Anthropic's "blocks + top-level system."</li>
+    <li><strong>Responses = typed items + first-class reasoning</strong>: <span class="mono">reasoning</span> item with <span class="mono">encrypted_content</span> (encrypted chain of thought, fed back verbatim to continue, converging with Anthropic's <span class="mono">signature</span> by another road); <span class="mono">store</span>/<span class="mono">item_reference</span> outsource state server-side; item-based streaming folds multi-part reasoning via <span class="mono">reasoningItems</span>.</li>
+    <li><strong>The 24-line compounding</strong>: <span class="mono">openai-compatible-chat.ts</span> reuses <span class="mono">OpenAIChat.protocol</span> wholesale, overriding only route id + endpoint, letting a crowd of "OpenAI-compatible" vendors (OpenRouter/xAI/local models…) connect for free—ironclad proof of lesson 28's "implement once, free-ride the ecosystem."</li>
+    <li><strong>Route and Protocol are orthogonal</strong>: Route.make treats protocol (codec)/endpoint (URL)/framing as independent parts, so "switching providers" is often just "switch endpoint, reuse protocol." The cost of adding one compatible vendor approaches zero.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. Why does OpenAI uniquely take two protocol files in opencode (openai-chat and openai-responses)?</div>
+  <ol class="opts">
+    <li>One handles requests, one handles responses</li>
+    <li>One for paid users, one for free users</li>
+    <li>OpenAI's API is migrating from the old Chat Completions to the new Responses; both are alive and used, so opencode supports both</li>
+    <li>Pure code redundancy that should be merged</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. Not redundancy but a faithful reflection of reality: OpenAI is mid-migration from Chat to Responses. Chat (/chat/completions) is the years-old interface treated as a de facto standard; Responses (/responses) is the more powerful new interface (typed items, first-class reasoning, server-side state). Both are used, so opencode fills both, letting users choose per model.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. openai-compatible-chat.ts is only 24 lines; how does it "prop up half an ecosystem"?</div>
+  <ol class="opts">
+    <li>Reuses OpenAIChat.protocol wholesale, overriding only route id + endpoint path — not a word of codec rewritten, letting a crowd of "OpenAI-compatible" vendors connect for free</li>
+    <li>It auto-generates adapter code for each vendor with AI</li>
+    <li>It compresses all vendors' logic into 24 lines</li>
+    <li>It supports only 24 vendors</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. Because "protocol" and "provider" are decoupled (lesson 28), the Chat protocol's universal wire format long became a de facto standard. compatible-chat references OpenAIChat.protocol wholesale, changing only id and endpoint /chat/completions — request encode and response decode are all the Chat original cast. So OpenRouter/xAI/local models… all auto-connect, and one more needs only an endpoint config, not a line of protocol code. That's the most resounding cash reward of "protocol ≠ provider."</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. Responses' reasoning item carries encrypted_content; what same problem does it solve as Anthropic's signature?</div>
+  <ol class="opts">
+    <li>Compressing token usage</li>
+    <li>"Letting the model trust/continue its own prior reasoning across turns" — Responses via encrypted-ciphertext custody, Anthropic via cryptographic signature verification; same question, different answers</li>
+    <li>Preventing network man-in-the-middle attacks</li>
+    <li>Encrypting users' private data</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Both treat reasoning as first-class, both let the model continue its chain of thought across turns, and both decline to hand plaintext reasoning straight to the client. Responses gives you an encrypted encrypted_content you feed back verbatim for the model to unpack and continue; Anthropic stamps a signature on reasoning blocks, verified on feedback. Same problem, two dialects, two solutions — another instance of "protocol = dialect."</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson makes a counterintuitive claim: "Chat protocol's 'not-advanced-enough' is exactly what made it 'ubiquitous'"—because the plainer a thing the easier to mimic, so "Chat-compatible" vendors are everywhere while "Responses-compatible" ones barely exist. Using tech standards you've seen (HTTP, JSON, Markdown), discuss how big a role "simplicity" plays in whether a standard becomes de facto. Why is "advancement" sometimes a barrier to adoption?</li>
+    <li>The lesson stresses Route and Protocol are orthogonal: protocol owns codec, route owns endpoint/framing/auth, so "switching providers is often just switch endpoint, reuse protocol." Next lesson's Bedrock is a counterexample—the same Anthropic dialect, yet needing another protocol because transport/auth go via AWS. Imagine: had protocol and route not been split, with endpoint and auth hardcoded into the protocol, how painful would adding an "OpenAI-compatible" vendor and "Claude on Bedrock" each become?</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="30-anthropic-protocol.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">Anthropic Messages 协议</span><span class="lang-en">The Anthropic protocol</span></div></a><a class="next" href="32-gemini-bedrock.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">Gemini 与 Bedrock 协议</span><span class="lang-en">Gemini &amp; Bedrock</span></div></a></div>
 </div>
 <script>

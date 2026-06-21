@@ -1323,6 +1323,47 @@ QUIZZES = {
             {"zh": "课里对比了两种状态管理：第 29 课的 stream.step「显式传新状态」，本课缓存预算的 Breakpoints「就地修改一个共享计数器」。课文说前者图「可预测、可重放」，后者图「一趟性的直白」。结合这两个场景，谈谈你判断「该用不可变显式传递，还是该用可变就地修改」的标准是什么？", "en": "The lesson contrasts two styles of state management: lesson 29's stream.step \"threads new state explicitly,\" while this lesson's cache budget Breakpoints \"mutates a shared counter in place.\" The text says the former seeks \"predictability and replayability,\" the latter \"single-pass directness.\" Using these two scenarios, discuss your criteria for deciding \"immutable explicit threading vs mutable in-place modification.\""},
         ],
     },
+    "31-openai-protocol.html": {
+        "mcq": [
+            {
+                "q": {"zh": "为什么 OpenAI 在 opencode 里独占两份协议文件（openai-chat 和 openai-responses）？", "en": "Why does OpenAI uniquely take two protocol files in opencode (openai-chat and openai-responses)?"},
+                "opts": [
+                    {"zh": "OpenAI 的 API 正从老的 Chat Completions 迁移到新的 Responses，两者都还活着、都有人用，opencode 两边都支持", "en": "OpenAI's API is migrating from the old Chat Completions to the new Responses; both are alive and used, so opencode supports both"},
+                    {"zh": "纯属代码冗余，应该合并", "en": "Pure code redundancy that should be merged"},
+                    {"zh": "一份给付费用户、一份给免费用户", "en": "One for paid users, one for free users"},
+                    {"zh": "一份处理请求、一份处理响应", "en": "One handles requests, one handles responses"},
+                ],
+                "answer": 0,
+                "why": {"zh": "这不是冗余，而是忠实反映现实：OpenAI 正处在 Chat→Responses 的 API 迁移途中。Chat（/chat/completions）是用了多年、被当成事实标准的老接口；Responses（/responses）是更强大的新接口（带类型条目、推理一等公民、服务端状态）。两者都有人用，opencode 于是两份都填，让用户按模型按需选。", "en": "Not redundancy but a faithful reflection of reality: OpenAI is mid-migration from Chat to Responses. Chat (/chat/completions) is the years-old interface treated as a de facto standard; Responses (/responses) is the more powerful new interface (typed items, first-class reasoning, server-side state). Both are used, so opencode fills both, letting users choose per model."},
+            },
+            {
+                "q": {"zh": "openai-compatible-chat.ts 只有 24 行，它是怎么做到「撑起半个生态」的？", "en": "openai-compatible-chat.ts is only 24 lines; how does it \"prop up half an ecosystem\"?"},
+                "opts": [
+                    {"zh": "整份复用 OpenAIChat.protocol，只覆盖 route id + 端点路径——编解码一个字不重写，一大票「OpenAI 兼容」厂商即可免费接入", "en": "Reuses OpenAIChat.protocol wholesale, overriding only route id + endpoint path — not a word of codec rewritten, letting a crowd of \"OpenAI-compatible\" vendors connect for free"},
+                    {"zh": "它用 AI 自动生成每家厂商的适配代码", "en": "It auto-generates adapter code for each vendor with AI"},
+                    {"zh": "它把所有厂商的逻辑压缩进 24 行", "en": "It compresses all vendors' logic into 24 lines"},
+                    {"zh": "它只支持 24 家厂商", "en": "It supports only 24 vendors"},
+                ],
+                "answer": 0,
+                "why": {"zh": "因为「协议」和「供应商」解耦（第 28 课），Chat 协议这套通用线缆格式早成事实标准。compatible-chat 整份引用 OpenAIChat.protocol，只改 id 和端点 /chat/completions——请求编码、响应解码全是 Chat 原班人马。于是 OpenRouter/xAI/本地模型…一大票兼容厂商全自动接入，再多一家也只需配端点、协议代码一行不加。这是「协议≠供应商」最掷地有声的现金回报。", "en": "Because \"protocol\" and \"provider\" are decoupled (lesson 28), the Chat protocol's universal wire format long became a de facto standard. compatible-chat references OpenAIChat.protocol wholesale, changing only id and endpoint /chat/completions — request encode and response decode are all the Chat original cast. So OpenRouter/xAI/local models… all auto-connect, and one more needs only an endpoint config, not a line of protocol code. That's the most resounding cash reward of \"protocol ≠ provider.\""},
+            },
+            {
+                "q": {"zh": "Responses 协议的 reasoning 条目带 encrypted_content，它和 Anthropic 的 signature 解决的是同一个什么问题？", "en": "Responses' reasoning item carries encrypted_content; what same problem does it solve as Anthropic's signature?"},
+                "opts": [
+                    {"zh": "「让模型跨轮信任/延续自己上一轮的推理」——Responses 用加密密文托管、Anthropic 用密码学签名验真，同题异解", "en": "\"Letting the model trust/continue its own prior reasoning across turns\" — Responses via encrypted-ciphertext custody, Anthropic via cryptographic signature verification; same question, different answers"},
+                    {"zh": "压缩 token 用量", "en": "Compressing token usage"},
+                    {"zh": "加密用户的隐私数据", "en": "Encrypting users' private data"},
+                    {"zh": "防止网络中间人攻击", "en": "Preventing network man-in-the-middle attacks"},
+                ],
+                "answer": 0,
+                "why": {"zh": "两家都把「推理」当一等公民，都要让模型在多轮间延续自己的思维链，又都不愿把明文推理直接交给客户端。Responses 给你一团加密 encrypted_content，你原样回传、模型自行解开续上；Anthropic 给推理块盖个 signature 签名，回传时验真。同一个问题、两种方言两种解法——正是「协议即方言」的又一例证。", "en": "Both treat reasoning as first-class, both let the model continue its chain of thought across turns, and both decline to hand plaintext reasoning straight to the client. Responses gives you an encrypted encrypted_content you feed back verbatim for the model to unpack and continue; Anthropic stamps a signature on reasoning blocks, verified on feedback. Same problem, two dialects, two solutions — another instance of \"protocol = dialect.\""},
+            },
+        ],
+        "open": [
+            {"zh": "课里有个反直觉的论断：「Chat 协议的『不够先进』，反而成就了它的『无处不在』」——因为越朴素越好模仿，所以遍地是「Chat 兼容」厂商，却几乎没有「Responses 兼容」厂商。结合你见过的技术标准（如 HTTP、JSON、Markdown），谈谈「简单」在一项标准能否成为事实标准里，扮演了多重要的角色？「先进」有时为什么反而是普及的阻力？", "en": "The lesson makes a counterintuitive claim: \"Chat protocol's 'not-advanced-enough' is exactly what made it 'ubiquitous'\"—because the plainer a thing the easier to mimic, so \"Chat-compatible\" vendors are everywhere while \"Responses-compatible\" ones barely exist. Using tech standards you've seen (HTTP, JSON, Markdown), discuss how big a role \"simplicity\" plays in whether a standard becomes de facto. Why is \"advancement\" sometimes a barrier to adoption?"},
+            {"zh": "课里强调 Route 与 Protocol 是正交的两层：protocol 管编解码、route 管端点/分帧/认证，于是「换供应商常常只是换端点、复用 protocol」。下一课的 Bedrock 是反例——同样的 Anthropic 方言，却因传输/认证走 AWS 而需另一份协议。请你想象：如果当初没有把 protocol 和 route 拆开，而是把端点、认证都写死在协议里，新增「OpenAI 兼容」厂商和「Bedrock 上的 Claude」会分别变得多痛苦？", "en": "The lesson stresses Route and Protocol are orthogonal: protocol owns codec, route owns endpoint/framing/auth, so \"switching providers is often just switch endpoint, reuse protocol.\" Next lesson's Bedrock is a counterexample—the same Anthropic dialect, yet needing another protocol because transport/auth go via AWS. Imagine: had protocol and route not been split, with endpoint and auth hardcoded into the protocol, how painful would adding an \"OpenAI-compatible\" vendor and \"Claude on Bedrock\" each become?"},
+        ],
+    },
 }
 
 def render(fname, lang):
