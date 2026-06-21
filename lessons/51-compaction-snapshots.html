@@ -328,8 +328,334 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第九部分 · 持久化</span><span class="lang-en">Part 9 · Persistence</span></div>
     <h1><span class="lang-zh">压缩、摘要与快照</span><span class="lang-en">Compaction &amp; snapshots</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《压缩、摘要与快照》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“压缩、摘要与快照”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Compaction & snapshots" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Compaction & snapshots" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">前三课（L48–50）讲的都是「把数据忠实地存好、搬好」——SQLite 地基、核心表网、V1→V2 迁移。但光会存还不够。这一课讲<strong>「持久化」之上更高阶的「记忆管理」</strong>，它要解决两个真实的痛点。第一个痛点是<strong>记忆太多</strong>：一场对话越聊越长，消息多到撑爆模型有限的上下文窗口怎么办？答案是<strong>压缩（compaction）与摘要</strong>——把陈旧的对话折叠成一份结构化摘要，只留最近的若干轮原文。第二个痛点是<strong>想回到过去</strong>：agent 改了一堆文件，你后悔了，想把对话和工作目录一起<strong>退回到几步之前</strong>怎么办？答案是 <strong>快照（snapshot）与 revert</strong>——opencode 用一个巧妙的「影子 git 仓库」给工作目录做时间机器。压缩管「记忆的容量」，快照管「记忆的时间轴」，两者合起来，才让 agent 的「记忆」既装得下、又退得回。</p>
+<p>这一课有两个最值得带走的设计。其一，<strong>压缩 = 「留近况原文 + 把远的折成结构化摘要」</strong>：当对话的 token 估算超出上下文窗口（减去输出余量），opencode 自动把最近约 8000 token 的对话<strong>原样保留</strong>、把更早的对话交给 LLM<strong>填进一张固定结构的摘要模板</strong>（目标/约束/进展/决策/下一步/关键上下文/相关文件），而且这份摘要是<strong>「锚定式」增量更新</strong>的——下次压缩不重写，而是在旧摘要上「保留仍成立的、删过时的、并入新的」。其二，<strong>快照 = 「影子 git 仓库」</strong>：opencode 不动你真实的 <span class="mono">.git</span>，而是在数据目录下另起一个独立的 git 仓库（<span class="mono">--git-dir</span> 指向它、<span class="mono">--work-tree</span> 指向你的真实工作目录），用 <span class="mono">git write-tree</span> 给工作目录拍一张「树快照」、用 <span class="mono">read-tree</span>+<span class="mono">checkout-index</span> 还原。<strong>它把 git 强大的内容寻址存储借来当时间机器，却绝不污染你自己的提交历史。</strong>读懂这两笔，你就懂了「一个 agent 如何在有限的上下文里装下无限长的对话，又如何安全地给你一颗『后悔药』」。</p>
+
+<div class="card analogy">
+  <div class="tag">⏳ 生活类比</div>
+  把<strong>压缩</strong>想象成一场冗长会议的<strong>「会议纪要」</strong>：你不会把三小时的逐字录音从头听一遍，而是手边备一份<strong>结构化纪要</strong>（议题、决定、待办……）外加<strong>最近十分钟的原话</strong>——纪要随会议推进不断<strong>增补改写</strong>，而非每次重写。这正是 compaction 的做法：远的折成摘要、近的留原文、摘要锚定式更新。再把<strong>快照</strong>想象成电子游戏的<strong>「存档点」</strong>：你在关键处存个档，万一后面玩砸了，<strong>读档退回</strong>那一刻重来。妙的是 opencode 的存档<strong>放在一个独立的存档文件里</strong>（影子 git 仓库），跟你正在玩的「主进度」（你真实的 git 提交历史）<strong>井水不犯河水</strong>——它给你随便存随便读的自由，却绝不弄乱你自己的存档。而 <strong>revert</strong>，就是「读档」：把对话和你的文件<strong>一起</strong>退回到某条消息时的样子；而且还能<strong>反悔（unrevert）</strong>，因为读档前它偷偷又存了一档。
+</div>
+
+<h2>压缩与摘要：把长对话折叠进上下文</h2>
+<p>模型的上下文窗口是有限且昂贵的（M5、L42 反复强调过这点）。当一场对话的消息累积到<strong>快要撑爆窗口</strong>时，<span class="mono">compaction.ts</span> 的 <span class="mono">compactIfNeeded</span> 就会触发：它估算整个请求（system + messages + tools）的 token，一旦超过 <span class="mono">上下文 − max(输出量, 缓冲)</span>（缓冲默认 20000 token），就启动压缩。压缩的核心是 <span class="mono">select</span> 函数那一刀<strong>「切分」</strong>：</p>
+<div class="cols">
+  <div class="col"><h4>recent · 近况留原文</h4><p>从对话末尾往前累加，保留最近约 <strong>8000 token</strong>（<span class="mono">DEFAULT_KEEP_TOKENS</span>）的消息<strong>逐字原样</strong>。最近的来回往往最相关——模型刚做了什么、你刚说了什么，必须精确无损。</p></div>
+  <div class="col"><h4>head · 远的折成摘要</h4><p>更早的那一大段对话，<strong>不再逐字保留</strong>，而是交给 LLM 浓缩成一份结构化摘要。陈年细节用摘要「够用就好」，把宝贵的上下文额度让给近况和摘要。</p></div>
+</div>
+<p>那份摘要不是随意的散文，而是填进一张<strong>固定结构的模板</strong>（<span class="mono">SUMMARY_TEMPLATE</span>）——这保证了无论压缩多少次，关键维度都不丢：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">Goal</div><div class="c-txt">一句话任务目标</div></div>
+  <div class="cell"><div class="c-tag">Constraints & Preferences</div><div class="c-txt">用户的约束、偏好、规格</div></div>
+  <div class="cell"><div class="c-tag">Progress（Done/In Progress/Blocked）</div><div class="c-txt">已完成 / 进行中 / 受阻</div></div>
+  <div class="cell"><div class="c-tag">Key Decisions</div><div class="c-txt">关键决策及其理由</div></div>
+  <div class="cell"><div class="c-tag">Next Steps</div><div class="c-txt">有序的下一步行动</div></div>
+  <div class="cell"><div class="c-tag">Critical Context / Relevant Files</div><div class="c-txt">关键技术事实、报错、未决问题 / 相关文件及其意义</div></div>
+</div>
+<p>整条压缩流水线串起来是这样的：</p>
+<div class="flow">
+  <div class="f-node">估算请求 token<br><small>超过 上下文−max(输出,缓冲)?</small></div>
+  <div class="f-arrow">溢出 →</div>
+  <div class="f-node">select 切分<br><small>head(远) / recent(近)</small></div>
+  <div class="f-arrow">summarize →</div>
+  <div class="f-node">LLM 填摘要模板<br><small>无工具、限 4096 token</small></div>
+  <div class="f-arrow">产出 →</div>
+  <div class="f-node">compaction 消息<br><small>{summary, recent} 替代远段</small></div>
+</div>
+<p>最见功力的是<strong>「锚定式增量摘要」</strong>：如果这场对话<strong>之前已经压缩过</strong>（历史里已有一条 <span class="mono">compaction</span> 消息），这次不会从头重写摘要，而是把旧摘要塞进提示里，让模型「<strong>用上面的对话历史更新这份锚定摘要：保留仍成立的细节、删掉过时的、并入新事实</strong>」。为什么这很重要？因为摘要本身会被<strong>反复压缩</strong>——如果每次都从仅剩的近况重新生成，越早的信息会在一次次压缩中被<strong>逐渐稀释、最终遗忘</strong>。而「锚定 + 增量更新」让那份摘要像一条<strong>不断被修订、却始终连续的主线</strong>，把整场对话从头到尾的关键脉络<strong>一路传下去</strong>，不因压缩而断裂。这和 L42「有界输出」是同一种哲学在不同层级的回响：L42 管<strong>单个工具输出</strong>别撑爆上下文，压缩管<strong>整场对话</strong>别撑爆上下文——稀缺的永远是模型那点宝贵的注意力。</p>
+
+<h2>快照：给工作目录开一个「影子 git 仓库」</h2>
+<p>压缩管的是「对话记忆」，而快照管的是「文件记忆」——agent 改了你的代码，怎么能让你<strong>退回到改之前</strong>？<span class="mono">snapshot/index.ts</span> 的答案巧妙得令人拍案：<strong>另起一个影子 git 仓库</strong>。它绝不碰你项目里真实的 <span class="mono">.git</span>，而是在 <span class="mono">数据目录/snapshot/&lt;项目&gt;/&lt;工作目录哈希&gt;</span> 下建一个<strong>独立的 git 仓库</strong>，所有 git 命令都带上 <span class="mono">--git-dir &lt;影子仓库&gt; --work-tree &lt;你的真实工作目录&gt;</span>：</p>
+<div class="layers">
+  <div class="layer"><span class="l-tag">你的真实仓库</span><span class="l-desc"><span class="mono">项目/.git</span>——你自己的提交历史，opencode <strong>一个字节都不碰</strong></span></div>
+  <div class="layer"><span class="l-tag">影子快照仓库</span><span class="l-desc"><span class="mono">数据目录/snapshot/…</span>——独立 git-dir，<span class="mono">--work-tree</span> 指向你的真实工作目录</span></div>
+  <div class="layer"><span class="l-tag">共享对象（alternates）</span><span class="l-desc">影子仓库通过 <span class="mono">objects/info/alternates</span> 复用真实仓库的 git 对象，巨型仓库也不重复占空间</span></div>
+</div>
+<p>「拍快照」与「还原」用的都是 git 的底层管道命令，轻量得很：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">track()</div><div class="c-txt"><span class="mono">git add</span> 暂存工作目录改动 → <span class="mono">git write-tree</span> 写出一个<strong>树对象</strong>，返回它的哈希——这个哈希就是一张「快照」</div></div>
+  <div class="cell"><div class="c-tag">restore(snapshot)</div><div class="c-txt"><span class="mono">git read-tree &lt;快照&gt;</span> + <span class="mono">checkout-index -a -f</span> → 把工作目录的文件<strong>还原</strong>到那张树快照的样子</div></div>
+  <div class="cell"><div class="c-tag">diff / patch</div><div class="c-txt">对比某快照与当前工作目录，算出改了哪些文件、增删多少行</div></div>
+</div>
+<p>这套设计有三处特别值得品。其一，用 <span class="mono">write-tree</span> 而非 <span class="mono">commit</span>：只需要捕获「文件状态」这一棵树，不需要提交信息、作者、父提交那一整套——<strong>用最轻的 git 原语干最纯粹的事</strong>。其二，<strong>影子仓库与真实 <span class="mono">.git</span> 彻底隔离</strong>：opencode 频繁地拍快照（几乎每步工具操作前后），如果这些都污染你的提交历史，那将是灾难；放进影子仓库，你的 <span class="mono">git log</span> 永远干干净净。其三，<strong>复用 git 而非自己造轮子</strong>：工作目录的版本管理是个难题（增量存储、内容去重、高效 diff），而 git 二十年磨一剑的内容寻址存储正是为此而生——opencode 像 L39 复用 Ripgrep、L35 复用上游模型目录一样，<strong>把这件难事交给久经考验的 git</strong>，自己只负责「在影子仓库里、什么时候、拍哪一张」。它还顺带尊重你的 <span class="mono">.gitignore</span>、屏蔽超大文件，让快照既准又省。</p>
+
+<h2>Revert：把对话与文件一起退回过去</h2>
+<p>压缩（对话记忆）和快照（文件记忆）合体，就有了 <strong>revert</strong>——一颗真正的「后悔药」。<span class="mono">revert.ts</span> 让你指定退回到某条消息（<span class="mono">messageID</span>，可细到 <span class="mono">partID</span>），它做的是<strong>两件事的合体</strong>：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">退对话</div><div class="c-txt">把该消息<strong>之后</strong>的消息从可见历史里裁掉——对话回到那一刻</div></div>
+  <div class="cell"><div class="c-tag">退文件</div><div class="c-txt"><span class="mono">snap.restore(快照)</span> 把工作目录还原——文件回到那一刻</div></div>
+  <div class="cell"><div class="c-tag">可反悔</div><div class="c-txt">revert 前先 <span class="mono">snap.track()</span> 存下当前状态；<span class="mono">unrevert</span> 再 restore 回去——后悔药也有后悔药</div></div>
+</div>
+<p>这个「可反悔」的设计尤其周到：<span class="mono">revert</span> 在还原之前，会<strong>先给「现在」拍一张快照</strong>存进 session 的 <span class="mono">revert</span> 字段（还记得 L49 session 表那个 <span class="mono">revert: {messageID, partID?, snapshot?, diff?}</span> JSON 列吗？这里正是它的用武之地）。于是 <span class="mono">unrevert</span> 能把你<strong>带回 revert 之前的那一刻</strong>——退回过去之后，你<strong>还能反悔退回的动作本身</strong>。把这条时间轴画出来：</p>
+<div class="timeline">
+  <div class="tl-item"><div class="tl-time">每步</div><div class="tl-text">工具操作前后 track() 不断拍快照</div></div>
+  <div class="tl-item"><div class="tl-time">revert</div><div class="tl-text">先 track 存下「现在」→ restore 到消息 N 的快照 + 裁掉 N 之后的消息</div></div>
+  <div class="tl-item"><div class="tl-time">结果</div><div class="tl-text">对话与文件一起回到消息 N 那一刻</div></div>
+  <div class="tl-item"><div class="tl-time">unrevert</div><div class="tl-text">restore 回 revert 前存下的快照——反悔成功</div></div>
+</div>
+<p>把对话与文件<strong>绑定在同一条时间轴上一起回退</strong>，是 revert 最关键的洞见：单退对话不退文件，你会面对「对话以为没改过、文件却已被改」的错乱；单退文件不退对话同理。唯有<strong>两者作为一个整体一起回到过去</strong>，那一刻的世界才是自洽的。这背后是 L49 那张 session 表的 <span class="mono">revert</span> 列在默默支撑——状态被持久化，所以哪怕重启，这颗「后悔药」依然有效。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观视角</div>
+  <p>这一课讲清了「持久化」之上的「记忆管理」——容量与时间轴两个维度：</p>
+  <ul>
+    <li><strong>压缩与摘要</strong>（<span class="mono">session/compaction.ts</span>）：<span class="mono">compactIfNeeded</span> 在请求 token &gt; <span class="mono">上下文−max(输出,缓冲20k)</span> 时触发；<span class="mono">select</span> 切分=近况留原文(<span class="mono">DEFAULT_KEEP_TOKENS</span>≈8k)+远的折成结构化摘要(固定模板 Goal/Constraints/Progress/Decisions/Next Steps/Context/Files)；LLM 无工具限 4096 token 生成；<strong>锚定式增量更新</strong>（旧摘要上保留/删除/并入，主线不断裂）。回响 L42「上下文稀缺」。</li>
+    <li><strong>快照=影子 git 仓库</strong>（<span class="mono">snapshot/index.ts</span>）：独立 <span class="mono">--git-dir</span>（数据目录下）+ <span class="mono">--work-tree</span> 指真实工作目录，<strong>绝不碰你的 .git</strong>；<span class="mono">track</span>=<span class="mono">write-tree</span> 出树哈希、<span class="mono">restore</span>=<span class="mono">read-tree</span>+<span class="mono">checkout-index</span>；<span class="mono">alternates</span> 共享对象省空间、尊重 .gitignore、屏蔽大文件。复用 git（如 L39 复用 Ripgrep）。</li>
+    <li><strong>Revert=对话+文件一起回退</strong>（<span class="mono">session/revert.ts</span>）：退对话(裁掉消息 N 之后)+退文件(<span class="mono">snap.restore</span>)；<strong>可反悔</strong>（revert 前先 track 存当前→unrevert 还原），状态存进 L49 session 表的 <span class="mono">revert</span> JSON 列，重启仍有效。</li>
+    <li><strong>统一主题</strong>：L48–50 忠实地<strong>存</strong>，L51 智慧地<strong>管</strong>——压缩管记忆容量、快照/revert 管记忆时间轴。对话与文件绑在同一时间轴一起回退，那一刻的世界才自洽。</li>
+  </ul>
+  <p>至此 <strong>M9 持久化与存储</strong>全部讲完：从 Drizzle/SQLite 地基（L48）、核心表网（L49）、V1→V2 迁移（L50），到这一课的压缩与快照/revert（L51）——opencode 如何忠实地存、安全地搬、智慧地管它的全部「记忆」。下一部分 <strong>M10 转向 TUI 与客户端渲染</strong>：这些存下来的会话、消息、上下文，最终怎样在你的终端里被渲染成一个流畅的交互界面。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">select</span> 函数从对话末尾倒着走、按 token 切「近况/远段」，连切分点的那条消息都能从中间劈开（简化自 <span class="mono">compaction.ts</span>）：</p>
+  <pre class="code"><span class="cm">// 从最后一条往前累加 token，直到超过要保留的额度</span>
+<span class="kw">for</span> (<span class="kw">let</span> index = conversation.length - <span class="nu">1</span>; index &gt;= <span class="nu">0</span>; index--) {
+  <span class="kw">const</span> next = total + Token.<span class="fn">estimate</span>(conversation[index])
+  <span class="kw">if</span> (next &gt; tokens) {                       <span class="cm">// 这条会超额</span>
+    <span class="kw">const</span> remaining = Math.<span class="fn">max</span>(<span class="nu">0</span>, tokens - total) * <span class="nu">4</span>   <span class="cm">// 还能塞的字符数(≈token×4)</span>
+    <span class="kw">if</span> (remaining &gt; <span class="nu">0</span>) {
+      splitPrefix = conversation[index].<span class="fn">slice</span>(<span class="nu">0</span>, -remaining)   <span class="cm">// 前半→归入远段(摘要)</span>
+      splitSuffix = conversation[index].<span class="fn">slice</span>(-remaining)    <span class="cm">// 后半→归入近况(原文)</span>
+      split = index + <span class="nu">1</span>
+    }
+    <span class="kw">break</span>
+  }
+  total = next
+  split = index
+}
+<span class="cm">// head=远段(待摘要)，recent=近况(留原文)</span>
+<span class="kw">return</span> {
+  head: [...conversation.<span class="fn">slice</span>(<span class="nu">0</span>, split), splitPrefix].<span class="fn">filter</span>(Boolean).<span class="fn">join</span>(<span class="st">"\n\n"</span>),
+  recent: [splitSuffix, ...conversation.<span class="fn">slice</span>(split)].<span class="fn">filter</span>(Boolean).<span class="fn">join</span>(<span class="st">"\n\n"</span>),
+}</pre>
+  <p>最妙的是它<strong>连一条消息都能从中间劈开</strong>：当累加到某条消息会超出保留额度、但还剩一点空间时，它把这条消息<strong>按剩余字符数切两半</strong>——前半 <span class="mono">splitPrefix</span> 并入待摘要的 <span class="mono">head</span>、后半 <span class="mono">splitSuffix</span> 留进逐字保留的 <span class="mono">recent</span>（这里 <span class="mono">×4</span> 是「1 token ≈ 4 字符」的粗略换算）。为什么要这么细？因为消息有长有短，若只能<strong>整条整条地切</strong>，碰上一条特别长的消息卡在边界上，就只能要么全摘要、要么全保留，白白浪费或挤占宝贵的额度。<strong>允许从消息中间切，是把「保留最近 N token」这个预算用到极致的关键</strong>——它让切分点能精确落在 token 预算上，而非被消息边界牵着走。这种「为了把稀缺资源用满，连最小单位都愿意再细分」的较真，正是 opencode 在上下文管理上一以贯之的克制与精打细算。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>压缩=近况留原文+远的折成摘要</strong>（<span class="mono">compaction.ts</span>）：请求 token 超 <span class="mono">上下文−max(输出,缓冲20k)</span> 触发；<span class="mono">select</span> 保留最近≈8k token 原文、其余交 LLM 填固定结构摘要模板（Goal/Constraints/Progress/Decisions/Next Steps/Context/Files）；可从单条消息中间切，把保留预算用到极致。</li>
+    <li><strong>锚定式增量摘要</strong>：已压缩过则在旧摘要上「保留/删除/并入」而非重写，让主线跨多次压缩不断裂、不被逐渐稀释遗忘。同 L42「上下文稀缺」哲学的不同层级回响。</li>
+    <li><strong>快照=影子 git 仓库</strong>（<span class="mono">snapshot/index.ts</span>）：独立 <span class="mono">--git-dir</span>+<span class="mono">--work-tree</span> 指真实工作目录，<strong>绝不碰你的 .git</strong>；<span class="mono">track</span>=<span class="mono">write-tree</span>（轻量树快照而非 commit）、<span class="mono">restore</span>=<span class="mono">read-tree</span>+<span class="mono">checkout-index</span>；alternates 共享对象、尊重 gitignore。复用 git 这把利器（如 L39 复用 Ripgrep）。</li>
+    <li><strong>Revert=对话+文件一起回退</strong>（<span class="mono">revert.ts</span>）：退对话(裁消息 N 之后)+退文件(restore 快照)绑在同一时间轴，那一刻才自洽；<strong>可 unrevert 反悔</strong>（revert 前先 track 存当前）。状态存进 L49 session 表 <span class="mono">revert</span> JSON 列、重启仍有效。</li>
+    <li><strong>M9 收官</strong>：L48–50 忠实地存/搬，L51 智慧地管（容量靠压缩、时间轴靠快照/revert）。下一部分 M10 讲 TUI——这些记忆怎样在终端被渲染成交互界面。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. 当一场对话快撑爆模型上下文窗口时，opencode 的压缩（compaction）怎么做？</div>
+  <ol class="opts">
+    <li>把整场对话压成一句话</li>
+    <li>直接删掉最早的一半消息</li>
+    <li>换一个上下文窗口更大的模型</li>
+    <li>select 切分=最近约 8000 token 的消息逐字留原文、更早的交 LLM 折成一份固定结构摘要（Goal/Constraints/Progress/Decisions/Next Steps/Context/Files），且摘要锚定式增量更新（旧摘要上保留/删除/并入，主线不断裂）</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。compactIfNeeded 在请求 token 超过 上下文−max(输出量, 缓冲20000) 时触发。核心是 select 那一刀切分：从对话末尾倒着累加，保留最近约 8000 token（DEFAULT_KEEP_TOKENS）的消息逐字原样（recent），更早的一大段（head）交 LLM 浓缩成结构化摘要——填进固定模板（Goal/Constraints & Preferences/Progress(Done/In Progress/Blocked)/Key Decisions/Next Steps/Critical Context/Relevant Files），保证关键维度不丢。最妙是锚定式增量：已压缩过则在旧摘要上「保留仍成立、删过时、并入新事实」而非重写——否则越早的信息会在一次次压缩中被稀释遗忘；锚定让主线跨多次压缩不断裂。select 甚至能从单条消息中间按剩余字符切两半（×4≈1token4字符），把保留预算用到极致。和 L42 有界输出同一种「上下文稀缺」哲学的不同层级回响。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. opencode 的快照（snapshot）系统如何给工作目录做版本管理，又不污染你自己的 git 提交历史？</div>
+  <ol class="opts">
+    <li>用一个「影子 git 仓库」——独立 --git-dir（在数据目录下）+ --work-tree 指你的真实工作目录，绝不碰你的 .git；track=git write-tree 出树哈希、restore=read-tree+checkout-index 还原；alternates 共享对象省空间</li>
+    <li>用自研的二进制 diff 格式存快照</li>
+    <li>把整个工作目录复制一份到别处</li>
+    <li>在你的 .git 里频繁 commit</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。snapshot/index.ts 的妙招是另起一个影子 git 仓库：在 数据目录/snapshot/<项目>/<工作目录哈希> 下建独立 git 仓库，所有命令带 --git-dir <影子> --work-tree <你的真实工作目录>，绝不碰项目里真实的 .git。track()=git add 暂存→git write-tree 写出一个树对象返回哈希（这就是一张快照，用最轻的 git 原语、不需 commit 信息/作者/父提交）；restore(snapshot)=git read-tree <快照>+checkout-index -a -f 还原工作目录。三处妙：① write-tree 而非 commit（最轻原语干最纯的事）；② 影子仓库与 .git 彻底隔离（opencode 几乎每步都拍快照，若污染你的 git log 是灾难）；③ 复用 git 二十年的内容寻址存储（增量/去重/diff），如 L39 复用 Ripgrep。还通过 objects/info/alternates 共享真实仓库对象省空间、尊重 .gitignore、屏蔽大文件。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. revert（退回到某条消息）为什么必须把「对话」和「文件」绑在同一条时间轴上一起回退？又如何做到可反悔（unrevert）？</div>
+  <ol class="opts">
+    <li>只需退对话，文件不用管</li>
+    <li>revert 不可反悔，是一次性操作</li>
+    <li>靠用户手动备份文件</li>
+    <li>只退对话不退文件（或反之）会造成「对话以为没改、文件却已改」的错乱，唯有两者一起回到过去那一刻才自洽；revert 前先 snap.track() 把「现在」存进 session.revert 字段，故 unrevert 能 restore 回 revert 前</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。revert.ts 让你退回某条消息（messageID，可细到 partID），做两件事的合体：退对话（裁掉该消息之后的消息）+退文件（snap.restore 把工作目录还原到那时的快照）。为什么必须一起退？因为单退对话不退文件，会面对「对话以为没改过、文件却已被改」的错乱；单退文件不退对话同理——唯有两者作为整体一起回到过去，那一刻的世界才自洽。可反悔的关键：revert 在还原前先 snap.track() 给「现在」拍快照、存进 L49 session 表那个 revert:{messageID,partID?,snapshot?,diff?} JSON 列，于是 unrevert 能 restore 回 revert 之前——后悔药也有后悔药。状态被持久化，重启仍有效。这正是 L49 session.revert 列的用武之地、L51 compaction(对话记忆)+snapshot(文件记忆)的合体。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里把 compaction（压缩对话）和 L42 有界工具输出归为「同一种『上下文稀缺』哲学在不同层级的回响」——L42 管单个工具输出别撑爆上下文、compaction 管整场对话别撑爆。请你沿这条线，把全书出现过的「上下文/资源稀缺」应对策略串起来（L42 预览+spill、L37 definitions/settle、L43 skills 名字/正文、本课压缩的 recent/head 切分），提炼它们共同的「渐进式披露 / 按需兑现」骨架。再谈谈：把陈旧对话折成 LLM 生成的摘要，本质是「有损压缩」——这会带来什么风险（摘要遗漏、幻觉、不可逆）？锚定式增量更新在多大程度上缓解了它？</li>
+    <li>课里盛赞「影子 git 仓库」的设计：opencode 频繁给工作目录拍快照、却放进一个独立 git-dir，绝不污染你真实的 .git 提交历史，还通过 alternates 复用 git 对象。这体现了「复用一个成熟工具的强大能力、却把它隔离起来避免副作用」的工程智慧。请你结合 L39 复用 Ripgrep、L35 复用上游模型目录等例子，谈谈 opencode 反复出现的「站在巨人肩上、但小心隔离」模式：什么时候该复用现成的强大工具而非自研？复用时如何划清边界、避免它的副作用（如这里的「别弄乱用户的 git」）泄漏出来？你做过类似的「借力又隔离」的设计吗？</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">The last three lessons (L48–50) were all about faithfully storing and moving data—the SQLite foundation, the core table web, V1→V2 migration. But storing alone isn't enough. This lesson covers <strong>higher-order "memory management" atop "persistence,"</strong> solving two real pains. The first pain is <strong>too much memory</strong>: a conversation grows longer and longer, messages overflowing the model's limited context window—what then? The answer is <strong>compaction and summarization</strong>—folding stale conversation into a structured summary, keeping only the most recent few rounds verbatim. The second pain is <strong>wanting to go back in time</strong>: the agent changed a pile of files, you regret it, you want to roll the conversation and working directory <strong>back to a few steps ago</strong>—how? The answer is <strong>snapshots and revert</strong>—opencode gives the working directory a time machine via a clever "shadow git repo." Compaction manages "memory capacity," snapshots manage "memory's timeline"; together they let the agent's "memory" both fit and roll back.</p>
+<p>This lesson has two designs most worth taking away. First, <strong>compaction = "keep recent verbatim + fold the far into a structured summary"</strong>: when the conversation's token estimate exceeds the context window (minus the output margin), opencode automatically keeps the most recent ~8000 tokens of conversation <strong>verbatim</strong> and hands the earlier conversation to the LLM to <strong>fill into a fixed-structure summary template</strong> (Goal/Constraints/Progress/Decisions/Next Steps/Critical Context/Relevant Files), and this summary is <strong>"anchored" incrementally updated</strong>—the next compaction doesn't rewrite but, on the old summary, "keeps still-true, removes stale, merges new." Second, <strong>snapshot = a "shadow git repo"</strong>: opencode doesn't touch your real <span class="mono">.git</span> but spins up a separate git repo under the data directory (<span class="mono">--git-dir</span> pointing at it, <span class="mono">--work-tree</span> at your real working directory), using <span class="mono">git write-tree</span> to take a "tree snapshot" of the working directory and <span class="mono">read-tree</span>+<span class="mono">checkout-index</span> to restore. <strong>It borrows git's powerful content-addressable storage as a time machine, yet never pollutes your own commit history.</strong> Grasp these two and you'll understand "how an agent fits an infinitely long conversation into a limited context, and how it safely hands you a 'regret pill.'"</p>
+
+<div class="card analogy">
+  <div class="tag">⏳ Analogy</div>
+  Picture <strong>compaction</strong> as a long meeting's <strong>"minutes"</strong>: you won't replay the three-hour verbatim recording from the top but keep at hand a <strong>structured minutes</strong> (topics, decisions, todos…) plus <strong>the last ten minutes' actual words</strong>—the minutes are <strong>amended and rewritten</strong> as the meeting proceeds, not rewritten each time. That's exactly compaction: fold the far into a summary, keep the near verbatim, anchored incremental update. Now picture <strong>snapshot</strong> as a video game's <strong>"save point"</strong>: you save at a key spot, and if you botch it later, <strong>load back</strong> to that moment and redo. The clever part is opencode's saves <strong>live in a separate save file</strong> (the shadow git repo), in <strong>strict non-interference</strong> with your "main progress" (your real git commit history)—it gives you free rein to save and load, yet never scrambles your own saves. And <strong>revert</strong> is "load": roll the conversation and your files <strong>together</strong> back to how they were at some message; and you can even <strong>take it back (unrevert)</strong>, because it quietly saved another file before loading.
+</div>
+
+<h2>Compaction and summary: folding a long conversation into context</h2>
+<p>The model's context window is limited and expensive (M5, L42 stressed this repeatedly). When a conversation's messages accumulate to <strong>nearly overflowing the window</strong>, <span class="mono">compaction.ts</span>'s <span class="mono">compactIfNeeded</span> triggers: it estimates the whole request's (system + messages + tools) tokens, and once it exceeds <span class="mono">context − max(output, buffer)</span> (buffer defaults to 20000 tokens), starts compaction. Compaction's core is the <strong>"split"</strong> of the <span class="mono">select</span> function:</p>
+<div class="cols">
+  <div class="col"><h4>recent · keep the near verbatim</h4><p>Accumulating backward from the conversation's end, keep the most recent ~<strong>8000 tokens</strong> (<span class="mono">DEFAULT_KEEP_TOKENS</span>) of messages <strong>word-for-word</strong>. The recent exchanges are usually most relevant—what the model just did, what you just said, must be precise and lossless.</p></div>
+  <div class="col"><h4>head · fold the far into a summary</h4><p>The big earlier stretch of conversation is <strong>no longer kept verbatim</strong> but handed to the LLM to condense into a structured summary. Aged detail "good enough" via summary, ceding the precious context budget to the recent and the summary.</p></div>
+</div>
+<p>That summary isn't arbitrary prose but filled into a <strong>fixed-structure template</strong> (<span class="mono">SUMMARY_TEMPLATE</span>)—this guarantees that no matter how many compactions, the key dimensions aren't lost:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">Goal</div><div class="c-txt">single-sentence task summary</div></div>
+  <div class="cell"><div class="c-tag">Constraints & Preferences</div><div class="c-txt">user constraints, preferences, specs</div></div>
+  <div class="cell"><div class="c-tag">Progress (Done/In Progress/Blocked)</div><div class="c-txt">completed / current / blocked</div></div>
+  <div class="cell"><div class="c-tag">Key Decisions</div><div class="c-txt">key decisions and their reasons</div></div>
+  <div class="cell"><div class="c-tag">Next Steps</div><div class="c-txt">ordered next actions</div></div>
+  <div class="cell"><div class="c-tag">Critical Context / Relevant Files</div><div class="c-txt">key technical facts, errors, open questions / relevant files and their significance</div></div>
+</div>
+<p>The whole compaction pipeline strung together:</p>
+<div class="flow">
+  <div class="f-node">estimate request tokens<br><small>over context−max(output,buffer)?</small></div>
+  <div class="f-arrow">overflow →</div>
+  <div class="f-node">select split<br><small>head(far) / recent(near)</small></div>
+  <div class="f-arrow">summarize →</div>
+  <div class="f-node">LLM fills the template<br><small>no tools, capped 4096 tokens</small></div>
+  <div class="f-arrow">produce →</div>
+  <div class="f-node">compaction message<br><small>{summary, recent} replaces the far</small></div>
+</div>
+<p>What shows the most craft is the <strong>"anchored incremental summary"</strong>: if this conversation has <strong>been compacted before</strong> (a <span class="mono">compaction</span> message already in history), this time it won't rewrite the summary from scratch but stuffs the old summary into the prompt, telling the model to "<strong>update this anchored summary using the conversation history above: preserve still-true details, remove stale ones, merge in new facts</strong>." Why does this matter? Because the summary itself gets <strong>repeatedly compacted</strong>—if each time it regenerated from only the surviving recent, the earliest information would be <strong>gradually diluted and finally forgotten</strong> across successive compactions. "Anchored + incremental update" makes that summary like a <strong>continuously revised yet always continuous main thread</strong>, carrying the key throughline of the entire conversation from start to finish <strong>all the way down</strong>, unbroken by compaction. This is the same philosophy as L42's "bounded output" echoing at a different level: L42 keeps <strong>a single tool output</strong> from overflowing context, compaction keeps <strong>a whole conversation</strong> from overflowing context—the scarce thing is always the model's precious attention.</p>
+
+<h2>Snapshots: opening a "shadow git repo" for the working directory</h2>
+<p>Compaction manages "conversation memory," snapshots manage "file memory"—the agent changed your code, how can it let you <strong>roll back to before the change</strong>? <span class="mono">snapshot/index.ts</span>'s answer is admirably clever: <strong>spin up a shadow git repo</strong>. It never touches your project's real <span class="mono">.git</span> but builds a <strong>separate git repo</strong> under <span class="mono">data-dir/snapshot/&lt;project&gt;/&lt;worktree-hash&gt;</span>, all git commands carrying <span class="mono">--git-dir &lt;shadow repo&gt; --work-tree &lt;your real working directory&gt;</span>:</p>
+<div class="layers">
+  <div class="layer"><span class="l-tag">your real repo</span><span class="l-desc"><span class="mono">project/.git</span>—your own commit history, opencode <strong>touches not one byte</strong></span></div>
+  <div class="layer"><span class="l-tag">shadow snapshot repo</span><span class="l-desc"><span class="mono">data-dir/snapshot/…</span>—a separate git-dir, <span class="mono">--work-tree</span> pointing at your real working directory</span></div>
+  <div class="layer"><span class="l-tag">shared objects (alternates)</span><span class="l-desc">the shadow repo reuses the real repo's git objects via <span class="mono">objects/info/alternates</span>, no duplicate storage even on huge repos</span></div>
+</div>
+<p>Both "take a snapshot" and "restore" use git's low-level plumbing commands, very lightweight:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">track()</div><div class="c-txt"><span class="mono">git add</span> stages working-dir changes → <span class="mono">git write-tree</span> writes a <strong>tree object</strong>, returns its hash—that hash is a "snapshot"</div></div>
+  <div class="cell"><div class="c-tag">restore(snapshot)</div><div class="c-txt"><span class="mono">git read-tree &lt;snapshot&gt;</span> + <span class="mono">checkout-index -a -f</span> → <strong>restore</strong> the working dir's files to that tree snapshot</div></div>
+  <div class="cell"><div class="c-tag">diff / patch</div><div class="c-txt">compare a snapshot to the current working dir, computing which files changed and how many lines added/removed</div></div>
+</div>
+<p>This design has three points specially worth savoring. First, using <span class="mono">write-tree</span> not <span class="mono">commit</span>: it only needs to capture the "file state" as one tree, not the whole apparatus of commit message, author, parent commit—<strong>the lightest git primitive for the purest job</strong>. Second, <strong>the shadow repo is fully isolated from the real <span class="mono">.git</span></strong>: opencode snapshots frequently (around almost every tool operation); if these all polluted your commit history it'd be a disaster; put in the shadow repo, your <span class="mono">git log</span> stays forever clean. Third, <strong>reuse git rather than reinvent</strong>: version-managing a working directory is a hard problem (incremental storage, content dedup, efficient diff), and git's twenty-years-honed content-addressable storage is born for exactly this—opencode, like L39 reusing Ripgrep and L35 reusing the upstream model catalog, <strong>hands this hard thing to battle-tested git</strong>, owning only "in the shadow repo, when, take which snapshot." It also respects your <span class="mono">.gitignore</span> and blocks oversized files, keeping snapshots both accurate and frugal.</p>
+
+<h2>Revert: rolling conversation and files back together</h2>
+<p>Compaction (conversation memory) and snapshot (file memory) combined give <strong>revert</strong>—a real "regret pill." <span class="mono">revert.ts</span> lets you specify rolling back to a message (<span class="mono">messageID</span>, down to <span class="mono">partID</span>), doing a <strong>fusion of two things</strong>:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">rewind the conversation</div><div class="c-txt">trim messages <strong>after</strong> that message from visible history—the conversation returns to that moment</div></div>
+  <div class="cell"><div class="c-tag">rewind the files</div><div class="c-txt"><span class="mono">snap.restore(snapshot)</span> restores the working directory—files return to that moment</div></div>
+  <div class="cell"><div class="c-tag">reversible</div><div class="c-txt">before revert, <span class="mono">snap.track()</span> saves the current state; <span class="mono">unrevert</span> restores back—even the regret pill has a regret pill</div></div>
+</div>
+<p>This "reversible" design is especially thoughtful: before restoring, <span class="mono">revert</span> <strong>first takes a snapshot of "now"</strong> and stores it in the session's <span class="mono">revert</span> field (remember L49's session-table <span class="mono">revert: {messageID, partID?, snapshot?, diff?}</span> JSON column? here's exactly where it earns its keep). So <span class="mono">unrevert</span> can <strong>bring you back to the moment before revert</strong>—after rolling back to the past, you <strong>can still take back the rollback itself</strong>. Drawing this timeline:</p>
+<div class="timeline">
+  <div class="tl-item"><div class="tl-time">each step</div><div class="tl-text">track() keeps snapshotting around tool operations</div></div>
+  <div class="tl-item"><div class="tl-time">revert</div><div class="tl-text">first track to save "now" → restore to message N's snapshot + trim messages after N</div></div>
+  <div class="tl-item"><div class="tl-time">result</div><div class="tl-text">conversation and files return together to the moment of message N</div></div>
+  <div class="tl-item"><div class="tl-time">unrevert</div><div class="tl-text">restore back to the snapshot saved before revert—take-back succeeds</div></div>
+</div>
+<p>Binding conversation and files <strong>on the same timeline to roll back together</strong> is revert's key insight: rewind the conversation but not the files and you face the disorder of "the conversation thinks nothing changed, yet the files are already changed"; rewind files but not conversation, likewise. Only when <strong>both, as a whole, return to the past together</strong> is that moment's world self-consistent. Behind this is L49's session-table <span class="mono">revert</span> column quietly supporting it—the state is persisted, so even after a restart this "regret pill" still works.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson clarifies "memory management" atop "persistence"—the two dimensions of capacity and timeline:</p>
+  <ul>
+    <li><strong>compaction and summary</strong> (<span class="mono">session/compaction.ts</span>): <span class="mono">compactIfNeeded</span> triggers when request tokens &gt; <span class="mono">context−max(output,buffer 20k)</span>; <span class="mono">select</span> split = keep the near verbatim (<span class="mono">DEFAULT_KEEP_TOKENS</span>≈8k) + fold the far into a structured summary (fixed template Goal/Constraints/Progress/Decisions/Next Steps/Context/Files); LLM generates with no tools capped at 4096 tokens; <strong>anchored incremental update</strong> (preserve/remove/merge on the old summary, main thread unbroken). Echoes L42's "context scarce."</li>
+    <li><strong>snapshot = shadow git repo</strong> (<span class="mono">snapshot/index.ts</span>): a separate <span class="mono">--git-dir</span> (under data dir) + <span class="mono">--work-tree</span> at the real working directory, <strong>never touching your .git</strong>; <span class="mono">track</span>=<span class="mono">write-tree</span> for a tree hash, <span class="mono">restore</span>=<span class="mono">read-tree</span>+<span class="mono">checkout-index</span>; <span class="mono">alternates</span> share objects to save space, respects .gitignore, blocks large files. Reuse git (like L39 reusing Ripgrep).</li>
+    <li><strong>revert = conversation+files roll back together</strong> (<span class="mono">session/revert.ts</span>): rewind conversation (trim after message N) + rewind files (<span class="mono">snap.restore</span>); <strong>reversible</strong> (track current before revert → unrevert restores), state stored in L49 session-table's <span class="mono">revert</span> JSON column, works after restart.</li>
+    <li><strong>unifying theme</strong>: L48–50 faithfully <strong>store</strong>, L51 wisely <strong>manage</strong>—compaction manages memory capacity, snapshot/revert manages memory's timeline. Conversation and files bound on the same timeline to roll back together, only then is that moment's world self-consistent.</li>
+  </ul>
+  <p>With this <strong>M9 Persistence and Storage</strong> is fully covered: from the Drizzle/SQLite foundation (L48), the core table web (L49), V1→V2 migration (L50), to this lesson's compaction and snapshot/revert (L51)—how opencode faithfully stores, safely moves, and wisely manages all its "memory." The next part <strong>M10 turns to TUI and client rendering</strong>: how these stored sessions, messages, contexts ultimately get rendered into a fluid interactive interface in your terminal.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>The <span class="mono">select</span> function walks backward from the conversation's end, splitting "near/far" by token, even slicing the boundary message down the middle (simplified from <span class="mono">compaction.ts</span>):</p>
+  <pre class="code"><span class="cm">// accumulate tokens backward from the last, until exceeding the keep budget</span>
+<span class="kw">for</span> (<span class="kw">let</span> index = conversation.length - <span class="nu">1</span>; index &gt;= <span class="nu">0</span>; index--) {
+  <span class="kw">const</span> next = total + Token.<span class="fn">estimate</span>(conversation[index])
+  <span class="kw">if</span> (next &gt; tokens) {                       <span class="cm">// this one would exceed</span>
+    <span class="kw">const</span> remaining = Math.<span class="fn">max</span>(<span class="nu">0</span>, tokens - total) * <span class="nu">4</span>   <span class="cm">// chars still fittable (≈token×4)</span>
+    <span class="kw">if</span> (remaining &gt; <span class="nu">0</span>) {
+      splitPrefix = conversation[index].<span class="fn">slice</span>(<span class="nu">0</span>, -remaining)   <span class="cm">// front half → into far (summary)</span>
+      splitSuffix = conversation[index].<span class="fn">slice</span>(-remaining)    <span class="cm">// back half → into near (verbatim)</span>
+      split = index + <span class="nu">1</span>
+    }
+    <span class="kw">break</span>
+  }
+  total = next
+  split = index
+}
+<span class="cm">// head=far (to summarize), recent=near (kept verbatim)</span>
+<span class="kw">return</span> {
+  head: [...conversation.<span class="fn">slice</span>(<span class="nu">0</span>, split), splitPrefix].<span class="fn">filter</span>(Boolean).<span class="fn">join</span>(<span class="st">"\n\n"</span>),
+  recent: [splitSuffix, ...conversation.<span class="fn">slice</span>(split)].<span class="fn">filter</span>(Boolean).<span class="fn">join</span>(<span class="st">"\n\n"</span>),
+}</pre>
+  <p>The finest part is it <strong>can slice even a single message down the middle</strong>: when accumulation reaches a message that would exceed the keep budget but a little space remains, it <strong>cuts that message in two by the remaining char count</strong>—the front <span class="mono">splitPrefix</span> joins the to-summarize <span class="mono">head</span>, the back <span class="mono">splitSuffix</span> stays in the verbatim-kept <span class="mono">recent</span> (here <span class="mono">×4</span> is the rough "1 token ≈ 4 chars" conversion). Why so fine? Because messages vary in length; if it could only cut <strong>whole message by whole message</strong>, a particularly long message stuck on the boundary would force either all-summary or all-keep, wastefully squandering or crowding the precious budget. <strong>Allowing a cut mid-message is the key to using the "keep recent N tokens" budget to the hilt</strong>—it lets the split point land precisely on the token budget rather than being dragged by message boundaries. This "to fill a scarce resource, willing to subdivide even the smallest unit" meticulousness is exactly opencode's consistent restraint and careful calculation in context management.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>compaction = keep near verbatim + fold far into summary</strong> (<span class="mono">compaction.ts</span>): triggers when request tokens exceed <span class="mono">context−max(output,buffer 20k)</span>; <span class="mono">select</span> keeps the most recent ≈8k tokens verbatim, hands the rest to the LLM to fill a fixed-structure summary template (Goal/Constraints/Progress/Decisions/Next Steps/Context/Files); can cut mid-message to use the keep budget to the hilt.</li>
+    <li><strong>anchored incremental summary</strong>: if already compacted, "preserve/remove/merge" on the old summary rather than rewrite, keeping the main thread unbroken across multiple compactions, not gradually diluted and forgotten. The same "context scarce" philosophy as L42 echoing at a different level.</li>
+    <li><strong>snapshot = shadow git repo</strong> (<span class="mono">snapshot/index.ts</span>): a separate <span class="mono">--git-dir</span>+<span class="mono">--work-tree</span> at the real working directory, <strong>never touching your .git</strong>; <span class="mono">track</span>=<span class="mono">write-tree</span> (lightweight tree snapshot, not a commit), <span class="mono">restore</span>=<span class="mono">read-tree</span>+<span class="mono">checkout-index</span>; alternates share objects, respects gitignore. Reuse git's power (like L39 reusing Ripgrep).</li>
+    <li><strong>revert = conversation+files roll back together</strong> (<span class="mono">revert.ts</span>): rewind conversation (trim after message N) + rewind files (restore snapshot) bound on the same timeline, only then self-consistent; <strong>can unrevert</strong> (track current before revert). State stored in L49 session-table's <span class="mono">revert</span> JSON column, works after restart.</li>
+    <li><strong>M9 finale</strong>: L48–50 faithfully store/move, L51 wisely manage (capacity via compaction, timeline via snapshot/revert). The next part M10 covers TUI—how these memories get rendered into an interactive interface in the terminal.</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. When a conversation nearly overflows the model's context window, how does opencode's compaction work?</div>
+  <ol class="opts">
+    <li>Compress the whole conversation into one sentence</li>
+    <li>Just delete the earliest half of messages</li>
+    <li>Switch to a model with a larger context window</li>
+    <li>select split = keep the most recent ~8000 tokens of messages verbatim, fold the earlier into a fixed-structure summary via LLM (Goal/Constraints/Progress/Decisions/Next Steps/Context/Files), with the summary anchored incrementally updated (preserve/remove/merge on the old summary, main thread unbroken)</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. compactIfNeeded triggers when request tokens exceed context−max(output, buffer 20000). The core is the select split: accumulating backward from the conversation's end, keep the most recent ~8000 tokens (DEFAULT_KEEP_TOKENS) of messages verbatim (recent), hand the big earlier stretch (head) to the LLM to condense into a structured summary—filled into a fixed template (Goal/Constraints & Preferences/Progress(Done/In Progress/Blocked)/Key Decisions/Next Steps/Critical Context/Relevant Files), guaranteeing key dimensions aren't lost. The finest is anchored incremental: if already compacted, "preserve still-true, remove stale, merge new facts" on the old summary rather than rewrite—else the earliest info would be diluted and forgotten across successive compactions; anchoring keeps the main thread unbroken across compactions. select can even cut a single message in two by remaining chars (×4≈1token 4chars), using the keep budget to the hilt. The same "context scarce" philosophy as L42 bounded output echoing at a different level.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. How does opencode's snapshot system version-manage the working directory without polluting your own git commit history?</div>
+  <ol class="opts">
+    <li>Use a "shadow git repo" — a separate --git-dir (under the data dir) + --work-tree pointing at your real working directory, never touching your .git; track=git write-tree for a tree hash, restore=read-tree+checkout-index; alternates share objects to save space</li>
+    <li>Store snapshots in a self-made binary diff format</li>
+    <li>Copy the entire working directory elsewhere</li>
+    <li>Frequently commit into your .git</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. snapshot/index.ts's trick is spinning up a shadow git repo: build a separate git repo under data-dir/snapshot/<project>/<worktree-hash>, all commands carrying --git-dir <shadow> --work-tree <your real working directory>, never touching the project's real .git. track()=git add stages→git write-tree writes a tree object returning a hash (that's a snapshot, the lightest git primitive, no commit message/author/parent needed); restore(snapshot)=git read-tree <snapshot>+checkout-index -a -f restores the working dir. Three clever points: ① write-tree not commit (lightest primitive for the purest job); ② the shadow repo is fully isolated from .git (opencode snapshots around almost every step; polluting your git log would be a disaster); ③ reuse git's twenty-years content-addressable storage (incremental/dedup/diff), like L39 reusing Ripgrep. It also shares the real repo's objects via objects/info/alternates to save space, respects .gitignore, blocks large files.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. Why must revert (rolling back to a message) bind "conversation" and "files" on the same timeline to roll back together? And how is it reversible (unrevert)?</div>
+  <ol class="opts">
+    <li>Only the conversation needs rewinding, files don't matter</li>
+    <li>revert is irreversible, a one-shot operation</li>
+    <li>Relies on the user manually backing up files</li>
+    <li>Rewinding only the conversation but not files (or vice versa) causes the disorder of "the conversation thinks nothing changed yet files are changed"; only both returning together is self-consistent; before revert, snap.track() saves "now" into the session.revert field, so unrevert can restore back to before revert</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. revert.ts lets you roll back to a message (messageID, down to partID), a fusion of two things: rewind conversation (trim messages after it) + rewind files (snap.restore restores the working dir to that snapshot). Why must they roll back together? Because rewinding only the conversation not files faces the disorder of "the conversation thinks nothing changed yet files are changed"; rewinding only files not conversation likewise—only both, as a whole, returning to the past is that moment's world self-consistent. The key to reversibility: before restoring, revert first snap.track()s a snapshot of "now," storing it in L49 session-table's revert:{messageID,partID?,snapshot?,diff?} JSON column, so unrevert can restore back to before revert—even the regret pill has a regret pill. The state is persisted, works after restart. This is exactly where L49's session.revert column earns its keep, and L51's fusion of compaction (conversation memory) + snapshot (file memory).</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson groups compaction (compressing conversation) with L42 bounded tool output as "the same 'context scarce' philosophy echoing at different levels"—L42 keeps a single tool output from overflowing context, compaction keeps a whole conversation from overflowing. Along this line, string together the "context/resource scarcity" coping strategies seen across the book (L42 preview+spill, L37 definitions/settle, L43 skills name/body, this lesson's compaction recent/head split), distilling their shared "progressive disclosure / fulfill on demand" skeleton. Then discuss: folding stale conversation into an LLM-generated summary is essentially "lossy compression"—what risks does this bring (summary omission, hallucination, irreversibility)? To what extent does anchored incremental update mitigate it?</li>
+    <li>The lesson praises the "shadow git repo" design: opencode frequently snapshots the working directory yet puts it in a separate git-dir, never polluting your real .git commit history, and reuses git objects via alternates. This embodies the engineering wisdom of "reuse a mature tool's powerful capability yet isolate it to avoid side effects." From examples like L39 reusing Ripgrep and L35 reusing the upstream model catalog, discuss opencode's recurring "stand on giants' shoulders but isolate carefully" pattern: when should you reuse a ready-made powerful tool rather than build your own? When reusing, how to draw clear boundaries and prevent its side effects (here, "don't scramble the user's git") from leaking out? Have you done a similar "borrow power yet isolate" design?</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="50-v1-storage-migration.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">V1 存储与迁移</span><span class="lang-en">V1 storage &amp; migration</span></div></a><a class="next" href="52-opentui.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">opentui 渲染器</span><span class="lang-en">The opentui renderer</span></div></a></div>
 </div>
 <script>
