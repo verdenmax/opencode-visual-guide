@@ -20,13 +20,13 @@
 
 - **opencode = LSP 客户端（不是服务器）**：LSP（Language Server Protocol）本是编辑器与语言服务器对话的标准协议。opencode 戴「编辑器」帽子，去消费现成的语言服务器，借来整个 IDE 生态积累的代码智能，自己一行语言分析都不写。
 - **服务器注册表**（`packages/opencode/src/lsp/server.ts`）：按文件扩展名映射到对应语言服务器——typescript-language-server(.ts/.tsx/.js)、gopls(.go)、pyright(.py)、biome、oxlint、vue、deno 等。打开某语言文件即启动对应服务器。
-- **两副面孔之一：被动诊断**（`packages/opencode/src/lsp/diagnostic.ts` + `lsp/client.ts`）：client 收语言服务器推来的 `publishDiagnostics`；`report` 做关键过滤——只留 `severity === 1` 的 ERROR（丢警告/提示）、每文件最多 `MAX_PER_FILE = 20` 条、`pretty` 格式化成 `ERROR [line:col] message`、用 `<diagnostics file>...</diagnostics>` 包裹塞进上下文。意义：agent 编辑完代码，立刻「看见自己刚犯的错」（语法错、类型错），形成编辑安全网。只报 ERROR 是因为注意力稀缺（同 L42/L59 主题）——别用一堆 lint 警告淹没 agent。
+- **两副面孔之一：被动诊断**（`packages/opencode/src/lsp/diagnostic.ts` + `lsp/client.ts`）：client 收语言服务器推来的 `publishDiagnostics`；`report` 做关键过滤——只留 `severity === 1` 的 ERROR（丢警告/提示）、每文件最多 `MAX_PER_FILE = 20` 条、`pretty` 格式化成 `ERROR [line:col] message`、用 `<diagnostics file>...</diagnostics>` 包裹塞进上下文。意义：agent 编辑完代码，立刻「看见自己刚犯的错」（语法错、类型错），形成编辑安全网。只报 ERROR 是因为注意力稀缺（同 L42 主题）——别用一堆 lint 警告淹没 agent。
 - **两副面孔之二：主动 lsp 工具**（`packages/opencode/src/tool/lsp.ts`）：暴露一个 `lsp` 工具，9 个操作——`goToDefinition` / `findReferences` / `hover` / `documentSymbol` / `workspaceSymbol` / `goToImplementation` / `prepareCallHierarchy` / `incomingCalls` / `outgoingCalls`，参数 `filePath` + `line` + `character`（1-based，对人友好）。让 agent 主动问「这符号定义在哪/谁引用它/它什么类型/谁调用它」——像程序员用 IDE 的「跳转/查找引用」一样理解大代码库。
 - **被动 + 主动 = 安全网 + 眼睛**：同一套语言服务器，诊断是「编辑后自动报错的安全网」，lsp 工具是「主动探索代码的眼睛」。复用整个 IDE 生态（同 L39 Ripgrep、L51 git）。
 
 ## L60 PTY 与 shell
 
-- **为什么需要真终端**：L40 的 bash 工具够跑 `ls`、`grep` 这类「发命令收输出」的批处理；但交互式 TUI 程序（vim、top、python REPL）需要一个真 TTY——行编辑、颜色、光标定位、窗口大小变化信号（SIGWINCH）。PTY（伪终端）就是给程序一个「以为自己连着真终端」的假终端。
+- **为什么需要真终端**：L39 的 bash 工具够跑 `ls`、`grep` 这类「发命令收输出」的批处理；但交互式 TUI 程序（vim、top、python REPL）需要一个真 TTY——行编辑、颜色、光标定位、窗口大小变化信号（SIGWINCH）。PTY（伪终端）就是给程序一个「以为自己连着真终端」的假终端。
 - **`Proc` 抽象 + 双后端**（`packages/core/src/pty/pty.ts`）：`Proc` 接口 = `pid` / `onData`（输出回调）/ `onExit` / `write`（送输入）/ `resize`（改尺寸）/ `kill`。`pty.bun.ts` 与 `pty.node.ts` 是两个后端实现、同一接口（Bun 运行时用前者、Node 用后者）——同 L52 渲染器「引擎可插拔、接口统一」。
 - **流式与连接**（`packages/core/src/pty/protocol.ts`）：用 WebSocket 把终端送到客户端。协议两种帧——裸 UTF-8 数据块（终端输出原样转发）+ `0x00` 前缀 + JSON 的光标控制帧（供重放定位）；`REPLAY_CHUNK = 64KB` 分块重放历史输出（新客户端连上能补看之前的）。
 - **票据鉴权**（`packages/core/src/pty/ticket.ts`）：60 秒 TTL 的票据，绑定 `ptyID + directory + workspace`——短时效、强绑定，防止任意客户端连到别人的终端。

@@ -508,7 +508,7 @@ LESSON_59 = {
   <div class="cell"><div class="c-tag">findReferences</div><div class="c-txt">找所有引用——「改它会牵连到哪些地方？」</div></div>
   <div class="cell"><div class="c-tag">hover</div><div class="c-txt">悬停看类型/文档——「这个变量是什么类型？」</div></div>
   <div class="cell"><div class="c-tag">documentSymbol / workspaceSymbol</div><div class="c-txt">列文件/全工程符号——「这文件里有哪些函数类？」</div></div>
-  <div class="cell"><div class="c-tag">callHierarchy（incoming/outgoing）</div><div class="c-txt">调用层级——「谁调用了它/它调用了谁？」</div></div>
+  <div class="cell"><div class="c-tag">callHierarchy（prepare/incoming/outgoing）</div><div class="c-txt">调用层级——先 prepare 定位、再问「谁调用了它/它调用了谁？」</div></div>
 </div>
 <p>这些操作的参数也很「IDE 味」：<span class="mono">filePath</span> + <span class="mono">line</span> + <span class="mono">character</span>（行列都<strong>从 1 开始</strong>，正是你在编辑器里看到的坐标）。它和诊断恰好是「<strong>一被动、一主动</strong>」的互补：诊断是 opencode <strong>塞</strong>给 agent 的（「你改崩了这几处」），lsp 工具是 agent <strong>主动拉</strong>的（「我想知道这个函数定义在哪」）。把这两副面孔并排，代码智能的全貌就清晰了：</p>
 <div class="cols">
@@ -609,7 +609,7 @@ LESSON_59 = {
   <div class="cell"><div class="c-tag">findReferences</div><div class="c-txt">find all references—"what places will changing it affect?"</div></div>
   <div class="cell"><div class="c-tag">hover</div><div class="c-txt">hover to see type/docs—"what type is this variable?"</div></div>
   <div class="cell"><div class="c-tag">documentSymbol / workspaceSymbol</div><div class="c-txt">list file/whole-project symbols—"what functions and classes are in this file?"</div></div>
-  <div class="cell"><div class="c-tag">callHierarchy (incoming/outgoing)</div><div class="c-txt">call hierarchy—"who calls it / what does it call?"</div></div>
+  <div class="cell"><div class="c-tag">callHierarchy (prepare/incoming/outgoing)</div><div class="c-txt">call hierarchy—prepare to locate, then "who calls it / what does it call?"</div></div>
 </div>
 <p>These operations' parameters are very "IDE-flavored" too: <span class="mono">filePath</span> + <span class="mono">line</span> + <span class="mono">character</span> (line and col both <strong>start at 1</strong>, exactly the coordinates you see in the editor). It and diagnostics are exactly a "<strong>one passive, one active</strong>" complement: diagnostics are <strong>pushed</strong> by opencode to the agent ("you broke these spots"), the lsp tool is <strong>actively pulled</strong> by the agent ("I want to know where this function is defined"). Putting the two faces side by side, code intelligence's full picture is clear:</p>
 <div class="cols">
