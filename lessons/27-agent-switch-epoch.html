@@ -359,6 +359,10 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="col"><h4>✅ 阻塞：等齐再建</h4><p>有源暂缺就 block，保留旧纪元、等它恢复再重试。代价是切换稍延，收益是新基线永远完整可信。宁慢勿错。</p></div>
 </div>
 <div class="flow">
+  <div class="node">AgentSwitched 事件<span class="sub">projector 投影时</span></div>
+  <div class="arrow">requestReplacement →</div>
+  <div class="node">replacement_seq 置位<span class="sub">给纪元留「该换了」的标记</span></div>
+  <div class="arrow">下次 prepare →</div>
   <div class="node">换 agent<span class="sub">人设作废</span></div>
   <div class="arrow">replace →</div>
   <div class="node">重新观察所有源<span class="sub">从头拼基线</span></div>
@@ -508,6 +512,10 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="col"><h4>✅ block: build only when complete</h4><p>A source missing → block, keep the old epoch, retry when it recovers. The cost is a slightly delayed switch; the gain is a new baseline always complete and trustworthy. Slow over wrong.</p></div>
 </div>
 <div class="flow">
+  <div class="node">AgentSwitched event<span class="sub">during projection</span></div>
+  <div class="arrow">requestReplacement →</div>
+  <div class="node">replacement_seq set<span class="sub">marks the epoch "due for replace"</span></div>
+  <div class="arrow">next prepare →</div>
   <div class="node">switch agent<span class="sub">persona void</span></div>
   <div class="arrow">replace →</div>
   <div class="node">re-observe all sources<span class="sub">stitch from scratch</span></div>

@@ -646,6 +646,7 @@ LESSON_24 = {
   <div class="t-row"><span class="t-num">→ Unchanged</span><span class="t-txt">环境没变 → 沿用旧 baseline/baselineSeq，啥也不发</span></div>
   <div class="t-row"><span class="t-num">→ Updated</span><span class="t-txt">环境变了 → publish 一个 ContextUpdated 事件（带差异文本）、revision+1</span></div>
   <div class="t-row"><span class="t-num">换 agent</span><span class="t-txt">agent 变了 → replace：尝试重立纪元（可能被 block，第 27 课）</span></div>
+  <div class="t-row"><span class="t-num">revision</span><span class="t-txt">写库时带 <span class="mono">WHERE revision=期望值</span>；并发撞车 → <strong>乐观重试</strong>，直到稳定（绝不终止一次合法的安全边界运行）</span></div>
 </div>
 <p>这套「对表」逻辑，把前几课的零件全用上了。<strong>首次</strong>，就是第 21~23 课那条「注册表 load → combine → initialize → Generation」的链路落地成一行数据库记录。<strong>同 agent 的 reconcile</strong>，正是第 22 课那个 compare 的会话级版本：环境没变就<strong>沉默</strong>（Unchanged，沿用旧基线，连 baselineSeq 都不动）；变了就走 <strong>Updated</strong>——但注意它这里不是简单改个字段，而是 <strong>publish 一个 <span class="mono">ContextUpdated</span> 事件</strong>！这个细节极重要：上下文的变化，被当成<strong>会话历史里一条正式的事件</strong>记下来（还记得第 14、15 课「一切皆事件、只追加」吗？）——于是模型在下一轮重读历史时，自然就读到「哦，目录变了」这条更新，无缝衔接。<strong>系统上下文的演进，本身也是事件溯源的一部分。</strong>（一个精确的小补充：源码里走 reconcile 还是 replace，判据是 <span class="mono">replacement_seq === null &amp;&amp; !换agent</span>——也就是说，除了换 agent，一个「尚未落定的待替换」也会把同 agent 也导向 replace。这点细节，留到第 27 课讲替换时自会清楚。）</p>
 <div class="cols">
@@ -745,6 +746,7 @@ LESSON_24 = {
   <div class="t-row"><span class="t-num">→ Unchanged</span><span class="t-txt">environment unchanged → keep old baseline/baselineSeq, send nothing</span></div>
   <div class="t-row"><span class="t-num">→ Updated</span><span class="t-txt">environment changed → publish a ContextUpdated event (with diff text), revision+1</span></div>
   <div class="t-row"><span class="t-num">switch agent</span><span class="t-txt">agent changed → replace: try to re-establish the epoch (may be blocked, Lesson 27)</span></div>
+  <div class="t-row"><span class="t-num">revision</span><span class="t-txt">the write carries <span class="mono">WHERE revision=expected</span>; on a concurrent clash → <strong>optimistic retry</strong> until stable (never terminating a valid safe-boundary run)</span></div>
 </div>
 <p>This "reconcile" logic uses all the prior lessons' parts. <strong>First time</strong> is Lessons 21-23's chain "registry load → combine → initialize → Generation" landed as one database row. <strong>Same-agent reconcile</strong> is exactly Lesson 22's compare at the session level: environment unchanged → <strong>silence</strong> (Unchanged, keep the old baseline, don't even touch baselineSeq); changed → <strong>Updated</strong> — but note it's not simply editing a field but <strong>publishing a <span class="mono">ContextUpdated</span> event</strong>! This detail is vital: the context change is recorded as <strong>a formal event in the session history</strong> (remember Lessons 14, 15's "everything is an event, append-only"?) — so when the model rereads history next round, it naturally reads the "oh, the directory changed" update, seamlessly. <strong>The evolution of system context is itself part of event sourcing.</strong> (A precise small addendum: in the source, whether to take reconcile or replace is judged by <span class="mono">replacement_seq === null &amp;&amp; !switchingAgent</span> — that is, besides switching agent, an "unsettled pending replacement" also routes even the same agent through replace. This detail will become clear when Lesson 27 covers replacement.)</p>
 <div class="cols">
@@ -1293,6 +1295,10 @@ LESSON_27 = {
   <div class="col"><h4>✅ 阻塞：等齐再建</h4><p>有源暂缺就 block，保留旧纪元、等它恢复再重试。代价是切换稍延，收益是新基线永远完整可信。宁慢勿错。</p></div>
 </div>
 <div class="flow">
+  <div class="node">AgentSwitched 事件<span class="sub">projector 投影时</span></div>
+  <div class="arrow">requestReplacement →</div>
+  <div class="node">replacement_seq 置位<span class="sub">给纪元留「该换了」的标记</span></div>
+  <div class="arrow">下次 prepare →</div>
   <div class="node">换 agent<span class="sub">人设作废</span></div>
   <div class="arrow">replace →</div>
   <div class="node">重新观察所有源<span class="sub">从头拼基线</span></div>
@@ -1394,6 +1400,10 @@ LESSON_27 = {
   <div class="col"><h4>✅ block: build only when complete</h4><p>A source missing → block, keep the old epoch, retry when it recovers. The cost is a slightly delayed switch; the gain is a new baseline always complete and trustworthy. Slow over wrong.</p></div>
 </div>
 <div class="flow">
+  <div class="node">AgentSwitched event<span class="sub">during projection</span></div>
+  <div class="arrow">requestReplacement →</div>
+  <div class="node">replacement_seq set<span class="sub">marks the epoch "due for replace"</span></div>
+  <div class="arrow">next prepare →</div>
   <div class="node">switch agent<span class="sub">persona void</span></div>
   <div class="arrow">replace →</div>
   <div class="node">re-observe all sources<span class="sub">stitch from scratch</span></div>

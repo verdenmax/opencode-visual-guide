@@ -387,12 +387,22 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="t-row"><span class="t-num">→</span><span class="t-txt">本趟跑完，若有待办 → 再补跑一趟（coalesced rerun）</span></div>
   <div class="t-row"><span class="t-num">idle</span><span class="t-txt">待办也清空了 → 回到空闲，静待下一记铃</span></div>
 </div>
-<p>这台状态机的美，在于它把「<strong>至多一条链在跑</strong>」这个不变量焊得死死的：无论外面 run、wake 来得多猛、多密，一个会话<strong>同时最多只有一趟 drain 在跑、外加最多一个待办</strong>。它既不会因为请求太密而并发失控，也不会因为合并而漏掉任何一笔已入账的活。还有第三个动作 <span class="mono">interrupt</span>（中断）：它能停掉当前这条执行链——这是「能干净地喊停一个正在长考的 agent」的底层开关，我们留到第 20 课再细看它怎么和「有界步数、错误处理」配合。这里只需记住：协调器不只管「怎么开跑」，也管「怎么停下」。</p>
+<p>这台状态机的美，在于它把「<strong>至多一条链在跑</strong>」这个不变量焊得死死的：无论外面 run、wake 来得多猛、多密，一个会话<strong>同时最多只有一趟 drain 在跑、外加最多一个待办</strong>。它既不会因为请求太密而并发失控，也不会因为合并而漏掉任何一笔已入账的活。还有第三个动作 <span class="mono">interrupt</span>（中断）：它能干净地停掉当前这条执行链——下面就拆开它在协调器里的机关；至于被中断的 runner 内部怎么收尾未结清的工具，留到第 20 课。这里先记住：协调器不只管「怎么开跑」，也管「怎么停下」。</p>
 <div class="cellgroup">
   <div class="cell"><div class="k">run(key)</div><div class="v">显式发车：起链或并入当前链</div></div>
   <div class="cell"><div class="k">wake(key, seq?)</div><div class="v">建议摇铃：起链或合并一个后续</div></div>
   <div class="cell"><div class="k">awaitIdle(key)</div><div class="v">等这条链彻底跑完、回到空闲</div></div>
-  <div class="cell"><div class="k">interrupt(key, seq?)</div><div class="v">停掉当前执行链（第 20 课细看）</div></div>
+  <div class="cell"><div class="k">interrupt(key, seq?)</div><div class="v">停掉当前执行链（下面拆解）</div></div>
+</div>
+<p>那第三个动作 <span class="mono">interrupt(seq)</span> 怎么融进这台状态机？它把车道从 draining 推入一个 <strong>stopping</strong> 态：停掉当前执行链的同时记下一个 <span class="mono">interruptSeq</span>，并<strong>把序号 ≤ 该 seq 的待办 wake 全部挡掉</strong>（<span class="mono">run-coordinator.ts</span> 的 <span class="mono">suppressPendingAtOrBefore</span> 与 <span class="mono">isAfterInterrupt</span>）。这一笔很关键：中断一个长考中的 agent 时，往往正有一串「中断前就在路上」的旧 wake——若不挡掉，它们会立刻把刚停下的链<strong>原地复活</strong>。于是规矩是：<strong>中断边界之前的旧铃一律作废，只有携带更新 seq 的新输入才能重新起链</strong>。这正是「干净喊停」背后真正的机关。</p>
+<div class="flow">
+  <div class="node">idle<span class="sub">空闲，无链在跑</span></div>
+  <div class="arrow">run/wake →</div>
+  <div class="node hl">draining<span class="sub">途中 run/wake 折叠成 ≤1 待办；有待办则补跑</span></div>
+  <div class="arrow">interrupt(seq) →</div>
+  <div class="node">stopping<span class="sub">停链：记 interruptSeq、挡掉 ≤seq 旧 wake</span></div>
+  <div class="arrow">链终止 →</div>
+  <div class="node">idle<span class="sub">回空闲；更新 seq 的新 wake 可再起链</span></div>
 </div>
 
 <div class="card macro">
@@ -539,12 +549,22 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="t-row"><span class="t-num">→</span><span class="t-txt">this trip ends; if a pending exists → one more trip (coalesced rerun)</span></div>
   <div class="t-row"><span class="t-num">idle</span><span class="t-txt">pending also cleared → back to idle, awaiting the next bell</span></div>
 </div>
-<p>This state machine's beauty is welding the invariant "<strong>at most one chain runs</strong>" shut: however fierce and dense the outside run/wake come, one session has <strong>at most one drain running plus at most one pending</strong> at a time. It won't lose concurrency control from too-dense requests, nor miss any admitted work due to coalescing. There's also a third action, <span class="mono">interrupt</span>: it can stop the current execution chain — the underlying switch for "cleanly halting an agent deep in thought," which we leave to Lesson 20 to see how it pairs with "bounded steps, error handling." Here just remember: the coordinator manages not only "how to start" but "how to stop."</p>
+<p>This state machine's beauty is welding the invariant "<strong>at most one chain runs</strong>" shut: however fierce and dense the outside run/wake come, one session has <strong>at most one drain running plus at most one pending</strong> at a time. It won't lose concurrency control from too-dense requests, nor miss any admitted work due to coalescing. There's also a third action, <span class="mono">interrupt</span>: it can cleanly stop the current execution chain — let's unpack its machinery inside the coordinator below; how the interrupted runner cleans up unsettled tools is left to Lesson 20. Here just remember: the coordinator manages not only "how to start" but "how to stop."</p>
 <div class="cellgroup">
   <div class="cell"><div class="k">run(key)</div><div class="v">explicit depart: start a chain or merge the current</div></div>
   <div class="cell"><div class="k">wake(key, seq?)</div><div class="v">advisory ring: start a chain or coalesce a follow-up</div></div>
   <div class="cell"><div class="k">awaitIdle(key)</div><div class="v">wait until this chain fully finishes, back to idle</div></div>
-  <div class="cell"><div class="k">interrupt(key, seq?)</div><div class="v">stop the current execution chain (Lesson 20)</div></div>
+  <div class="cell"><div class="k">interrupt(key, seq?)</div><div class="v">stop the current execution chain (unpacked below)</div></div>
+</div>
+<p>How does that third action <span class="mono">interrupt(seq)</span> fit into the machine? It pushes the lane from draining into a <strong>stopping</strong> state: it stops the current chain while recording an <span class="mono">interruptSeq</span> and <strong>suppressing every pending wake whose seq ≤ that interruptSeq</strong> (<span class="mono">run-coordinator.ts</span>'s <span class="mono">suppressPendingAtOrBefore</span> and <span class="mono">isAfterInterrupt</span>). This matters: when you interrupt a long-thinking agent, a flurry of "already-in-flight, pre-interrupt" wakes is often on the way — left alone, they'd instantly <strong>revive the just-stopped chain</strong>. So the rule is: <strong>advisory wakes from before the interrupt boundary are voided; only new input carrying a newer seq can start a fresh chain</strong>. That's the real machinery behind a "clean stop."</p>
+<div class="flow">
+  <div class="node">idle<span class="sub">no chain running</span></div>
+  <div class="arrow">run/wake →</div>
+  <div class="node hl">draining<span class="sub">mid-flight run/wake coalesce into ≤1 pending; rerun if pending</span></div>
+  <div class="arrow">interrupt(seq) →</div>
+  <div class="node">stopping<span class="sub">stop chain: record interruptSeq, suppress wakes ≤seq</span></div>
+  <div class="arrow">chain ends →</div>
+  <div class="node">idle<span class="sub">back to idle; a newer-seq wake can start again</span></div>
 </div>
 
 <div class="card macro">
