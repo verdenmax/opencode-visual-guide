@@ -57,5 +57,6 @@ LLM 层 ④ 贯穿全局的 Effect 模式。
 
 ## 文档进度
 
-- L1：本文件（M0 建立框架）。
-- L2–L4：见 `docs/L2-parts/`、`docs/L3-details/`、`docs/L4-api/`，随各里程碑按 `part-K.md` 填充。
+- L1：本文件（M0 建立框架，M12 收口）。
+- L2–L4：见 `docs/L2-parts/`、`docs/L3-details/`、`docs/L4-api/`，**12 个部分（part-1 ~ part-12）已全部填充完成**。
+- 全书 64 课已全部完成；`check_html.py` 全站 0 error/0 warning、`check_links.py` 全部解析。
