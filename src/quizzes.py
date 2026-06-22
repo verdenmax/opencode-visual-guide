@@ -45,6 +45,48 @@ def _shuffle(opts, answer, seed):
 
 
 QUIZZES = {
+    "53-tui-structure.html": {
+        "mcq": [
+            {
+                "q": {"zh": "app.tsx 里近二十层嵌套的 context Provider（SDK 套 Project 套 Sync 套 Data…），这个嵌套顺序是怎么决定的？", "en": "In app.tsx's nearly-twenty nested context Providers (SDK wraps Project wraps Sync wraps Data…), how is the nesting order decided?"},
+                "opts": [
+                    {"zh": "嵌套顺序=依赖拓扑：内层 Provider 的 init 里会 use 外层 context（如 ProjectProvider init 调 useSDK()），所以 SDK 必须裹在 Project 外面——越基础的越靠外", "en": "Nesting order = dependency topology: an inner Provider's init uses an outer context (e.g. ProjectProvider init calls useSDK()), so SDK must wrap outside Project—the more fundamental the more outer"},
+                    {"zh": "按字母顺序排列", "en": "Arranged alphabetically"},
+                    {"zh": "随意嵌套，顺序无所谓", "en": "Nested arbitrarily, order doesn't matter"},
+                    {"zh": "按 Provider 的代码行数从多到少", "en": "By each Provider's line count, most to least"},
+                ],
+                "answer": 0,
+                "why": {"zh": "嵌套顺序绝非随意，而是一张依赖关系图的拓扑排序。看 project.tsx：ProjectProvider 的 init 第一行就是 const sdk = useSDK()——它要用 SDK 拉项目信息。既然 useSDK() 只能在 SDKProvider 内部用，ProjectProvider 就必须被 SDKProvider 包在里头。同理 RouteProvider init 用 useTuiStartup()、DataProvider 依赖 SyncProvider 的事件……每一处「内层 init 调外层 use」都钉下一条「谁必在谁外」的硬约束。于是塔从下到上恰好是「越基础越靠外」的依赖链：连接(SDK)→项目→数据同步→主题→交互状态→界面。妙处：无需另写一张依赖表，依赖关系物理地体现在代码缩进层级里——结构本身就是文档，从上往下读这段 JSX 就等于走了一遍服务依赖图。", "en": "The nesting order is by no means arbitrary but a topological sort of a dependency graph. See project.tsx: ProjectProvider's init's first line is const sdk = useSDK()—it uses the SDK to fetch project info. Since useSDK() can only be used inside SDKProvider, ProjectProvider must be wrapped by SDKProvider. Likewise RouteProvider init uses useTuiStartup(), DataProvider depends on SyncProvider's events… every \"inner init calling an outer use\" nails a hard \"who must be outside whom\" constraint. So the tower bottom-to-top is exactly a \"more fundamental more outer\" dependency chain: connection(SDK)→project→data sync→theme→interaction state→interface. The cleverness: no separate dependency table needed, dependencies are physically embodied in the code's indentation levels—the structure is the documentation, reading this JSX top-to-bottom walks the whole service dependency graph."},
+            },
+            {
+                "q": {"zh": "opencode 的近二十个 context 全用一个 createSimpleContext 助手刻出来，它那个会抛错的 use() 解决了什么问题？", "en": "opencode's nearly-twenty contexts are all stamped from one createSimpleContext helper; what does its throwing use() solve?"},
+                "opts": [
+                    {"zh": "快速失败——不在对应 Provider 内调用就当场抛「must be used within a context provider」并点名 context，把「Provider 外用 context→拿到 undefined→在远处莫名崩溃」这个隐蔽 bug 提前成响亮的当场报错", "en": "Fail fast — not called inside the matching Provider throws \"must be used within a context provider\" naming the context, moving the hidden bug of \"use context outside Provider→get undefined→crash mysteriously afar\" forward to a loud on-the-spot error"},
+                    {"zh": "让 context 取值更快", "en": "Makes context value retrieval faster"},
+                    {"zh": "自动创建缺失的 Provider", "en": "Auto-creates the missing Provider"},
+                    {"zh": "把所有 context 合并成一个", "en": "Merges all contexts into one"},
+                ],
+                "answer": 0,
+                "why": {"zh": "createSimpleContext(helper.tsx)封了「建 context+provider(跑 init、<Show when=ready> 门控)+use() 钩子」。其 use() 里有 if(!value) throw new Error(`${name} context must be used within a context provider`)。在 SolidJS/React 里最难查的 bug 之一就是「在 Provider 外用了 context、拿到 undefined、然后在八竿子打不着的地方崩」。这里把错误从『沉默的 undefined』提前成『响亮的当场报错』——一旦组件放错位置（忘了用某 Provider 包住），运行第一时间就告诉你哪个 context 没在 Provider 内用。这是「快速失败」的高频应用（同 L37 Stale tool call、L48「库非空却无 session 表」）。更深一层：把良好实践（判空报错、就绪门控、命名一致）固化进一个谁都顺手用的小工具，让正确的事成为最省力的事，远胜写一篇『请记得判空』的文档——同 L36 Tool.make、L47 PluginV2.define「统一模子刻同形」。", "en": "createSimpleContext (helper.tsx) packs \"build context+provider (run init, <Show when=ready> gate)+use() hook.\" Its use() has if(!value) throw new Error(`${name} context must be used within a context provider`). In SolidJS/React one of the hardest-to-trace bugs is \"using a context outside its Provider, getting undefined, then crashing somewhere unrelated.\" Here it moves the error from a 'silent undefined' forward to a 'loud on-the-spot error'—the moment a component is misplaced (forgot to wrap in some Provider), the first run tells you which context wasn't used inside a Provider. This is a high-frequency \"fail fast\" application (like L37 Stale tool call, L48 \"DB non-empty yet no session table\"). Deeper: solidifying good practices (null-check error, readiness gate, consistent naming) into a tool everyone reaches for makes the right thing the least-effort thing, far beating a 'please null-check' doc—like L36 Tool.make, L47 PluginV2.define \"uniform mold stamps same shape.\""},
+            },
+            {
+                "q": {"zh": "为什么 opencode TUI 用「每个 Provider 只 owns 一格状态」的金字塔，而不是把所有状态塞进一个大 App 组件？", "en": "Why does opencode's TUI use a pyramid of \"each Provider owns one cell of state\" rather than stuffing all state into one big App component?"},
+                "opts": [
+                    {"zh": "所有权清晰（某格状态由某 Provider 独家拥有/维护）、各格可独立读懂测试替换；配 L52 细粒度响应式，边界清晰的状态格天然是细粒度更新边界——「拆得清」即「更得省」", "en": "Ownership is clear (some cell of state exclusively owned/maintained by some Provider), each cell independently readable/testable/replaceable; paired with L52 fine-grained reactivity, a cleanly-bounded state cell is naturally the boundary of fine-grained updates—\"split clean\" is \"update lean\""},
+                    {"zh": "Provider 比组件渲染更快", "en": "Providers render faster than components"},
+                    {"zh": "SolidJS 不支持大组件", "en": "SolidJS doesn't support big components"},
+                    {"zh": "纯粹是为了代码好看", "en": "Purely for code aesthetics"},
+                ],
+                "answer": 0,
+                "why": {"zh": "「一个 Provider 一格关注点」的拆法，好处和 L44 配置、L47 provider 插件一脉相承：每格小而自洽、可独立读懂与修改，组件 useXxx() 精准取所需，绝不被迫依赖一个无所不包的上帝对象。对比「所有状态塞进一个大 App」的反面：任何状态变化都可能牵连整个 App 重渲染、任何组件能摸到改坏任何状态、新人读不懂值从哪来谁在改、测试要 mock 整个世界。金字塔式拆分让状态所有权清清楚楚——某格由某 Provider 独家拥有、谁依赖谁一目了然。再配 SolidJS 细粒度响应式（L52）：边界清晰的状态格天然就是细粒度更新的边界，一格变了只触动用到它的组件。「拆得清」与「更得省」合二为一，正是 opencode TUI 既复杂又有条理的结构性原因。", "en": "The \"one Provider one cell of concern\" split's benefits are of a piece with L44's config and L47's provider plugins: each cell small and self-consistent, independently readable and changeable, a component grabs precisely what it wants via useXxx(), never forced to depend on an all-encompassing god object. Contrast \"stuff all state into one big App\": any state change can drag the whole App into re-render, any component can touch and break any state, newcomers can't tell where a value comes from or who changes it, testing must mock the whole world. The pyramid split makes state ownership crystal clear—some cell exclusively owned by some Provider, who depends on whom at a glance. Paired with SolidJS fine-grained reactivity (L52): a cleanly-bounded state cell is naturally the boundary of fine-grained updates, change one cell and only components using it are touched. \"Split clean\" and \"update lean\" become one—exactly the structural reason opencode's TUI is both complex and orderly."},
+            },
+        ],
+        "open": [
+            {"zh": "课里把「用嵌套顺序表达 Provider 间的依赖」称作比「另写一张显式依赖表」更巧妙，因为「结构本身就是文档」——从上往下读 app.tsx 的 JSX 嵌套就等于走了一遍服务依赖图。请你辩证地评价这种「隐式依赖（靠嵌套顺序）」vs「显式依赖（如 DI 容器声明）」：前者的优点（直观、改一处即改顺序、无需同步两份信息）和风险（深度嵌套的「金字塔地狱」、循环依赖难发现、重排顺序易出错）各是什么？当 Provider 涨到几十个时，你会怎样在「保持嵌套直观」和「避免金字塔过深」之间取舍？", "en": "The lesson calls \"expressing Provider dependencies via nesting order\" cleverer than \"a separate explicit dependency table\" because \"the structure is the documentation\"—reading app.tsx's JSX nesting top-to-bottom walks the whole service dependency graph. Dialectically evaluate this \"implicit dependency (via nesting order)\" vs \"explicit dependency (e.g. DI container declaration)\": what are the former's pros (intuitive, change one spot changes the order, no syncing two sources of info) and risks (deep-nesting \"pyramid hell,\" circular dependencies hard to spot, reordering error-prone)? When Providers grow to dozens, how would you trade off between \"keeping nesting intuitive\" and \"avoiding an over-deep pyramid\"?"},
+            {"zh": "课里盛赞 createSimpleContext 这十几行小工具：它把一类会重复几十遍的样板收敛成一处，更把「快速失败、就绪门控、命名一致」这套良好实践固化进一个谁都顺手用的工具，「让正确的事成为最省力的事」，并把它和 L36 Tool.make、L47 PluginV2.define 归为「统一模子刻同形」的同一手法。请你提炼这种「用一个小封装把良好实践变成默认路径」的设计哲学：它为什么比写规范文档、靠 code review 把关更有效？你在自己的项目里有没有「本该封装成统一模子、却放任各处手写、最终样板漂移/护栏遗漏」的教训？反过来，过度封装又有什么风险？", "en": "The lesson praises the dozen-line createSimpleContext tool: it converges a boilerplate that'd repeat dozens of times to one place, and solidifies the good practices of \"fail fast, readiness gate, consistent naming\" into a tool everyone reaches for, \"making the right thing the least-effort thing,\" grouping it with L36 Tool.make and L47 PluginV2.define as the same \"uniform mold stamps same shape\" technique. Distill this \"use a small wrapper to make good practices the default path\" design philosophy: why is it more effective than writing guideline docs or relying on code review? In your own projects, do you have a lesson of \"something that should've been wrapped into a uniform mold but was left hand-written everywhere, leading to boilerplate drift / missing guardrails\"? Conversely, what are the risks of over-wrapping?"},
+        ],
+    },
+
     "52-opentui.html": {
         "mcq": [
             {

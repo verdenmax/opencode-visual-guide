@@ -225,7 +225,230 @@ LESSON_52 = {
 </div>
 """,
 }
-LESSON_53 = wip('TUI 应用结构', 'TUI app structure')
+LESSON_53 = {
+    "zh": r"""
+<p class="lead">上一课我们知道了 opentui 会把一棵 SolidJS 组件树画成终端界面。但<strong>那棵树本身长什么样</strong>？翻开 <span class="mono">app.tsx</span>，你会看到一个让人眼前一晕的景象：<span class="mono">render()</span> 里嵌套着<strong>近二十层</strong>的「Provider」——<span class="mono">ExitProvider</span> 套 <span class="mono">SDKProvider</span> 套 <span class="mono">ProjectProvider</span> 套 <span class="mono">SyncProvider</span> 套 <span class="mono">DataProvider</span> 套 <span class="mono">ThemeProvider</span>……一层裹一层，最里面才是真正的 <span class="mono">&lt;App/&gt;</span>。这一课就讲清这座<strong>「Provider 金字塔」</strong>：它不是杂乱的嵌套，而是 opencode TUI <strong>组织全 App 共享状态与服务</strong>的骨架。读懂它，你就拿到了在 TUI 代码里「任何一个组件想要什么、去哪儿拿」的地图。这套「Provider + use 钩子」的模式，正是 React/SolidJS 世界里组织全局状态的<strong>主流答案</strong>——所以这一课讲的虽是 opencode 的 TUI，学到的却是一套你在任何现代前端项目里都能直接复用的结构功夫。</p>
+<p>这一课有两个层层递进的洞见。第一，<strong>这座金字塔是一套结构化的「依赖注入」</strong>：每一层 Provider 只负责<strong>一件事</strong>（SDK 管和服务器的连接、Project 管项目状态、Theme 管主题、Route 管路由……），而<strong>嵌套的顺序，编码的正是它们之间的依赖关系</strong>——<span class="mono">ProjectProvider</span> 的初始化里要 <span class="mono">useSDK()</span>，所以 <span class="mono">SDKProvider</span> 必须裹在它外面。外层是地基、内层是上层建筑，一个组件能用到的「服务」，就是它头顶所有 Provider 的并集。第二，<strong>这近二十个 Provider 全用同一个模子刻出来</strong>：一个叫 <span class="mono">createSimpleContext</span> 的小助手，把「建 context + 写 provider + 给 use 钩子」这套样板一次封好，于是每个 context 都长一个样、都有一个<strong>用错地方就当场报错</strong>的 <span class="mono">use()</span>。读懂这两点，你看到的就不再是一团吓人的嵌套，而是一座<strong>层次分明、各司其职、依赖清晰</strong>的状态金字塔。</p>
+
+<div class="card analogy">
+  <div class="tag">🏢 生活类比</div>
+  把这座 Provider 金字塔想象成一栋大楼的<strong>「公共设施分层」</strong>。最底层是<strong>供电</strong>（<span class="mono">SDKProvider</span>，和服务器的连接——没有它楼里什么都转不起来）；往上是<strong>供水</strong>（<span class="mono">ProjectProvider</span>，但水泵得先有电，所以它装在供电之上）；再往上是<strong>暖通、网络、安防</strong>（Sync/Data/Theme/Dialog……），每一层设施都<strong>依赖它下面的层</strong>。而楼里任何一个房间（一个组件），想用电就 <span class="mono">useSDK()</span>、想用主题就 <span class="mono">useTheme()</span>——<strong>直接「插上插座」取用即可，不必关心这服务是从哪一层、怎么接进来的</strong>。最妙的是那个「用错地方就报错」的设计：如果你在一个<strong>没接通供电的房间</strong>里去 <span class="mono">useSDK()</span>，系统不会默默给你一个空值让你之后莫名其妙地崩，而是<strong>立刻明确报错</strong>「你得在 SDKProvider 里头用」——就像在没通电的毛坯房按开关，灯不亮会立刻告诉你「这儿还没通电」，而非让你对着黑灯瞎猜。
+</div>
+
+<h2>Provider 金字塔：嵌套即依赖</h2>
+<p><span class="mono">app.tsx</span> 的 <span class="mono">render()</span> 里，那一长串 Provider 大致按这个顺序从外到内嵌套（外层先就位、内层才能用上）：</p>
+<div class="layers">
+  <div class="layer"><span class="l-tag">ExitProvider / ErrorBoundary</span><span class="l-desc">最外层：退出钩子、错误边界（兜底崩溃）</span></div>
+  <div class="layer"><span class="l-tag">SDKProvider</span><span class="l-desc">和服务器的连接（SDK 客户端 + SSE 事件流）——一切数据的源头</span></div>
+  <div class="layer"><span class="l-tag">ProjectProvider</span><span class="l-desc">项目/工作区状态（init 里 useSDK，故在 SDK 之内）</span></div>
+  <div class="layer"><span class="l-tag">SyncProvider → DataProvider</span><span class="l-desc">事件→store 的归约（下一课主题，依赖 SDK 的事件）</span></div>
+  <div class="layer"><span class="l-tag">ThemeProvider</span><span class="l-desc">主题/调色板</span></div>
+  <div class="layer"><span class="l-tag">Dialog / Frecency / PromptHistory…</span><span class="l-desc">对话框、常用度、prompt 历史等交互状态</span></div>
+  <div class="layer"><span class="l-tag">&lt;App/&gt;</span><span class="l-desc">最里层：真正的界面，头顶所有 Provider 的服务任它取用</span></div>
+</div>
+<p>这个嵌套顺序<strong>绝非随意</strong>——它是一张<strong>依赖关系图</strong>的拓扑排序。看 <span class="mono">project.tsx</span> 就明白了：<span class="mono">ProjectProvider</span> 的 <span class="mono">init</span> 函数第一行就是 <span class="mono">const sdk = useSDK()</span>——它要用 SDK 去拉项目信息。既然 <span class="mono">useSDK()</span> 只能在 <span class="mono">SDKProvider</span> 内部用，那 <span class="mono">ProjectProvider</span> 就<strong>必须</strong>被 <span class="mono">SDKProvider</span> 包在里头。同理，<span class="mono">RouteProvider</span> 的 <span class="mono">init</span> 用了 <span class="mono">useTuiStartup()</span>、<span class="mono">DataProvider</span> 依赖 <span class="mono">SyncProvider</span> 的事件……<strong>每一处「内层 init 调用外层的 use」，都在这座金字塔里钉下一条「谁必须在谁外面」的硬约束</strong>。于是这座塔从下到上，恰好是一条「越基础越靠外、越上层越靠内」的依赖链：连接（SDK）→ 项目 → 数据同步 → 主题 → 交互状态 → 界面。这种「用嵌套顺序表达依赖」的手法，其实比一份显式的依赖声明更巧妙：你<strong>无需另写一张「谁依赖谁」的表</strong>，依赖关系就<strong>物理地</strong>体现在代码的缩进层级里——外层一定先于内层就位，内层天然能用上外层的一切。读 <span class="mono">app.tsx</span> 那段嵌套，从上往下读一遍，就等于把整个 App 的「服务依赖图」从地基到屋顶走了一遍。一个新人想搞懂「TUI 启动时各种服务按什么顺序就位」，不必翻文档，看这一段 JSX 的嵌套顺序即可——<strong>结构本身就是文档</strong>。</p>
+
+<h2>同一个模子：createSimpleContext</h2>
+<p>近二十个 Provider，没有一个是从零手写的——它们全用一个叫 <span class="mono">createSimpleContext</span> 的小助手（<span class="mono">context/helper.tsx</span>）刻出来。与其让每个 context 各写一遍「建 context、写 Provider、写 use 钩子」的样板（还很容易在某一处忘了判空、忘了门控），不如把这套样板封进一个工具、让所有 context 都从同一个模子里出来。这个助手把「SolidJS 的 context 三件套」封成一行：</p>
+<div class="flow">
+  <div class="f-node">createSimpleContext<br><small>{ name, init }</small></div>
+  <div class="f-arrow">产出 →</div>
+  <div class="f-node">provider 组件<br><small>跑 init(props)、按 ready 门控</small></div>
+  <div class="f-arrow">+</div>
+  <div class="f-node">use() 钩子<br><small>取值，缺则当场报错</small></div>
+</div>
+<p>用起来就是一行解构：<span class="mono">const { use: useSDK, provider: SDKProvider } = createSimpleContext({ name: "SDK", init: (props) =&gt; {…} })</span>。这个小封装藏着两个体贴的设计。其一，<strong>「未就绪就先不渲染」的门控</strong>：provider 里有个 <span class="mono">&lt;Show when={init.ready !== false}&gt;</span>，如果某个 context 需要异步准备（如先连上服务器），可以让它<strong>在没就绪时不渲染子树</strong>，避免下面的组件拿到半成品状态。其二，也是最点睛的——<strong>那个会抛错的 <span class="mono">use()</span></strong>：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">name</div><div class="c-txt">这个 context 的名字（仅用于报错信息）</div></div>
+  <div class="cell"><div class="c-tag">init(props)</div><div class="c-txt">初始化这一格状态/服务（可在内部 use 外层 context）</div></div>
+  <div class="cell"><div class="c-tag">ready 门控</div><div class="c-txt"><span class="mono">&lt;Show when={ready}&gt;</span>——没就绪不渲染子树</div></div>
+  <div class="cell"><div class="c-tag">use() 报错</div><div class="c-txt">不在对应 Provider 内调用 → 立刻抛「must be used within a context provider」</div></div>
+</div>
+<p>那句 <span class="mono">use()</span> 里的 <span class="mono">if (!value) throw new Error(...)</span> 看似不起眼，却是一道<strong>极有价值的护栏</strong>。一个组件调 <span class="mono">useSDK()</span> 时，背后发生的是这样一条「向上找」的链路：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">组件调 <span class="mono">useSDK()</span> → 内部 <span class="mono">useContext(SDK ctx)</span></span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">SolidJS 顺组件树<strong>向上</strong>找最近的 <span class="mono">SDKProvider</span></span></div>
+  <div class="t-row"><span class="t-num">3a</span><span class="t-txt">找到 → 返回该 Provider 的 <span class="mono">init</span> 值（SDK 客户端）</span></div>
+  <div class="t-row"><span class="t-num">3b</span><span class="t-txt">没找到（不在 Provider 内）→ value 为空 → <strong>当场抛错</strong>，点名「SDK」</span></div>
+</div>
+<p>在 SolidJS/React 里，最常见也最难查的 bug 之一，就是「在 Provider 外面用了 context，拿到 undefined，然后在某个八竿子打不着的地方崩掉」。而这里<strong>把这个错误从『沉默的 undefined』提前成『响亮的当场报错』</strong>——一旦你把组件放错了位置（忘了用某个 Provider 包住），运行的第一时间就会告诉你「<span class="mono">SDK context 必须在 Provider 内使用</span>」，连具体哪个 context 都点名了。<strong>把一类隐蔽的运行期错误，钉死在最接近源头、最易诊断的地方</strong>——这是「快速失败」原则一个朴素而高频的应用，全书已多次见到（L37 的 Stale tool call、L48 的「库非空却无 session 表」、L52 的资源清理）。</p>
+
+<h2>各司其职：每个 Provider owns 一格</h2>
+<p>金字塔之所以不乱，是因为每一层 Provider 都<strong>只拥有一件事</strong>、互不越界。这种「单一职责」让每一格都能被单独理解、单独测试、单独替换。挑几个关键的看：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">SDKProvider（sdk.tsx）</div><div class="c-txt">造 opencode SDK 客户端、订阅 SSE 事件流；事件入队后<strong>批量 flush</strong>（一批事件→一次渲染，呼应 L54）</div></div>
+  <div class="cell"><div class="c-tag">ProjectProvider（project.tsx）</div><div class="c-txt">用 <span class="mono">createStore</span> 持项目/实例/工作区状态，<span class="mono">sync()</span> 从 SDK 拉取</div></div>
+  <div class="cell"><div class="c-tag">Sync / DataProvider</div><div class="c-txt">把服务器事件归约进响应式 store（下一课 L54 详解）</div></div>
+  <div class="cell"><div class="c-tag">ThemeProvider（theme.tsx）</div><div class="c-txt">主题与调色板（亮/暗、各色），供组件取色</div></div>
+  <div class="cell"><div class="c-tag">RouteProvider（route.tsx）</div><div class="c-txt"><span class="mono">createStore&lt;Route&gt;</span>(home/session/plugin)，<span class="mono">navigate()</span> 切屏</div></div>
+  <div class="cell"><div class="c-tag">Dialog / PromptHistory / Frecency</div><div class="c-txt">对话框栈、prompt 历史、命令常用度等交互状态</div></div>
+</div>
+<p>这种「一个 Provider 一格关注点」的拆法，好处和 L44 配置、L47 provider 插件一脉相承：<strong>每一格都小而自洽、可独立读懂与修改</strong>，组件要什么就 <span class="mono">useXxx()</span> 精准取什么，绝不会被迫去依赖一个无所不包的巨型上帝对象。对比一下「把所有状态塞进一个大 App 组件」的反面：那样一来，任何一点状态变化都可能牵连整个 App 重渲染，任何一个组件都能摸到任何状态、改坏任何东西，代码很快就糊成一团。两种活法的差别，摊开看格外刺眼：</p>
+<div class="cols">
+  <div class="col"><h4>上帝对象 App（反面）</h4><p>所有状态塞进一个巨型组件。后果：谁都能摸到、改坏任何状态；一点变化牵连整个 App 重渲染；新人读不懂「这个值从哪来、谁在改」；测试要把整个世界 mock 起来。</p></div>
+  <div class="col"><h4>Provider 金字塔（opencode）</h4><p>每格状态由一个 Provider 独家拥有。组件 <span class="mono">useXxx()</span> 精准取所需；所有权清晰、依赖显式；细粒度更新只触动用到该格的组件；每个 Provider 可独立读懂、独立改。</p></div>
+</div>
+<p>金字塔式的拆分，则让<strong>状态的所有权清清楚楚</strong>——某格状态由某个 Provider 独家拥有、独家维护，谁依赖谁一目了然。再配上 SolidJS 的细粒度响应式（L52），<strong>「拆得清」与「更得省」就合二为一了</strong>：边界清晰的状态格，天然就是细粒度更新的边界，一格变了只触动用到这一格的组件。这正是 opencode 的 TUI 能既复杂又有条理的结构性原因。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观视角</div>
+  <p>这一课讲清了 opencode TUI 的应用结构——那座由近二十层 Provider 垒成、各司其职又依赖清晰的金字塔：</p>
+  <ul>
+    <li><strong>Provider 金字塔 = 结构化依赖注入</strong>（<span class="mono">app.tsx</span>）：近二十层 Provider 从外到内嵌套，<strong>每层只 owns 一件事</strong>（SDK 连接/Project 项目/Sync·Data 数据/Theme 主题/Route 路由/Dialog 对话框…）。一个组件可用的服务=它头顶所有 Provider 的并集。</li>
+    <li><strong>嵌套顺序=依赖拓扑</strong>：内层 Provider 的 <span class="mono">init</span> 里 <span class="mono">use</span> 外层 context（如 <span class="mono">ProjectProvider</span> init 调 <span class="mono">useSDK()</span>），就钉下「SDK 必在 Project 外」的硬约束。塔从下到上=越基础越靠外：连接→项目→数据→主题→交互→界面。</li>
+    <li><strong>同一个模子 createSimpleContext</strong>（<span class="mono">context/helper.tsx</span>）：封装「建 context + provider(跑 init、<span class="mono">&lt;Show when=ready&gt;</span> 门控) + use() 钩子」。一行解构出 <span class="mono">{ use, provider }</span>。每个 context 同形。</li>
+    <li><strong>use() 快速失败</strong>：不在对应 Provider 内调用即抛「must be used within a context provider」——把「Provider 外用 context 拿到 undefined」这个隐蔽 bug 提前成当场报错（同 L37 Stale、L48 防呆的「快速失败」）。各司其职+细粒度响应式=拆得清即更得省。</li>
+  </ul>
+  <p>结构看清了——一座各司其职、依赖清晰的 Provider 金字塔。但你可能注意到 <span class="mono">SDKProvider</span> 里有个「事件入队、批量 flush」的细节，<span class="mono">Sync</span>/<span class="mono">Data</span> 两层更是专管「把事件变成状态」。下一课（L54）就钻进这条<strong>数据流</strong>：服务器的 SSE 事件如何经 reducer 归约进响应式 store、又如何用 16ms 的批处理把「一串事件」压成「一次渲染」。再往后 L55 讲 prompt 编辑器、L56 讲对话框与命令面板。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">createSimpleContext</span> 本体短得惊人，却把样板与护栏一次封死（简化自 <span class="mono">helper.tsx</span>）：</p>
+  <pre class="code"><span class="kw">export function</span> <span class="fn">createSimpleContext</span>(input) {
+  <span class="kw">const</span> ctx = <span class="fn">createContext</span>()
+  <span class="kw">return</span> {
+    provider: (props) =&gt; {
+      <span class="kw">const</span> init = input.<span class="fn">init</span>(props)              <span class="cm">// 初始化这一格</span>
+      <span class="kw">return</span> (
+        &lt;Show when={init.ready === undefined || init.ready === <span class="kw">true</span>}&gt;  <span class="cm">// ← 没就绪不渲染</span>
+          &lt;ctx.Provider value={init}&gt;{props.children}&lt;/ctx.Provider&gt;
+        &lt;/Show&gt;
+      )
+    },
+    <span class="fn">use</span>() {
+      <span class="kw">const</span> value = <span class="fn">useContext</span>(ctx)
+      <span class="kw">if</span> (!value) <span class="kw">throw new</span> <span class="fn">Error</span>(<span class="st">`${'$'}{input.name} context must be used within a context provider`</span>)  <span class="cm">// ← 快速失败</span>
+      <span class="kw">return</span> value
+    },
+  }
+}</pre>
+  <p>这十几行代码的价值，远超它的长度。它把一个在 SolidJS/React 项目里<strong>会被重复几十遍</strong>的样板（<span class="mono">createContext</span> → 写一个 Provider 组件 → 写一个 <span class="mono">useContext</span> + 判空的 hook）<strong>收敛成一处</strong>，于是新增一个 context 只需 <span class="mono">createSimpleContext({ name, init })</span> 一行。这本身就是「不要重复自己」的范本。但更深一层的妙处在于：<strong>它把「正确用法」做成了唯一好走的路</strong>。因为 <span class="mono">use()</span> 已经替你处理了「判空 + 报错」，没人会再图省事写一个「不判空、直接返回」的脆弱版本；因为 provider 已经统一了 <span class="mono">ready</span> 门控，异步就绪的处理也有了标准姿势。<strong>把一套良好实践（快速失败、就绪门控、命名一致）固化进一个谁都会顺手用的小工具里，远比写一篇『大家请记得判空』的规范文档有效得多</strong>——好的抽象不是用文档约束人，而是让正确的事成为最省力的事。这也呼应了全书一再出现的主题：用统一的小模子（L36 的 Tool.make、L47 的 PluginV2.define）把一类东西刻成同形，整个系统就因「处处同形」而易读、易扩、难出错。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>Provider 金字塔=结构化依赖注入</strong>（<span class="mono">app.tsx</span>）：近二十层 Provider 嵌套，每层只 owns 一件事；组件可用服务=头顶所有 Provider 的并集，要什么 <span class="mono">useXxx()</span> 精准取什么。</li>
+    <li><strong>嵌套顺序=依赖拓扑</strong>：内层 init 里 use 外层 context（<span class="mono">ProjectProvider</span> 调 <span class="mono">useSDK()</span>→SDK 必在外）。塔从下到上越基础越靠外：连接(SDK)→项目→数据(Sync/Data)→主题→交互(Dialog…)→<span class="mono">&lt;App/&gt;</span>。</li>
+    <li><strong>同一个模子 createSimpleContext</strong>（<span class="mono">helper.tsx</span>）：一行封「建 context+provider(init、<span class="mono">ready</span> 门控)+use()」。每个 context 同形——同 L36 Tool.make、L47 PluginV2.define「统一模子刻同形」。</li>
+    <li><strong>use() 快速失败</strong>：<span class="mono">if(!value) throw</span>「must be used within a context provider」——把「Provider 外用 context→undefined→远处崩」的隐蔽 bug 提前成当场点名报错（同 L37/L48 快速失败）。</li>
+    <li><strong>各司其职 vs 上帝对象</strong>：一格状态由一个 Provider 独家拥有，所有权清晰、可独立读懂/测试/替换；配 L52 细粒度响应式，边界清晰的状态格天然是细粒度更新边界——「拆得清」即「更得省」，是复杂 TUI 仍有条理的结构性原因。这套 Provider+use 模式在任何 React/SolidJS 项目都通用。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Last lesson we learned opentui paints a SolidJS component tree into a terminal interface. But <strong>what does that tree itself look like</strong>? Open <span class="mono">app.tsx</span> and you'll see a dizzying sight: inside <span class="mono">render()</span> nests <strong>nearly twenty layers</strong> of "Providers"—<span class="mono">ExitProvider</span> wraps <span class="mono">SDKProvider</span> wraps <span class="mono">ProjectProvider</span> wraps <span class="mono">SyncProvider</span> wraps <span class="mono">DataProvider</span> wraps <span class="mono">ThemeProvider</span>… layer wrapping layer, with the real <span class="mono">&lt;App/&gt;</span> only at the innermost. This lesson clarifies this <strong>"Provider pyramid"</strong>: it's not messy nesting but the skeleton by which opencode's TUI <strong>organizes app-wide shared state and services</strong>. Grasp it and you hold the map of "what any component wants, and where to get it" in the TUI code. This "Provider + use hook" pattern is precisely the <strong>mainstream answer</strong> for organizing global state in the React/SolidJS world—so though this lesson covers opencode's TUI, what you learn is structural craft directly reusable in any modern frontend project.</p>
+<p>This lesson has two progressively deeper insights. First, <strong>this pyramid is a structured "dependency injection"</strong>: each Provider layer owns just <strong>one thing</strong> (SDK manages the server connection, Project the project state, Theme the theme, Route the routing…), and <strong>the nesting order encodes exactly the dependencies among them</strong>—<span class="mono">ProjectProvider</span>'s init calls <span class="mono">useSDK()</span>, so <span class="mono">SDKProvider</span> must wrap outside it. The outer is the foundation, the inner the superstructure; the services a component can use are the union of all Providers above it. Second, <strong>all these nearly-twenty Providers are stamped from the same mold</strong>: a little helper called <span class="mono">createSimpleContext</span> seals the boilerplate of "build context + write provider + give a use hook" once, so every context looks the same and has a <span class="mono">use()</span> that <strong>errors on the spot when used in the wrong place</strong>. Grasp these two and you no longer see a scary tangle of nesting but a <strong>cleanly-layered, single-responsibility, dependency-clear</strong> state pyramid.</p>
+
+<div class="card analogy">
+  <div class="tag">🏢 Analogy</div>
+  Picture this Provider pyramid as a building's <strong>"layered utility infrastructure."</strong> The bottom layer is <strong>power</strong> (<span class="mono">SDKProvider</span>, the server connection—without it nothing in the building runs); above is <strong>water</strong> (<span class="mono">ProjectProvider</span>, but the pump needs power first, so it's installed above power); above that <strong>HVAC, network, security</strong> (Sync/Data/Theme/Dialog…), each utility layer <strong>depending on the layers below it</strong>. And any room in the building (a component), to use power calls <span class="mono">useSDK()</span>, to use the theme calls <span class="mono">useTheme()</span>—<strong>just "plug into the socket" and use it, no need to care which layer the service comes from or how it's wired in</strong>. The finest part is the "error in the wrong place" design: if you call <span class="mono">useSDK()</span> in a <strong>room not yet wired to power</strong>, the system won't silently hand you a null that mysteriously crashes later but <strong>immediately, clearly errors</strong> "you must use it inside SDKProvider"—like flipping a switch in an un-electrified shell room, the light not coming on tells you right away "no power here yet" rather than leaving you guessing in the dark.
+</div>
+
+<h2>The Provider pyramid: nesting is dependency</h2>
+<p>In <span class="mono">app.tsx</span>'s <span class="mono">render()</span>, that long string of Providers roughly nests outer-to-inner in this order (outer in place first, inner can then use it):</p>
+<div class="layers">
+  <div class="layer"><span class="l-tag">ExitProvider / ErrorBoundary</span><span class="l-desc">outermost: exit hooks, error boundary (crash backstop)</span></div>
+  <div class="layer"><span class="l-tag">SDKProvider</span><span class="l-desc">the server connection (SDK client + SSE event stream)—the source of all data</span></div>
+  <div class="layer"><span class="l-tag">ProjectProvider</span><span class="l-desc">project/workspace state (init calls useSDK, so inside SDK)</span></div>
+  <div class="layer"><span class="l-tag">SyncProvider → DataProvider</span><span class="l-desc">event→store reduction (next lesson's theme, depends on SDK's events)</span></div>
+  <div class="layer"><span class="l-tag">ThemeProvider</span><span class="l-desc">theme/palette</span></div>
+  <div class="layer"><span class="l-tag">Dialog / Frecency / PromptHistory…</span><span class="l-desc">dialogs, frecency, prompt history and other interaction state</span></div>
+  <div class="layer"><span class="l-tag">&lt;App/&gt;</span><span class="l-desc">innermost: the real interface, free to use all Providers' services above it</span></div>
+</div>
+<p>This nesting order is <strong>by no means arbitrary</strong>—it's a topological sort of a <strong>dependency graph</strong>. Look at <span class="mono">project.tsx</span> to get it: <span class="mono">ProjectProvider</span>'s <span class="mono">init</span> function's first line is <span class="mono">const sdk = useSDK()</span>—it uses the SDK to fetch project info. Since <span class="mono">useSDK()</span> can only be used inside <span class="mono">SDKProvider</span>, <span class="mono">ProjectProvider</span> <strong>must</strong> be wrapped by <span class="mono">SDKProvider</span>. Likewise, <span class="mono">RouteProvider</span>'s <span class="mono">init</span> uses <span class="mono">useTuiStartup()</span>, <span class="mono">DataProvider</span> depends on <span class="mono">SyncProvider</span>'s events… <strong>every "inner init calling an outer use" nails down a hard "who must be outside whom" constraint in this pyramid</strong>. So this tower, bottom to top, is exactly a dependency chain of "the more fundamental the more outer, the more upper the more inner": connection (SDK) → project → data sync → theme → interaction state → interface. This "express dependency via nesting order" technique is actually cleverer than an explicit dependency declaration: you <strong>needn't write a separate "who depends on whom" table</strong>—the dependencies are <strong>physically</strong> embodied in the code's indentation levels: the outer is always in place before the inner, the inner naturally uses everything in the outer. Reading that nesting in <span class="mono">app.tsx</span> top to bottom is walking the whole App's "service dependency graph" from foundation to roof. A newcomer wanting to understand "in what order the various services come up at TUI startup" needn't read docs—just look at this JSX's nesting order—<strong>the structure itself is the documentation</strong>.</p>
+
+<h2>The same mold: createSimpleContext</h2>
+<p>Of the nearly twenty Providers, not one is hand-written from scratch—they're all stamped from a little helper called <span class="mono">createSimpleContext</span> (<span class="mono">context/helper.tsx</span>). Rather than have each context write the boilerplate of "build context, write Provider, write use hook" anew (and easily forget a null-check or a gate somewhere), better to seal this boilerplate into a tool and have all contexts come from the same mold. This helper packs "SolidJS's context trio" into one line:</p>
+<div class="flow">
+  <div class="f-node">createSimpleContext<br><small>{ name, init }</small></div>
+  <div class="f-arrow">produces →</div>
+  <div class="f-node">provider component<br><small>runs init(props), gates on ready</small></div>
+  <div class="f-arrow">+</div>
+  <div class="f-node">use() hook<br><small>get value, errors on spot if missing</small></div>
+</div>
+<p>Using it is one destructuring line: <span class="mono">const { use: useSDK, provider: SDKProvider } = createSimpleContext({ name: "SDK", init: (props) =&gt; {…} })</span>. This little wrapper hides two thoughtful designs. First, the <strong>"don't render until ready" gate</strong>: the provider has a <span class="mono">&lt;Show when={init.ready !== false}&gt;</span>, so if a context needs async prep (e.g. connect to the server first), it can <strong>not render its subtree until ready</strong>, avoiding components below getting a half-baked state. Second, and the most pointed—<strong>that throwing <span class="mono">use()</span></strong>:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">name</div><div class="c-txt">this context's name (only for the error message)</div></div>
+  <div class="cell"><div class="c-tag">init(props)</div><div class="c-txt">initializes this cell of state/service (may use outer contexts inside)</div></div>
+  <div class="cell"><div class="c-tag">ready gate</div><div class="c-txt"><span class="mono">&lt;Show when={ready}&gt;</span>—don't render the subtree until ready</div></div>
+  <div class="cell"><div class="c-tag">use() errors</div><div class="c-txt">not called inside the matching Provider → immediately throws "must be used within a context provider"</div></div>
+</div>
+<p>That <span class="mono">if (!value) throw new Error(...)</span> in <span class="mono">use()</span> seems unremarkable yet is a <strong>highly valuable guardrail</strong>. When a component calls <span class="mono">useSDK()</span>, behind it is this "look upward" chain:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">component calls <span class="mono">useSDK()</span> → internally <span class="mono">useContext(SDK ctx)</span></span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">SolidJS walks <strong>up</strong> the component tree for the nearest <span class="mono">SDKProvider</span></span></div>
+  <div class="t-row"><span class="t-num">3a</span><span class="t-txt">found → returns that Provider's <span class="mono">init</span> value (the SDK client)</span></div>
+  <div class="t-row"><span class="t-num">3b</span><span class="t-txt">not found (not inside a Provider) → value empty → <strong>throws on the spot</strong>, naming "SDK"</span></div>
+</div>
+<p>In SolidJS/React, one of the most common and hardest-to-trace bugs is "using a context outside its Provider, getting undefined, then crashing somewhere utterly unrelated." Here it <strong>moves this error from a 'silent undefined' forward to a 'loud on-the-spot error'</strong>—the moment you misplace a component (forget to wrap it in some Provider), the very first run tells you "<span class="mono">SDK context must be used within a context provider</span>," even naming the specific context. <strong>Nailing a class of hidden runtime error to the spot closest to the source and easiest to diagnose</strong>—this is a plain, high-frequency application of the "fail fast" principle, seen many times across the book (L37's Stale tool call, L48's "DB non-empty yet no session table," L52's resource cleanup).</p>
+
+<h2>Single responsibility: each Provider owns one cell</h2>
+<p>The pyramid stays orderly because each Provider layer <strong>owns just one thing</strong>, never overstepping. This "single responsibility" lets each cell be understood, tested, and replaced on its own. A few key ones:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">SDKProvider (sdk.tsx)</div><div class="c-txt">builds the opencode SDK client, subscribes to the SSE event stream; events queued then <strong>batch-flushed</strong> (a batch of events→one render, echoing L54)</div></div>
+  <div class="cell"><div class="c-tag">ProjectProvider (project.tsx)</div><div class="c-txt">holds project/instance/workspace state with <span class="mono">createStore</span>, <span class="mono">sync()</span> fetches from the SDK</div></div>
+  <div class="cell"><div class="c-tag">Sync / DataProvider</div><div class="c-txt">reduces server events into reactive stores (detailed next lesson L54)</div></div>
+  <div class="cell"><div class="c-tag">ThemeProvider (theme.tsx)</div><div class="c-txt">theme and palette (light/dark, colors), for components to pick colors</div></div>
+  <div class="cell"><div class="c-tag">RouteProvider (route.tsx)</div><div class="c-txt"><span class="mono">createStore&lt;Route&gt;</span>(home/session/plugin), <span class="mono">navigate()</span> switches screens</div></div>
+  <div class="cell"><div class="c-tag">Dialog / PromptHistory / Frecency</div><div class="c-txt">dialog stack, prompt history, command frecency and other interaction state</div></div>
+</div>
+<p>This "one Provider one cell of concern" split's benefits are of a piece with L44's config and L47's provider plugins: <strong>each cell is small and self-consistent, independently readable and changeable</strong>, a component grabs precisely what it wants via <span class="mono">useXxx()</span>, never forced to depend on an all-encompassing god object. Contrast the opposite, "stuff all state into one big App component": then any bit of state change can drag the whole App into re-rendering, any component can touch any state and break anything, and the code quickly congeals into a mess. The two ways of living, laid out, are starkly different:</p>
+<div class="cols">
+  <div class="col"><h4>god-object App (the bad)</h4><p>all state stuffed into one giant component. Consequence: anyone can touch and break any state; one change drags the whole App into re-render; newcomers can't tell "where this value comes from, who changes it"; testing must mock the whole world.</p></div>
+  <div class="col"><h4>Provider pyramid (opencode)</h4><p>each cell of state exclusively owned by one Provider. Components <span class="mono">useXxx()</span> grab precisely what's needed; ownership clear, dependencies explicit; fine-grained updates touch only components using that cell; each Provider independently readable, independently changeable.</p></div>
+</div>
+<p>The pyramid split makes <strong>state ownership crystal clear</strong>—some cell of state is exclusively owned and maintained by some Provider, who depends on whom at a glance. Paired with SolidJS's fine-grained reactivity (L52), <strong>"split clean" and "update lean" become one</strong>: a cleanly-bounded state cell is naturally the boundary of fine-grained updates, change one cell and only components using it are touched. This is exactly the structural reason opencode's TUI can be both complex and orderly.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson clarifies opencode TUI's app structure—that pyramid built of nearly twenty Provider layers, each with its own role yet dependency-clear:</p>
+  <ul>
+    <li><strong>Provider pyramid = structured dependency injection</strong> (<span class="mono">app.tsx</span>): nearly twenty Providers nest outer-to-inner, <strong>each owning one thing</strong> (SDK connection/Project/Sync·Data data/Theme/Route/Dialog…). A component's available services = the union of all Providers above it.</li>
+    <li><strong>nesting order = dependency topology</strong>: an inner Provider's <span class="mono">init</span> uses an outer context (e.g. <span class="mono">ProjectProvider</span> init calls <span class="mono">useSDK()</span>), nailing "SDK must be outside Project." The tower bottom-to-top = more fundamental more outer: connection→project→data→theme→interaction→interface. The structure is the documentation.</li>
+    <li><strong>the same mold createSimpleContext</strong> (<span class="mono">context/helper.tsx</span>): packs "build context + provider (run init, <span class="mono">&lt;Show when=ready&gt;</span> gate) + use() hook." One destructuring line yields <span class="mono">{ use, provider }</span>. Every context same-shaped.</li>
+    <li><strong>use() fails fast</strong>: not called inside the matching Provider throws "must be used within a context provider"—moving the hidden bug of "use context outside Provider→undefined→crash elsewhere" forward to an on-the-spot named error (like L37 Stale, L48's guard "fail fast"). Single responsibility + fine-grained reactivity = split clean is update lean.</li>
+  </ul>
+  <p>The structure is clear—a single-responsibility, dependency-clear Provider pyramid. But you may have noticed <span class="mono">SDKProvider</span> has an "events queued, batch-flushed" detail, and the <span class="mono">Sync</span>/<span class="mono">Data</span> layers specifically manage "turning events into state." The next lesson (L54) drills into this <strong>data flow</strong>: how the server's SSE events get reduced into reactive stores via reducers, and how 16ms batching squeezes "a string of events" into "one render." Further on, L55 covers the prompt editor, L56 dialogs and the command palette.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p><span class="mono">createSimpleContext</span> itself is astonishingly short yet seals the boilerplate and guardrail at once (simplified from <span class="mono">helper.tsx</span>):</p>
+  <pre class="code"><span class="kw">export function</span> <span class="fn">createSimpleContext</span>(input) {
+  <span class="kw">const</span> ctx = <span class="fn">createContext</span>()
+  <span class="kw">return</span> {
+    provider: (props) =&gt; {
+      <span class="kw">const</span> init = input.<span class="fn">init</span>(props)              <span class="cm">// initialize this cell</span>
+      <span class="kw">return</span> (
+        &lt;Show when={init.ready === undefined || init.ready === <span class="kw">true</span>}&gt;  <span class="cm">// ← don't render until ready</span>
+          &lt;ctx.Provider value={init}&gt;{props.children}&lt;/ctx.Provider&gt;
+        &lt;/Show&gt;
+      )
+    },
+    <span class="fn">use</span>() {
+      <span class="kw">const</span> value = <span class="fn">useContext</span>(ctx)
+      <span class="kw">if</span> (!value) <span class="kw">throw new</span> <span class="fn">Error</span>(<span class="st">`${'$'}{input.name} context must be used within a context provider`</span>)  <span class="cm">// ← fail fast</span>
+      <span class="kw">return</span> value
+    },
+  }
+}</pre>
+  <p>These dozen lines' value far exceeds their length. They <strong>converge to one place</strong> a boilerplate that in a SolidJS/React project <strong>would be repeated dozens of times</strong> (<span class="mono">createContext</span> → write a Provider component → write a <span class="mono">useContext</span> + null-check hook), so adding a context needs only the one line <span class="mono">createSimpleContext({ name, init })</span>. That itself is a model of "don't repeat yourself." But the deeper cleverness: <strong>it makes "the correct usage" the only easy road</strong>. Because <span class="mono">use()</span> already handles "null-check + error" for you, no one will, to save effort, write a fragile "no-check, return directly" version; because the provider already standardizes the <span class="mono">ready</span> gate, async readiness has a standard posture too. <strong>Solidifying a set of good practices (fail fast, readiness gate, consistent naming) into a little tool everyone reaches for is far more effective than writing a 'please remember to null-check' guideline doc</strong>—a good abstraction doesn't constrain people with docs but makes the right thing the least-effort thing. This also echoes a recurring book theme: stamping a class of things into the same shape with a uniform little mold (L36's Tool.make, L47's PluginV2.define) makes the whole system, by "same shape everywhere," easy to read, easy to extend, hard to get wrong.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>Provider pyramid = structured dependency injection</strong> (<span class="mono">app.tsx</span>): nearly twenty Providers nested, each owning one thing; a component's available services = the union of all Providers above it, grab precisely what's wanted via <span class="mono">useXxx()</span>.</li>
+    <li><strong>nesting order = dependency topology</strong>: an inner init uses an outer context (<span class="mono">ProjectProvider</span> calls <span class="mono">useSDK()</span>→SDK must be outside). The tower bottom-to-top more fundamental more outer: connection(SDK)→project→data(Sync/Data)→theme→interaction(Dialog…)→<span class="mono">&lt;App/&gt;</span>.</li>
+    <li><strong>the same mold createSimpleContext</strong> (<span class="mono">helper.tsx</span>): one line packs "build context+provider(init, <span class="mono">ready</span> gate)+use()." Every context same-shaped—like L36 Tool.make, L47 PluginV2.define "uniform mold stamps same shape."</li>
+    <li><strong>use() fails fast</strong>: <span class="mono">if(!value) throw</span> "must be used within a context provider"—moving the hidden bug of "use context outside Provider→undefined→crash afar" forward to an on-the-spot named error (like L37/L48 fail fast).</li>
+    <li><strong>single responsibility vs god object</strong>: each cell of state exclusively owned by one Provider, ownership clear, independently readable/testable/replaceable; paired with L52 fine-grained reactivity, a cleanly-bounded state cell is naturally the boundary of fine-grained updates—"split clean" is "update lean," the structural reason a complex TUI stays orderly. This Provider+use pattern is universal in any React/SolidJS project.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_54 = wip('事件到 store', 'Events to store')
 LESSON_55 = wip('prompt 组件', 'The prompt component')
 LESSON_56 = wip('对话框与 scrollback', 'Dialogs & scrollback')
