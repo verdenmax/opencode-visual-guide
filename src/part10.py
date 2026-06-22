@@ -877,4 +877,229 @@ LESSON_55 = {
 </div>
 """,
 }
-LESSON_56 = wip('对话框与 scrollback', 'Dialogs & scrollback')
+LESSON_56 = {
+    "zh": r"""
+<p class="lead">M10 一路讲来，我们已经把交互式 TUI 的渲染器（L52）、结构（L53）、数据流（L54）、prompt 编辑器（L55）都拆透了。这最后一课收两个尾：一是 TUI 里那批<strong>对话框与命令面板</strong>——你按下快捷键弹出来、用来选模型、切 agent、跑命令、挑主题的那些浮层；二是一个耐人寻味的对照：<span class="mono">opencode run</span> 这个<strong>非交互 CLI 模式</strong>下的 <strong>scrollback</strong>。同样一段对话，在交互式 TUI 里是一个可滚动、可点选、模态层叠的全屏应用；而在 <span class="mono">run</span> 模式下，它变成了一条<strong>线性追加、打印到 stdout 的滚动日志</strong>——能被管道接走、塞进脚本、喂给 CI。这一课最大的看点，正是这个对照背后的深意：<strong>同一份会话数据，可以被「渲染」成两种截然不同的界面。</strong></p>
+<p>这一课有两个最值得带走的洞见。第一，<strong>对话框是一个「模态栈」</strong>：每开一个对话框就<strong>压栈</strong>，按 ESC 就<strong>弹出栈顶</strong>那一个——栈这个数据结构，恰好完美匹配「模态框还能再开模态框」的需求（比如选模型的对话框里再弹出选变体的对话框）。而那二十多个具体对话框（选模型、选 agent、选 MCP、选技能、选主题、列会话……）外加命令面板，<strong>几乎全建在同一个可复用的「<span class="mono">DialogSelect</span>（带过滤的选择框）」之上</strong>——又一次「统一模子刻同形」。第二，也是更深的一层：<strong>TUI 和 run scrollback 是同一份会话数据的两个「前端」</strong>。底层的 session、message（M9）是一份，怎么把它<strong>呈现</strong>给你——是做成一个交互式全屏应用，还是一条 pipe 友好的流式日志——是一个<strong>可替换的表现层</strong>。读懂这一点，你就懂了「为什么 opencode 既能给你一个漂亮的终端界面，又能在 <span class="mono">opencode run \"...\" | tee log.txt</span> 这种脚本场景里同样好用」。</p>
+
+<div class="card analogy">
+  <div class="tag">🃏 生活类比</div>
+  把<strong>对话框</strong>想象成一叠<strong>可层叠的卡片</strong>：你每召唤一个对话框，就往桌上<strong>盖一张新卡</strong>在最上面（压栈）；你按 ESC，就<strong>掀掉最上面那张</strong>（弹栈），露出它下面的那张。这套「后进先出」的玩法，天然支持「从一张卡里再翻出一张卡」——选模型的卡上点开「变体」，又盖一张变体卡上去，挑完 ESC 掀掉、退回模型卡。而 <strong>TUI 与 run scrollback 的对照</strong>，则像同一场球赛的两种「看法」：交互式 TUI 是<strong>现场大屏直播</strong>——你能暂停、回看、点开数据面板、和它互动；run scrollback 则是赛后<strong>逐字打印的文字战报</strong>——它不互动，但能被你剪下来贴进报告、传给别人、存进档案。<strong>同一场比赛（同一份会话数据），既能做成沉浸的现场体验，也能做成朴素的文字记录——选哪种，取决于你此刻是想「亲临」还是想「留存与传递」。</strong>
+</div>
+
+<h2>对话框与命令面板：模态栈 + 一个可复用的选择框</h2>
+<p>opencode 的对话框系统（<span class="mono">ui/dialog.tsx</span>）核心是一个 <strong>栈</strong>（<span class="mono">store.stack</span>）。它的运作简单而严谨：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">开 = 压栈</div><div class="c-txt">召唤一个对话框 → push 进 <span class="mono">stack</span>，渲染在最上层</div></div>
+  <div class="cell"><div class="c-tag">栈非空 = 进入模态</div><div class="c-txt"><span class="mono">modeStack.push("modal")</span>——下层界面被「冻住」，键盘焦点归对话框</div></div>
+  <div class="cell"><div class="c-tag">ESC = 弹栈顶</div><div class="c-txt"><span class="mono">stack.slice(0, -1)</span>——只关最上面那一个，露出下面的</div></div>
+  <div class="cell"><div class="c-tag">可层叠</div><div class="c-txt">对话框里能再开对话框（选模型→选变体），栈天然支持嵌套</div></div>
+</div>
+<p>为什么用「栈」而不是「一个当前对话框」的变量？因为模态框的本质需求就是<strong>后进先出</strong>：你打开 A，又从 A 里打开 B，此刻该响应 ESC 的、该接收键盘的，<strong>永远是最新打开的那个 B</strong>；关掉 B，理应<strong>退回 A</strong> 而非直接全关。一个 <span class="mono">stack.at(-1)</span> 取栈顶、<span class="mono">slice(0,-1)</span> 弹栈顶，就把这套「层层进入、层层退出」的交互表达得干干净净。而真正<strong>填进这些对话框的内容</strong>，绝大多数是同一个零件：<span class="mono">DialogSelect</span>——一个「<strong>带搜索过滤的列表选择框</strong>」。看看它被复用了多少地方：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">选模型 / 变体 / Provider</div><div class="c-txt">dialog-model / variant / provider</div></div>
+  <div class="cell"><div class="c-tag">选 agent / 技能 / MCP</div><div class="c-txt">dialog-agent / skill / mcp</div></div>
+  <div class="cell"><div class="c-tag">列会话 / 选主题 / 工作区</div><div class="c-txt">dialog-session-list / theme-list / workspace-list</div></div>
+  <div class="cell"><div class="c-tag">命令面板</div><div class="c-txt">command-palette——同样是 <span class="mono">DialogSelect</span>，列出所有命令</div></div>
+</div>
+<p>这里又见全书反复出现的智慧：<strong>把「从一个过滤列表里选一项」这个通用交互，做成一个零件 <span class="mono">DialogSelect</span>，二十多个对话框 + 命令面板全从它生出来。</strong>于是「选模型」和「选主题」用着<strong>完全一致的搜索、上下键导航、回车确认</strong>体验——用户学一次、处处会用；开发者加一个新对话框，只需喂给 <span class="mono">DialogSelect</span> 一份选项列表即可。其中<strong>命令面板</strong>尤其点睛：它从 keymap 里 <span class="mono">getCommandEntries</span> 取出<strong>所有可见命令</strong>，连同它们的快捷键、分类、是否「建议」一起列成可搜索的列表，选中即 <span class="mono">dispatchCommand</span> 执行。它的流水是这样：</p>
+<div class="flow">
+  <div class="f-node">keymap.getCommandEntries<br><small>取所有命令</small></div>
+  <div class="f-arrow">过滤 →</div>
+  <div class="f-node">只留可见命令<br><small>+分类/建议标记</small></div>
+  <div class="f-arrow">DialogSelect →</div>
+  <div class="f-node">搜索 + 上下选<br><small>同款选择框</small></div>
+  <div class="f-arrow">选中 →</div>
+  <div class="f-node">dispatchCommand<br><small>执行该命令</small></div>
+</div>
+<p>它的意义是<strong>「可发现性」</strong>——你不必背下所有快捷键，敲开命令面板、搜个关键词，就能找到并执行任何命令。keymap 是命令的唯一真源，命令面板只是把它<strong>摊开成一张人能搜的清单</strong>。</p>
+
+<h2>run scrollback：同一份数据的另一种「皮」</h2>
+<p>现在来到那个耐人寻味的对照。<span class="mono">opencode run \"修复这个 bug\"</span> 不会弹出全屏 TUI，而是走<strong>非交互模式</strong>（<span class="mono">run.ts</span> 注释明说它有三种模式，默认这种「发一个 prompt、把事件流式打印到 stdout、会话空闲即退出」）。它把对话渲染成 <strong>scrollback</strong>——一条<strong>线性、只追加</strong>的滚动日志。<span class="mono">scrollback.surface.ts</span> 那套「保留式追加」机制，专管在内容还在流式到达时，把助手回复、推理、工具进度<strong>稳定地</strong>逐块打印出来（markdown 排版、代码高亮都不乱）。把它和交互式 TUI 并排，对照就格外清晰：</p>
+<div class="cols">
+  <div class="col"><h4>交互式 TUI</h4><p>全屏应用；可滚动回看、鼠标点选；<strong>模态对话框层叠</strong>、命令面板；键盘焦点、实时交互。给「<strong>亲自坐在终端前操作</strong>」的你。</p></div>
+  <div class="col"><h4>run scrollback</h4><p>线性、只追加的日志，打印到 stdout；<strong>不交互</strong>，但能被<strong>管道接走</strong>（<span class="mono">| tee</span>、<span class="mono">&gt; log</span>）、塞进脚本与 CI；流式但排版稳定。给「<strong>自动化、留存、传递</strong>」的场景。</p></div>
+</div>
+<p>同一个 <span class="mono">opencode run</span>，其实还藏着三种模式（见 <span class="mono">run.ts</span>），把「交互程度」铺成一条光谱：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">非交互（默认）</div><div class="c-txt">发一个 prompt → 事件流式打印到 stdout → 会话空闲即退出。脚本/CI 友好</div></div>
+  <div class="cell"><div class="c-tag">交互本地（--interactive）</div><div class="c-txt">启一个进程内服务器，跑「分屏 footer」直接模式，无需外部 HTTP</div></div>
+  <div class="cell"><div class="c-tag">交互附着（--interactive --attach）</div><div class="c-txt">连上一个正在运行的 opencode 服务器，对它跑交互模式</div></div>
+</div>
+<p>从「一发即走」的纯管道，到「分屏直接模式」，再到完整 TUI——<strong>opencode 把同一颗 agent 内核，包进了粗细不同的好几层「皮」</strong>，让你按场景挑：写脚本就用非交互、想边看边插话就用交互、要沉浸操作就用完整 TUI。而这一切之所以可能，是因为下一节要点破的那个底层设计。</p>
+
+<h2>数据与表现分离：一颗内核，多副面孔</h2>
+<p>把前两节连起来，一个贯穿 opencode 架构的根本原则就浮出水面了：<strong>会话的「数据与逻辑」，和它的「呈现方式」，是彻底分开的两层。</strong>底层只有一份东西——存在 SQLite 里的 session、message、part（M9），由服务器的事件流（L54）实时驱动。而<strong>怎么把这份数据端到你面前，是一个可以整个替换的表现层</strong>：</p>
+<div class="flow">
+  <div class="f-node">一份会话数据<br><small>session/message (M9)</small></div>
+  <div class="f-arrow">事件流 →</div>
+  <div class="f-node">同一套内核逻辑<br><small>agent 循环/工具/协议</small></div>
+  <div class="f-arrow">表现层分叉 →</div>
+  <div class="f-node">交互式 TUI<br><small>全屏/模态/可滚</small></div>
+  <div class="f-arrow">或 →</div>
+  <div class="f-node">run scrollback<br><small>线性/追加/管道友好</small></div>
+</div>
+<p>这种分离的威力，正是 opencode 能「一鱼多吃」的根本：同一颗 agent 内核，既驱动了交互式 TUI（本部分 M10），也驱动了 run 的非交互日志，甚至——回想 L52 提过的——还能驱动浏览器里的 Web 应用、桌面端。<strong>因为「agent 在干什么」和「你怎么看它干」从一开始就被切成了两件事，每多一种「看法」，都不必重写那颗内核。</strong>这呼应了全书最深的一条主线：好的架构，反复在做的就是<strong>找到正确的接缝、把会变的和不变的切开</strong>——L47 把「核心编排」与「各家 provider」切开、L50 把「数据搬运」与「语义翻译」切开、L54 把「事件数据」与「渲染时机」切开，而这一课，把「<strong>agent 的会话</strong>」与「<strong>会话的呈现</strong>」切开。<strong>切口找得越准，系统就越能在不动根基的前提下，长出越来越多的可能。</strong>至此 M10 收官：你已经完整走过了 opencode 终端 UI 的全貌——从 opentui 渲染器，到 Provider 金字塔与事件数据流，到 prompt、对话框、命令面板，再到 run 这另一副面孔。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观视角</div>
+  <p>这一课收束 M10——对话框、命令面板，以及 run scrollback 这个对照：</p>
+  <ul>
+    <li><strong>对话框 = 模态栈</strong>（<span class="mono">ui/dialog.tsx</span>）：开=push、ESC=弹栈顶（<span class="mono">slice(0,-1)</span>）、栈非空进 modal；栈天然支持「对话框里再开对话框」（后进先出，如选模型→选变体）。</li>
+    <li><strong>DialogSelect 一个零件，处处复用</strong>：二十多个对话框（模型/agent/MCP/技能/主题/会话…）+ 命令面板全建在「带过滤的选择框」上——一致的搜索/导航/确认体验，加新对话框只需喂一份选项。又见「统一模子刻同形」（同 L36/L47/L53）。</li>
+    <li><strong>命令面板 = 可发现性</strong>（<span class="mono">command-palette.tsx</span>）：从 keymap <span class="mono">getCommandEntries</span> 取所有可见命令成可搜列表，选中 <span class="mono">dispatchCommand</span>。不必背快捷键，搜关键词即可执行。keymap 是唯一真源，面板只是摊开成清单。</li>
+    <li><strong>run scrollback = 同数据另一副皮</strong>（<span class="mono">run/scrollback.surface.ts</span>）：<span class="mono">opencode run</span> 非交互模式把对话渲染成线性只追加、打印 stdout 的滚动日志（保留式追加保流式排版稳定），可管道/脚本/CI。三模式：非交互(默认)/交互本地/交互附着。</li>
+  </ul>
+  <p>根本原则：<strong>数据逻辑与呈现分离</strong>——一份 session/message（M9）+ 一套内核，驱动多副面孔（TUI / run / Web / 桌面）。每多一种「看法」不必重写内核，正是好架构「找准接缝、切开会变与不变」的又一例（呼应 L47/L50/L54）。M10「TUI 与客户端渲染」至此完整。下一部分 <strong>M11 转向扩展与集成</strong>：插件系统、LSP、格式化器、ACP/MCP——opencode 如何把自己向第三方与外部工具敞开。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">ui/dialog.tsx</span> 把「模态栈」的开关写得朴素到位（简化自源码）：</p>
+  <pre class="code"><span class="kw">const</span> [store, setStore] = <span class="fn">createStore</span>({ stack: [] })
+
+<span class="cm">// 栈一非空，就进入「模态」模式：冻住下层、焦点归对话框</span>
+<span class="fn">createEffect</span>(() =&gt; {
+  <span class="kw">if</span> (store.stack.length === <span class="nu">0</span>) <span class="kw">return</span>
+  <span class="kw">const</span> popMode = modeStack.<span class="fn">push</span>(<span class="st">"modal"</span>)
+  <span class="fn">onCleanup</span>(popMode)                       <span class="cm">// 栈空了自动退出 modal</span>
+})
+
+<span class="cm">// ESC：只弹掉最上面那一个对话框</span>
+keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
+  <span class="kw">const</span> current = store.stack.<span class="fn">at</span>(-<span class="nu">1</span>)        <span class="cm">// 栈顶 = 最新打开的</span>
+  current?.onClose?.()
+  <span class="fn">setStore</span>(<span class="st">"stack"</span>, store.stack.<span class="fn">slice</span>(<span class="nu">0</span>, -<span class="nu">1</span>))  <span class="cm">// ← 弹栈顶，露出下面的</span>
+})
+
+<span class="cm">// 开一个对话框 = push 进栈（可在已有对话框之上再叠）</span>
+<span class="kw">function</span> <span class="fn">open</span>(component) {
+  <span class="fn">setStore</span>(<span class="st">"stack"</span>, [...store.stack, component])
+}</pre>
+  <p>这段代码最值得品的，是它如何用「栈」这一个最朴素的数据结构，<strong>精准命中了模态交互的本质</strong>。模态框的全部规矩——「最新打开的最优先」「ESC 只关最上面这层」「关掉一层退回上一层」「全关才解冻下层」——没有一条需要特判，全都<strong>自然地从「栈」的后进先出语义里长出来</strong>。<span class="mono">at(-1)</span> 就是「当前该响应谁」，<span class="mono">slice(0,-1)</span> 就是「退一层」，栈空就是「回到非模态」。这是「<strong>选对数据结构，逻辑就自己变简单</strong>」的教科书示范：如果你硬用「一个 currentDialog 变量 + 一堆 if 判断要不要恢复上一个」去做，立刻会陷入「上一个是谁、它的状态还在不在」的泥潭；而换成栈，那些纠结<strong>根本不会发生</strong>。<strong>把交互的「形状」映射到一个语义恰好吻合的数据结构上</strong>——模态用栈、有序覆盖用 findLast（L41/L44）、待办用队列——往往比任何精巧的控制流都更能从根上消除复杂度。下次你面对一个棘手的状态管理，不妨先问：有没有一个数据结构，它的天然语义正好就是我要的规矩？</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>对话框 = 模态栈</strong>（<span class="mono">ui/dialog.tsx</span>）：开=push、ESC=弹栈顶 <span class="mono">slice(0,-1)</span>、栈非空进 modal。栈的后进先出天然匹配「对话框里再开对话框、ESC 只关最上层、关掉退回上一层」——选对数据结构逻辑自简化。</li>
+    <li><strong>DialogSelect 处处复用</strong>：二十多个对话框（模型/agent/MCP/技能/主题/会话…）+ 命令面板全建在「带过滤选择框」上，一致体验、加新对话框只需喂选项。又见「统一模子刻同形」（L36/L47/L53）。</li>
+    <li><strong>命令面板 = 可发现性</strong>（<span class="mono">command-palette.tsx</span>）：keymap <span class="mono">getCommandEntries</span> 取所有可见命令成可搜列表、选中 <span class="mono">dispatchCommand</span>。不必背快捷键。keymap 是唯一真源、面板只摊开成清单。</li>
+    <li><strong>run scrollback = 同数据另一副皮</strong>（<span class="mono">run/scrollback.surface.ts</span>）：非交互模式把对话渲染成线性只追加、打印 stdout 的滚动日志，可管道/脚本/CI；三模式=非交互/交互本地/交互附着，把「交互程度」铺成光谱。</li>
+    <li><strong>数据与表现分离</strong>：一份 session/message（M9）+ 一套内核 → 多副面孔（TUI/run/Web/桌面），每多一种「看法」不必重写内核。好架构「找准接缝、切开会变与不变」的又一例（呼应 L47/L50/L54）。M10 收官。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">All through M10 we've disassembled the interactive TUI's renderer (L52), structure (L53), data flow (L54), prompt editor (L55). This final lesson ties off two loose ends: one is the batch of <strong>dialogs and the command palette</strong> in the TUI—those overlays that pop up on a keypress to pick a model, switch agents, run commands, choose a theme; the other is an intriguing contrast: the <strong>scrollback</strong> in <span class="mono">opencode run</span>'s <strong>non-interactive CLI mode</strong>. The same conversation, in the interactive TUI, is a scrollable, clickable, modally-stacked full-screen app; while in <span class="mono">run</span> mode it becomes a <strong>linearly-appended scrolling log printed to stdout</strong>—pipeable, scriptable, CI-feedable. This lesson's biggest highlight is the deeper meaning behind this contrast: <strong>the same session data can be "rendered" into two wholly different interfaces.</strong></p>
+<p>This lesson has two highlights most worth taking away. First, <strong>dialogs are a "modal stack"</strong>: opening a dialog <strong>pushes</strong>, pressing ESC <strong>pops the top</strong> one—the stack data structure perfectly matches the need "a modal can open another modal" (e.g. the model-picking dialog pops a variant-picking dialog). And those twenty-some concrete dialogs (pick model, pick agent, pick MCP, pick skill, pick theme, list sessions…) plus the command palette are <strong>nearly all built on the same reusable "<span class="mono">DialogSelect</span> (filtered select box)"</strong>—again "a uniform mold stamps the same shape." Second, and deeper: <strong>the TUI and run scrollback are two "front-ends" over the same session data</strong>. The underlying session, message (M9) are one copy; how to <strong>present</strong> it to you—as an interactive full-screen app or a pipe-friendly streaming log—is a <strong>replaceable presentation layer</strong>. Grasp this and you'll understand "why opencode gives you a pretty terminal interface yet is equally usable in a script scenario like <span class="mono">opencode run \"...\" | tee log.txt</span>."</p>
+
+<div class="card analogy">
+  <div class="tag">🃏 Analogy</div>
+  Picture <strong>dialogs</strong> as a stack of <strong>stackable cards</strong>: each time you summon a dialog, you <strong>lay a new card</strong> on top of the pile (push); pressing ESC, you <strong>flip off the topmost</strong> (pop), revealing the one beneath. This "last-in-first-out" play naturally supports "flipping another card out of a card"—on the model-pick card open "variant," lay a variant card atop, choose then ESC flips it off, back to the model card. And the <strong>TUI vs run scrollback contrast</strong> is like two "viewings" of the same ball game: the interactive TUI is a <strong>live big-screen broadcast</strong>—you can pause, replay, open the stats panel, interact with it; run scrollback is the post-game <strong>verbatim printed report</strong>—it doesn't interact, but you can clip it into a report, send it to others, file it away. <strong>The same game (the same session data) can be an immersive live experience or a plain text record—which you pick depends on whether you want to "be there" or to "keep and pass on."</strong>
+</div>
+
+<h2>Dialogs and command palette: a modal stack + a reusable select box</h2>
+<p>opencode's dialog system (<span class="mono">ui/dialog.tsx</span>) is at heart a <strong>stack</strong> (<span class="mono">store.stack</span>). Its operation is simple yet rigorous:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">open = push</div><div class="c-txt">summon a dialog → push into <span class="mono">stack</span>, rendered on top</div></div>
+  <div class="cell"><div class="c-tag">stack non-empty = enter modal</div><div class="c-txt"><span class="mono">modeStack.push("modal")</span>—the layer below is "frozen," keyboard focus to the dialog</div></div>
+  <div class="cell"><div class="c-tag">ESC = pop top</div><div class="c-txt"><span class="mono">stack.slice(0, -1)</span>—closes only the topmost, revealing the one below</div></div>
+  <div class="cell"><div class="c-tag">stackable</div><div class="c-txt">a dialog can open a dialog (pick model→pick variant), the stack naturally supports nesting</div></div>
+</div>
+<p>Why a "stack" rather than a single "current dialog" variable? Because a modal's essential need is <strong>last-in-first-out</strong>: you open A, then open B from A, and right now what should respond to ESC, what should receive the keyboard, is <strong>always the newest-opened B</strong>; close B and you should <strong>fall back to A</strong>, not close everything. One <span class="mono">stack.at(-1)</span> takes the top, <span class="mono">slice(0,-1)</span> pops the top, expressing this "enter layer by layer, exit layer by layer" interaction cleanly. And what actually <strong>fills these dialogs</strong> is, for the vast majority, the same part: <span class="mono">DialogSelect</span>—a "<strong>search-filtered list select box</strong>." Look how many places reuse it:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">pick model / variant / provider</div><div class="c-txt">dialog-model / variant / provider</div></div>
+  <div class="cell"><div class="c-tag">pick agent / skill / MCP</div><div class="c-txt">dialog-agent / skill / mcp</div></div>
+  <div class="cell"><div class="c-tag">list sessions / pick theme / workspace</div><div class="c-txt">dialog-session-list / theme-list / workspace-list</div></div>
+  <div class="cell"><div class="c-tag">command palette</div><div class="c-txt">command-palette—also a <span class="mono">DialogSelect</span>, listing all commands</div></div>
+</div>
+<p>Here's the wisdom recurring across the book again: <strong>making "pick one item from a filtered list," that generic interaction, into a part <span class="mono">DialogSelect</span>, from which twenty-some dialogs + the command palette are all born.</strong> So "pick model" and "pick theme" use a <strong>completely consistent search, up/down navigation, enter-to-confirm</strong> experience—the user learns once, uses everywhere; a developer adding a new dialog need only feed <span class="mono">DialogSelect</span> an options list. Among them the <strong>command palette</strong> is especially the eye-opener: it takes <strong>all visible commands</strong> from the keymap via <span class="mono">getCommandEntries</span>, listing them with their keybindings, categories, and "suggested" flag into a searchable list, dispatching the chosen one via <span class="mono">dispatchCommand</span>. Its pipeline:</p>
+<div class="flow">
+  <div class="f-node">keymap.getCommandEntries<br><small>take all commands</small></div>
+  <div class="f-arrow">filter →</div>
+  <div class="f-node">keep only visible<br><small>+category/suggested flags</small></div>
+  <div class="f-arrow">DialogSelect →</div>
+  <div class="f-node">search + up/down<br><small>the same select box</small></div>
+  <div class="f-arrow">select →</div>
+  <div class="f-node">dispatchCommand<br><small>run that command</small></div>
+</div>
+<p>Its significance is <strong>"discoverability"</strong>—you needn't memorize every keybinding; open the command palette, search a keyword, and you can find and run any command. The keymap is the single source of truth for commands, the palette just <strong>lays it out as a human-searchable list</strong>.</p>
+
+<h2>run scrollback: another "skin" over the same data</h2>
+<p>Now to that intriguing contrast. <span class="mono">opencode run \"fix this bug\"</span> won't pop a full-screen TUI but takes the <strong>non-interactive mode</strong> (<span class="mono">run.ts</span>'s comment explicitly says it has three modes, the default being this "send one prompt, stream events to stdout, exit when the session goes idle"). It renders the conversation as <strong>scrollback</strong>—a <strong>linear, append-only</strong> scrolling log. That "retained-append" machinery in <span class="mono">scrollback.surface.ts</span> specifically handles printing assistant replies, reasoning, tool progress <strong>stably</strong> block by block while content is still streaming in (markdown layout, code highlighting stay intact). Side by side with the interactive TUI, the contrast is especially clear:</p>
+<div class="cols">
+  <div class="col"><h4>interactive TUI</h4><p>full-screen app; scroll back, mouse-click; <strong>stacked modal dialogs</strong>, command palette; keyboard focus, real-time interaction. For you "<strong>sitting at the terminal operating in person</strong>."</p></div>
+  <div class="col"><h4>run scrollback</h4><p>linear, append-only log printed to stdout; <strong>non-interactive</strong>, but pipeable (<span class="mono">| tee</span>, <span class="mono">&gt; log</span>), scriptable, CI-feedable; streaming yet stably laid out. For "<strong>automation, keeping, passing on</strong>" scenarios.</p></div>
+</div>
+<p>The same <span class="mono">opencode run</span> actually hides three modes (see <span class="mono">run.ts</span>), spreading "degree of interactivity" into a spectrum:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">non-interactive (default)</div><div class="c-txt">send one prompt → stream events to stdout → exit when session idle. Script/CI friendly</div></div>
+  <div class="cell"><div class="c-tag">interactive local (--interactive)</div><div class="c-txt">spin up an in-process server, run "split-footer" direct mode, no external HTTP</div></div>
+  <div class="cell"><div class="c-tag">interactive attach (--interactive --attach)</div><div class="c-txt">connect to a running opencode server, run interactive mode against it</div></div>
+</div>
+<p>From the pure-pipe "fire and exit," to "split-footer direct mode," to the full TUI—<strong>opencode wraps the same agent core in several "skins" of varying thickness</strong>, letting you pick by scenario: scripting takes non-interactive, watch-and-interject takes interactive, immersive operation takes the full TUI. And all this is possible because of the underlying design the next section spells out.</p>
+
+<h2>Data and presentation separated: one core, many faces</h2>
+<p>Connecting the prior two sections, a fundamental principle running through opencode's architecture surfaces: <strong>a conversation's "data and logic" and its "presentation" are two thoroughly separated layers.</strong> Underneath is just one copy of a thing—the session, message, part stored in SQLite (M9), driven in real time by the server's event stream (L54). And <strong>how to deliver this data before you is a presentation layer wholly replaceable</strong>:</p>
+<div class="flow">
+  <div class="f-node">one copy of session data<br><small>session/message (M9)</small></div>
+  <div class="f-arrow">event stream →</div>
+  <div class="f-node">the same core logic<br><small>agent loop/tools/protocol</small></div>
+  <div class="f-arrow">presentation forks →</div>
+  <div class="f-node">interactive TUI<br><small>full-screen/modal/scrollable</small></div>
+  <div class="f-arrow">or →</div>
+  <div class="f-node">run scrollback<br><small>linear/append/pipe-friendly</small></div>
+</div>
+<p>The power of this separation is exactly the root of opencode's "one fish, many dishes": the same agent core drives both the interactive TUI (this part M10) and run's non-interactive log, and even—recall L52's mention—the web app in the browser and the desktop. <strong>Because "what the agent is doing" and "how you watch it do it" were cut into two things from the start, each added "viewing" needn't rewrite that core.</strong> This echoes the book's deepest throughline: what good architecture repeatedly does is <strong>find the right seam, cutting the changing from the unchanging</strong>—L47 cut "core orchestration" from "each provider," L50 cut "data moving" from "semantic translation," L54 cut "event data" from "render timing," and this lesson cuts "<strong>the agent's conversation</strong>" from "<strong>the conversation's presentation</strong>." <strong>The more accurately the cut is found, the more the system can grow ever more possibilities without disturbing its foundation.</strong> With this M10 wraps up: you've fully walked opencode's terminal UI in full—from the opentui renderer, to the Provider pyramid and event data flow, to the prompt, dialogs, command palette, to run, that other face.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson closes M10—dialogs, the command palette, and the run scrollback contrast:</p>
+  <ul>
+    <li><strong>dialog = modal stack</strong> (<span class="mono">ui/dialog.tsx</span>): open=push, ESC=pop top (<span class="mono">slice(0,-1)</span>), stack non-empty enters modal; the stack naturally supports "a dialog opening a dialog" (LIFO, e.g. pick model→pick variant).</li>
+    <li><strong>DialogSelect one part, reused everywhere</strong>: twenty-some dialogs (model/agent/MCP/skill/theme/session…) + command palette all built on a "filtered select box"—consistent search/navigate/confirm experience, adding a new dialog needs only an options list. Again "a uniform mold stamps the same shape" (like L36/L47/L53).</li>
+    <li><strong>command palette = discoverability</strong> (<span class="mono">command-palette.tsx</span>): keymap <span class="mono">getCommandEntries</span> takes all visible commands into a searchable list, select <span class="mono">dispatchCommand</span>. No memorizing keybindings, search a keyword to run. The keymap is the single source, the palette just lays it out as a list.</li>
+    <li><strong>run scrollback = another skin over the same data</strong> (<span class="mono">run/scrollback.surface.ts</span>): <span class="mono">opencode run</span> non-interactive mode renders the conversation as a linear, append-only, stdout-printed scrolling log (retained-append keeps streaming layout stable), pipeable/scriptable/CI. Three modes: non-interactive(default)/interactive local/interactive attach.</li>
+  </ul>
+  <p>The fundamental principle: <strong>data-logic separated from presentation</strong>—one session/message (M9) + one core, driving many faces (TUI / run / Web / desktop). Each added "viewing" needn't rewrite the core, another example of good architecture "finding the seam, cutting the changing from the unchanging" (echoing L47/L50/L54). M10 "TUI and client rendering" is hereby complete. The next part <strong>M11 turns to extensibility and integration</strong>: the plugin system, LSP, formatters, ACP/MCP—how opencode opens itself to third parties and external tools.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p><span class="mono">ui/dialog.tsx</span> writes the "modal stack"'s switches plainly and aptly (simplified from source):</p>
+  <pre class="code"><span class="kw">const</span> [store, setStore] = <span class="fn">createStore</span>({ stack: [] })
+
+<span class="cm">// once the stack is non-empty, enter "modal" mode: freeze the layer below, focus to the dialog</span>
+<span class="fn">createEffect</span>(() =&gt; {
+  <span class="kw">if</span> (store.stack.length === <span class="nu">0</span>) <span class="kw">return</span>
+  <span class="kw">const</span> popMode = modeStack.<span class="fn">push</span>(<span class="st">"modal"</span>)
+  <span class="fn">onCleanup</span>(popMode)                       <span class="cm">// stack emptied auto-exits modal</span>
+})
+
+<span class="cm">// ESC: pop only the topmost dialog</span>
+keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
+  <span class="kw">const</span> current = store.stack.<span class="fn">at</span>(-<span class="nu">1</span>)        <span class="cm">// top = newest-opened</span>
+  current?.onClose?.()
+  <span class="fn">setStore</span>(<span class="st">"stack"</span>, store.stack.<span class="fn">slice</span>(<span class="nu">0</span>, -<span class="nu">1</span>))  <span class="cm">// ← pop top, reveal the one below</span>
+})
+
+<span class="cm">// open a dialog = push onto the stack (can stack atop an existing dialog)</span>
+<span class="kw">function</span> <span class="fn">open</span>(component) {
+  <span class="fn">setStore</span>(<span class="st">"stack"</span>, [...store.stack, component])
+}</pre>
+  <p>What's most worth savoring is how it uses "the stack," the plainest data structure, to <strong>precisely hit the essence of modal interaction</strong>. All a modal's rules—"newest-opened takes priority," "ESC closes only this top layer," "closing a layer falls back to the previous," "freeze the layer below only until all closed"—need not one special case, all <strong>growing naturally from the stack's last-in-first-out semantics</strong>. <span class="mono">at(-1)</span> is "who should respond now," <span class="mono">slice(0,-1)</span> is "back one layer," empty stack is "back to non-modal." This is a textbook demonstration of "<strong>pick the right data structure and the logic simplifies itself</strong>": if you forced "a currentDialog variable + a pile of ifs deciding whether to restore the previous," you'd instantly sink into the quagmire of "who was the previous, is its state still there"; switch to a stack and those tangles <strong>simply don't happen</strong>. <strong>Mapping an interaction's "shape" onto a data structure whose semantics exactly fit</strong>—modal to stack, ordered-override to findLast (L41/L44), todos to a queue—often eliminates complexity at the root better than any clever control flow. Next time you face a thorny state-management problem, first ask: is there a data structure whose natural semantics are exactly the rule I want?</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>dialog = modal stack</strong> (<span class="mono">ui/dialog.tsx</span>): open=push, ESC=pop top <span class="mono">slice(0,-1)</span>, stack non-empty enters modal. The stack's LIFO naturally matches "a dialog opening a dialog, ESC closes only the top, closing falls back one layer"—pick the right data structure and logic simplifies itself.</li>
+    <li><strong>DialogSelect reused everywhere</strong>: twenty-some dialogs (model/agent/MCP/skill/theme/session…) + command palette all built on a "filtered select box," consistent experience, adding a new dialog needs only options. Again "a uniform mold stamps the same shape" (L36/L47/L53).</li>
+    <li><strong>command palette = discoverability</strong> (<span class="mono">command-palette.tsx</span>): keymap <span class="mono">getCommandEntries</span> takes all visible commands into a searchable list, select <span class="mono">dispatchCommand</span>. No memorizing keybindings. The keymap is the single source, the palette just lays it out.</li>
+    <li><strong>run scrollback = another skin over the same data</strong> (<span class="mono">run/scrollback.surface.ts</span>): non-interactive mode renders the conversation as a linear, append-only, stdout-printed scrolling log, pipeable/scriptable/CI; three modes = non-interactive/interactive local/interactive attach, spreading "degree of interactivity" into a spectrum.</li>
+    <li><strong>data separated from presentation</strong>: one session/message (M9) + one core → many faces (TUI/run/Web/desktop), each added "viewing" needn't rewrite the core. Another example of good architecture "finding the seam, cutting the changing from the unchanging" (echoing L47/L50/L54). M10 wraps up.</li>
+  </ul>
+</div>
+""",
+}
