@@ -467,6 +467,13 @@ LESSON_59 = {
 
 <h2>LSP：借来整个 IDE 生态的大脑</h2>
 <p>要给 agent「代码智能」，最笨的办法是自己为每种语言写一套理解器——但那意味着重新实现 TypeScript 编译器、Go 的类型检查器、Python 的分析器……一种语言就是一个天坑。opencode 的聪明之处，是它根本不碰这个坑，而是站到了一个早已解决此问题的巨人肩上：<strong>LSP</strong>。LSP 当初被发明出来，正是为了解一道「<strong>M × N</strong>」的难题——<span class="mono">M</span> 种编辑器要支持 <span class="mono">N</span> 种语言，若各自对接就是 M×N 套适配；而 LSP 定一套标准协议，编辑器和语言各自只对接协议，难题就塌缩成了「<strong>M + N</strong>」。opencode 做的，就是<strong>把自己当成又一个「编辑器」</strong>接进这套协议：</p>
+<div class="flow">
+  <div class="f-node">没有 LSP<br><small>M 编辑器 × N 语言 = M×N 套适配</small></div>
+  <div class="f-arrow">立一套标准协议 →</div>
+  <div class="f-node hl">有 LSP<br><small>各自只接协议 = M+N（编辑器、语言各写一次）</small></div>
+  <div class="f-arrow">opencode →</div>
+  <div class="f-node">当「又一个编辑器」<br><small>插上即得全部语言</small></div>
+</div>
 <div class="layers">
   <div class="layer"><span class="l-tag">opencode（LSP 客户端）</span><span class="l-desc">opencode 把自己当一个编辑器，说标准 LSP——<span class="mono">lsp/client.ts</span></span></div>
   <div class="layer"><span class="l-tag">JSON-RPC 连接</span><span class="l-desc">客户端与服务器之间的标准通信（didOpen / 请求 / 通知）</span></div>
@@ -568,6 +575,13 @@ LESSON_59 = {
 
 <h2>LSP: borrowing the whole IDE ecosystem's brain</h2>
 <p>To give an agent "code intelligence," the dumbest way is to write your own understander for each language—but that means reimplementing the TypeScript compiler, Go's type checker, Python's analyzer… each language a bottomless pit. opencode's cleverness is not touching this pit at all but standing on the shoulders of a giant that long solved this: <strong>LSP</strong>. LSP was invented precisely to solve an "<strong>M × N</strong>" problem—<span class="mono">M</span> editors needing to support <span class="mono">N</span> languages, each pairing up being M×N adapters; while LSP defines one standard protocol, editors and languages each only pair with the protocol, and the problem collapses to "<strong>M + N</strong>." What opencode does is <strong>treat itself as yet another "editor"</strong> plugging into this protocol:</p>
+<div class="flow">
+  <div class="f-node">without LSP<br><small>M editors × N languages = M×N adapters</small></div>
+  <div class="f-arrow">one standard protocol →</div>
+  <div class="f-node hl">with LSP<br><small>each pairs only with the protocol = M+N</small></div>
+  <div class="f-arrow">opencode →</div>
+  <div class="f-node">as "yet another editor"<br><small>plug in, get all languages</small></div>
+</div>
 <div class="layers">
   <div class="layer"><span class="l-tag">opencode (LSP client)</span><span class="l-desc">opencode treats itself as an editor, speaks standard LSP—<span class="mono">lsp/client.ts</span></span></div>
   <div class="layer"><span class="l-tag">JSON-RPC connection</span><span class="l-desc">standard communication between client and server (didOpen / requests / notifications)</span></div>
