@@ -352,7 +352,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="cell"><div class="c-tag">列会话 / 选主题 / 工作区</div><div class="c-txt">dialog-session-list / theme-list / workspace-list</div></div>
   <div class="cell"><div class="c-tag">命令面板</div><div class="c-txt">command-palette——同样是 <span class="mono">DialogSelect</span>，列出所有命令</div></div>
 </div>
-<p>这里又见全书反复出现的智慧：<strong>把「从一个过滤列表里选一项」这个通用交互，做成一个零件 <span class="mono">DialogSelect</span>，二十多个对话框 + 命令面板全从它生出来。</strong>于是「选模型」和「选主题」用着<strong>完全一致的搜索、上下键导航、回车确认</strong>体验——用户学一次、处处会用；开发者加一个新对话框，只需喂给 <span class="mono">DialogSelect</span> 一份选项列表即可。其中<strong>命令面板</strong>尤其点睛：它从 keymap 里 <span class="mono">getCommandEntries</span> 取出<strong>所有可见命令</strong>，连同它们的快捷键、分类、是否「建议」一起列成可搜索的列表，选中即 <span class="mono">dispatchCommand</span> 执行。它的流水是这样：</p>
+<p>这里又见全书反复出现的智慧：<strong>把「从一个过滤列表里选一项」这个通用交互，做成一个零件 <span class="mono">DialogSelect</span>，二十多个对话框 + 命令面板大多从它生出来。</strong>于是「选模型」和「选主题」用着<strong>完全一致的搜索、上下键导航、回车确认</strong>体验——用户学一次、处处会用；开发者加一个新对话框，只需喂给 <span class="mono">DialogSelect</span> 一份选项列表即可。其中<strong>命令面板</strong>尤其点睛：它从 keymap 里 <span class="mono">getCommandEntries</span> 取出<strong>所有可见命令</strong>，连同它们的快捷键、分类、是否「建议」一起列成可搜索的列表，选中即 <span class="mono">dispatchCommand</span> 执行。它的流水是这样：</p>
 <div class="flow">
   <div class="f-node">keymap.getCommandEntries<br><small>取所有命令</small></div>
   <div class="f-arrow">过滤 →</div>
@@ -396,7 +396,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <p>这一课收束 M10——对话框、命令面板，以及 run scrollback 这个对照：</p>
   <ul>
     <li><strong>对话框 = 模态栈</strong>（<span class="mono">ui/dialog.tsx</span>）：开=push、ESC=弹栈顶（<span class="mono">slice(0,-1)</span>）、栈非空进 modal；栈天然支持「对话框里再开对话框」（后进先出，如选模型→选变体）。</li>
-    <li><strong>DialogSelect 一个零件，处处复用</strong>：二十多个对话框（模型/agent/MCP/技能/主题/会话…）+ 命令面板全建在「带过滤的选择框」上——一致的搜索/导航/确认体验，加新对话框只需喂一份选项。又见「统一模子刻同形」（同 L36/L47/L53）。</li>
+    <li><strong>DialogSelect 一个零件，处处复用</strong>：二十多个对话框（模型/agent/MCP/技能/主题/会话…）+ 命令面板大多建在「带过滤的选择框」上——一致的搜索/导航/确认体验，加新对话框只需喂一份选项。又见「统一模子刻同形」（同 L36/L47/L53）。</li>
     <li><strong>命令面板 = 可发现性</strong>（<span class="mono">command-palette.tsx</span>）：从 keymap <span class="mono">getCommandEntries</span> 取所有可见命令成可搜列表，选中 <span class="mono">dispatchCommand</span>。不必背快捷键，搜关键词即可执行。keymap 是唯一真源，面板只是摊开成清单。</li>
     <li><strong>run scrollback = 同数据另一副皮</strong>（<span class="mono">run/scrollback.surface.ts</span>）：<span class="mono">opencode run</span> 非交互模式把对话渲染成线性只追加、打印 stdout 的滚动日志（保留式追加保流式排版稳定），可管道/脚本/CI。三模式：非交互(默认)/交互本地/交互附着。</li>
   </ul>
@@ -433,7 +433,7 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
   <div class="tag">🎯 本课要点</div>
   <ul>
     <li><strong>对话框 = 模态栈</strong>（<span class="mono">ui/dialog.tsx</span>）：开=push、ESC=弹栈顶 <span class="mono">slice(0,-1)</span>、栈非空进 modal。栈的后进先出天然匹配「对话框里再开对话框、ESC 只关最上层、关掉退回上一层」——选对数据结构逻辑自简化。</li>
-    <li><strong>DialogSelect 处处复用</strong>：二十多个对话框（模型/agent/MCP/技能/主题/会话…）+ 命令面板全建在「带过滤选择框」上，一致体验、加新对话框只需喂选项。又见「统一模子刻同形」（L36/L47/L53）。</li>
+    <li><strong>DialogSelect 处处复用</strong>：二十多个对话框（模型/agent/MCP/技能/主题/会话…）+ 命令面板大多建在「带过滤选择框」上，一致体验、加新对话框只需喂选项。又见「统一模子刻同形」（L36/L47/L53）。</li>
     <li><strong>命令面板 = 可发现性</strong>（<span class="mono">command-palette.tsx</span>）：keymap <span class="mono">getCommandEntries</span> 取所有可见命令成可搜列表、选中 <span class="mono">dispatchCommand</span>。不必背快捷键。keymap 是唯一真源、面板只摊开成清单。</li>
     <li><strong>run scrollback = 同数据另一副皮</strong>（<span class="mono">run/scrollback.surface.ts</span>）：非交互模式把对话渲染成线性只追加、打印 stdout 的滚动日志，可管道/脚本/CI；三模式=非交互/交互本地/交互附着，把「交互程度」铺成光谱。</li>
     <li><strong>数据与表现分离</strong>：一份 session/message（M9）+ 一套内核 → 多副面孔（TUI/run/Web/桌面），每多一种「看法」不必重写内核。好架构「找准接缝、切开会变与不变」的又一例（呼应 L47/L50/L54）。M10 收官。</li>
@@ -512,7 +512,7 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
   <div class="cell"><div class="c-tag">list sessions / pick theme / workspace</div><div class="c-txt">dialog-session-list / theme-list / workspace-list</div></div>
   <div class="cell"><div class="c-tag">command palette</div><div class="c-txt">command-palette—also a <span class="mono">DialogSelect</span>, listing all commands</div></div>
 </div>
-<p>Here's the wisdom recurring across the book again: <strong>making "pick one item from a filtered list," that generic interaction, into a part <span class="mono">DialogSelect</span>, from which twenty-some dialogs + the command palette are all born.</strong> So "pick model" and "pick theme" use a <strong>completely consistent search, up/down navigation, enter-to-confirm</strong> experience—the user learns once, uses everywhere; a developer adding a new dialog need only feed <span class="mono">DialogSelect</span> an options list. Among them the <strong>command palette</strong> is especially the eye-opener: it takes <strong>all visible commands</strong> from the keymap via <span class="mono">getCommandEntries</span>, listing them with their keybindings, categories, and "suggested" flag into a searchable list, dispatching the chosen one via <span class="mono">dispatchCommand</span>. Its pipeline:</p>
+<p>Here's the wisdom recurring across the book again: <strong>making "pick one item from a filtered list," that generic interaction, into a part <span class="mono">DialogSelect</span>, from which most of the twenty-some dialogs + the command palette are born.</strong> So "pick model" and "pick theme" use a <strong>completely consistent search, up/down navigation, enter-to-confirm</strong> experience—the user learns once, uses everywhere; a developer adding a new dialog need only feed <span class="mono">DialogSelect</span> an options list. Among them the <strong>command palette</strong> is especially the eye-opener: it takes <strong>all visible commands</strong> from the keymap via <span class="mono">getCommandEntries</span>, listing them with their keybindings, categories, and "suggested" flag into a searchable list, dispatching the chosen one via <span class="mono">dispatchCommand</span>. Its pipeline:</p>
 <div class="flow">
   <div class="f-node">keymap.getCommandEntries<br><small>take all commands</small></div>
   <div class="f-arrow">filter →</div>
@@ -556,7 +556,7 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
   <p>This lesson closes M10—dialogs, the command palette, and the run scrollback contrast:</p>
   <ul>
     <li><strong>dialog = modal stack</strong> (<span class="mono">ui/dialog.tsx</span>): open=push, ESC=pop top (<span class="mono">slice(0,-1)</span>), stack non-empty enters modal; the stack naturally supports "a dialog opening a dialog" (LIFO, e.g. pick model→pick variant).</li>
-    <li><strong>DialogSelect one part, reused everywhere</strong>: twenty-some dialogs (model/agent/MCP/skill/theme/session…) + command palette all built on a "filtered select box"—consistent search/navigate/confirm experience, adding a new dialog needs only an options list. Again "a uniform mold stamps the same shape" (like L36/L47/L53).</li>
+    <li><strong>DialogSelect one part, reused everywhere</strong>: twenty-some dialogs (model/agent/MCP/skill/theme/session…) + command palette mostly built on a "filtered select box"—consistent search/navigate/confirm experience, adding a new dialog needs only an options list. Again "a uniform mold stamps the same shape" (like L36/L47/L53).</li>
     <li><strong>command palette = discoverability</strong> (<span class="mono">command-palette.tsx</span>): keymap <span class="mono">getCommandEntries</span> takes all visible commands into a searchable list, select <span class="mono">dispatchCommand</span>. No memorizing keybindings, search a keyword to run. The keymap is the single source, the palette just lays it out as a list.</li>
     <li><strong>run scrollback = another skin over the same data</strong> (<span class="mono">run/scrollback.surface.ts</span>): <span class="mono">opencode run</span> non-interactive mode renders the conversation as a linear, append-only, stdout-printed scrolling log (retained-append keeps streaming layout stable), pipeable/scriptable/CI. Three modes: non-interactive(default)/interactive local/interactive attach.</li>
   </ul>
@@ -593,7 +593,7 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
   <div class="tag">🎯 Key Takeaways</div>
   <ul>
     <li><strong>dialog = modal stack</strong> (<span class="mono">ui/dialog.tsx</span>): open=push, ESC=pop top <span class="mono">slice(0,-1)</span>, stack non-empty enters modal. The stack's LIFO naturally matches "a dialog opening a dialog, ESC closes only the top, closing falls back one layer"—pick the right data structure and logic simplifies itself.</li>
-    <li><strong>DialogSelect reused everywhere</strong>: twenty-some dialogs (model/agent/MCP/skill/theme/session…) + command palette all built on a "filtered select box," consistent experience, adding a new dialog needs only options. Again "a uniform mold stamps the same shape" (L36/L47/L53).</li>
+    <li><strong>DialogSelect reused everywhere</strong>: twenty-some dialogs (model/agent/MCP/skill/theme/session…) + command palette mostly built on a "filtered select box," consistent experience, adding a new dialog needs only options. Again "a uniform mold stamps the same shape" (L36/L47/L53).</li>
     <li><strong>command palette = discoverability</strong> (<span class="mono">command-palette.tsx</span>): keymap <span class="mono">getCommandEntries</span> takes all visible commands into a searchable list, select <span class="mono">dispatchCommand</span>. No memorizing keybindings. The keymap is the single source, the palette just lays it out.</li>
     <li><strong>run scrollback = another skin over the same data</strong> (<span class="mono">run/scrollback.surface.ts</span>): non-interactive mode renders the conversation as a linear, append-only, stdout-printed scrolling log, pipeable/scriptable/CI; three modes = non-interactive/interactive local/interactive attach, spreading "degree of interactivity" into a spectrum.</li>
     <li><strong>data separated from presentation</strong>: one session/message (M9) + one core → many faces (TUI/run/Web/desktop), each added "viewing" needn't rewrite the core. Another example of good architecture "finding the seam, cutting the changing from the unchanging" (echoing L47/L50/L54). M10 wraps up.</li>

@@ -359,7 +359,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <p><strong>历史</strong>和 <strong>frecency</strong> 则是两种「记忆」：历史记得你<strong>说过什么</strong>（整条 prompt），frecency 记得你<strong>用过哪些文件、多频繁、多近</strong>。历史的导航就像 shell 里按 ↑↓：</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">↑</span><span class="t-txt"><span class="mono">move(-1)</span>：index 往回退一格，取出更早的那条 prompt 填进输入框</span></div>
-  <div class="t-row"><span class="t-num">↓</span><span class="t-txt"><span class="mono">move(+1)</span>：往回走，index=0 时回到空白的「当前」</span></div>
+  <div class="t-row"><span class="t-num">↓</span><span class="t-txt"><span class="mono">move(+1)</span>：向「当前」方向前进一格，index=0 时回到空白的「当前」</span></div>
   <div class="t-row"><span class="t-num">发送</span><span class="t-txt"><span class="mono">append</span>：去重后入列（与上一条相同则不重复存），index 归 0</span></div>
 </div>
 <p>后面两节，我们重点拆历史与 frecency 这两种「记忆」——它们才是让输入框「懂你」的关键。</p>

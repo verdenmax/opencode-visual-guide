@@ -11,8 +11,8 @@
 
 ## L53 TUI 应用结构
 
-- **Provider 金字塔**（`app.tsx` `render()`）：近二十层 Provider 从外到内嵌套：ExitProvider/ErrorBoundary → SDKProvider → ProjectProvider → SyncProvider → DataProvider → ThemeProvider → Dialog/Frecency/PromptHistory/… → `<App/>`。一个组件可用服务=头顶所有 Provider 的并集。
-- **嵌套顺序=依赖拓扑**：内层 Provider 的 `init` 里 `use` 外层 context——`ProjectProvider` init 第一行 `const sdk = useSDK()`（要用 SDK 拉项目），故 SDKProvider 必裹在外；`RouteProvider` init 用 `useTuiStartup()`；DataProvider 依赖 SyncProvider 事件。塔从下到上=越基础越靠外：连接→项目→数据→主题→交互→界面。结构即文档。
+- **Provider 金字塔**（`app.tsx` `render()`）：二十多层 Provider 从外到内嵌套：ExitProvider/ErrorBoundary → SDKProvider → ProjectProvider → SyncProvider → DataProvider → ThemeProvider → Dialog/Frecency/PromptHistory/… → `<App/>`。一个组件可用服务=头顶所有 Provider 的并集。
+- **嵌套顺序=依赖拓扑**：内层 Provider 的 `init` 里 `use` 外层 context——`ProjectProvider` init 第一行 `const sdk = useSDK()`（要用 SDK 拉项目），故 SDKProvider 必裹在外；`RouteProvider` init 用 `useTuiStartup()`；`SyncProvider` 与 `DataProvider` 的 init 都用 `useEvent()`（内部调 `useSDK()`）各自独立消费 SDK 事件流、都依赖 SDK 故都在 SDKProvider 内（彼此不依赖，Sync→Data 相邻只是惯例）。塔从下到上=越基础越靠外：连接→项目→数据→主题→交互→界面。结构即文档。
 - **`createSimpleContext`**（`context/helper.tsx`）：封 `createContext` + provider(`<Show when={init.ready!==false}>` 门控 + `ctx.Provider value={init(props)}`) + `use()`(`if(!value) throw "${name} context must be used within a context provider"`)。一行解构 `const { use, provider } = createSimpleContext({ name, init })`。
 - **use() 快速失败**：Provider 外用 context → useContext 返回空 → 当场抛错点名 context。把「Provider 外用→undefined→远处崩」的隐蔽 bug 提前成响亮报错（同 L37 Stale tool call、L48「库非空却无 session 表」）。
 - **各司其职**：SDKProvider(SDK 客户端+SSE 订阅+事件批量 flush)、ProjectProvider(createStore 项目/实例/工作区，sync() 拉)、Sync/DataProvider(事件归约 store，L54)、ThemeProvider(主题/调色板)、RouteProvider(createStore<Route> home/session/plugin，navigate())、Dialog/PromptHistory/Frecency(交互状态)。每格 createStore+reconcile。
