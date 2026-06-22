@@ -784,7 +784,7 @@ LESSON_24 = {
     <li><strong>Context changes also go through event sourcing</strong>: Updated isn't editing a field but publishing a ContextUpdated — system context's evolution is part of event sourcing.</li>
     <li><strong>baselineSeq closes Lesson 19</strong>: the epoch's nailed-down sequence is exactly history.load's history-window edge-trim line — the context system and session engine are stitched thereby.</li>
   </ul>
-  <p>But two things this lesson only named without unfolding: one, "environment changed, send a <span class="mono">ContextUpdated</span> update event" — in what form does the model read this update <strong>mid-conversation</strong>? That's <strong>Lesson 25 (mid-conversation messages)</strong>. Two, "switched agent, the epoch must re-establish and may be blocked" — what is this <span class="mono">AgentReplacementBlocked</span>, why block? That's <strong>Lesson 27 (agent switch & epoch replacement)</strong>. The epoch's "normal operation" covered, the remaining lessons cover its "two special moments": mid-conversation update, and changing of the guard.</p>
+  <p>But two things this lesson only named without unfolding: one, "environment changed, send a <span class="mono">ContextUpdated</span> update event" — in what form does the model read this update <strong>mid-conversation</strong>? That's <strong>Lesson 25 (mid-conversation messages)</strong>. Two, "switched agent, the epoch must re-establish and may be blocked" — what is this <span class="mono">AgentReplacementBlocked</span>, why block? That's <strong>Lesson 27 (agent switch &amp; epoch replacement)</strong>. The epoch's "normal operation" covered, the remaining lessons cover its "two special moments": mid-conversation update, and changing of the guard.</p>
 </div>
 
 <div class="card detail">
@@ -1224,7 +1224,7 @@ SystemContext.<span class="fn">make</span>({
     <li><strong>Wording distinction</strong>: baseline flat, update uses "now" to lightly flag "this is a change" — even the tone considers the model.</li>
     <li><strong>InstructionContext</strong>: project instructions like AGENTS.md are also an equal-footing source.</li>
   </ul>
-  <p>By here, system context's "normal state" is fully covered: abstraction (L21-23), landing in the session (L24), mid-conversation update (L25), concrete built-ins (this lesson). Part 5 has only the last and hardest puzzle piece left — the <span class="mono">AgentReplacementBlocked</span> Lesson 24 kept naming but never unpacked: <strong>when you switch an agent mid-way, what becomes of the context epoch belonging to the old agent? Why is "replacement" sometimes "blocked"?</strong> That's the next lesson, Part 5's finale — <strong>Agent switch & epoch replacement (Lesson 27)</strong>.</p>
+  <p>By here, system context's "normal state" is fully covered: abstraction (L21-23), landing in the session (L24), mid-conversation update (L25), concrete built-ins (this lesson). Part 5 has only the last and hardest puzzle piece left — the <span class="mono">AgentReplacementBlocked</span> Lesson 24 kept naming but never unpacked: <strong>when you switch an agent mid-way, what becomes of the context epoch belonging to the old agent? Why is "replacement" sometimes "blocked"?</strong> That's the next lesson, Part 5's finale — <strong>Agent switch &amp; epoch replacement (Lesson 27)</strong>.</p>
 </div>
 
 <div class="card detail">

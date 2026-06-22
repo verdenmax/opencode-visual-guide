@@ -319,7 +319,7 @@ details[open] > summary { list-style: none; }
 </head>
 <body>
 <h1>opencode 图解学习指南 - 打印版</h1>
-<p style="color:var(--muted)">全 64 课 - 逐课分页。用浏览器 Ctrl/Cmd+P 即可导出 PDF。</p>
+<p style="color:var(--muted)">全 69 课 - 逐课分页。用浏览器 Ctrl/Cmd+P 即可导出 PDF。</p>
 <div class="print-toc"><h2>目录</h2>
 <ol>
   <li>opencode 是什么</li>
@@ -3114,7 +3114,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。靠内部一个 Map<Key,Entry>（每会话一个 Entry/车道）：同会话 ID 命中同一 Entry → 串成一条线；异会话 ID 命中不同 Entry → 各跑各的。是第 8 课 KeyedMutex「同 key 串行、异 key 并行」的精装版。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。靠内部一个 Map&lt;Key,Entry&gt;（每会话一个 Entry/车道）：同会话 ID 命中同一 Entry → 串成一条线；异会话 ID 命中不同 Entry → 各跑各的。是第 8 课 KeyedMutex「同 key 串行、异 key 并行」的精装版。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -3722,7 +3722,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   <span class="kw">yield</span>* FiberSet.<span class="fn">clear</span>(toolFibers)          <span class="cm">// 召回所有工具 fiber</span>
   <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">"interrupted"</span>)  <span class="cm">// 没结清的标记失败</span>
 }
-<span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> && !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// 工具真炸了</span>
+<span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> &amp;&amp; !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// 工具真炸了</span>
   <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${message}`</span>)
 }
 <span class="kw">if</span> (stream._tag === <span class="st">"Failure"</span>) <span class="kw">return</span> <span class="kw">yield</span>* Effect.<span class="fn">failCause</span>(stream.cause)  <span class="cm">// 错误如实上抛</span></pre>
@@ -3765,7 +3765,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。run 返回 Effect<void, RunError>，RunError 挂在签名里。每种失败（LLMError/StepLimit/MessageDecode…）是类型里看得见、躲不开的分支，没有藏在 throw 里的暗雷。把不确定从运行时惊吓抬成编译期清单——这份清单本身还是极佳文档。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。run 返回 Effect&lt;void, RunError&gt;，RunError 挂在签名里。每种失败（LLMError/StepLimit/MessageDecode…）是类型里看得见、躲不开的分支，没有藏在 throw 里的暗雷。把不确定从运行时惊吓抬成编译期清单——这份清单本身还是极佳文档。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -3918,7 +3918,7 @@ load: Effect.Effect&lt;A | Unavailable&gt;</pre>
   </details>
 </div>
 <div class="quiz">
-  <div class="qn">3. make<A>(source) 在这套「源代数」里起什么作用？</div>
+  <div class="qn">3. make&lt;A&gt;(source) 在这套「源代数」里起什么作用？</div>
   <ol class="opts">
     <li>把源存进数据库</li>
     <li>执行源、产生副作用</li>
@@ -4243,7 +4243,7 @@ load: () =&gt; Effect.<span class="fn">gen</span>(<span class="kw">function</spa
   <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
   <ul>
     <li>课里说「凡要被比较、被复现的东西，都不能依赖偶然的顺序」——并发的代价是完成先后不确定，不能让它泄漏到结果。结合你写过的并发代码，举一个「顺序随机泄漏进结果、导致不可复现」的坑。</li>
-    <li>Entry 里的 load 是 Effect<SystemContext>（一段「怎么观察」的描述），而非一个死值。这让每次 load() 都重新观察、拿到最新环境。如果改成注册时就存死一个值，会丢失什么能力？</li>
+    <li>Entry 里的 load 是 Effect&lt;SystemContext&gt;（一段「怎么观察」的描述），而非一个死值。这让每次 load() 都重新观察、拿到最新环境。如果改成注册时就存死一个值，会丢失什么能力？</li>
   </ul>
 </div>
 </div>
@@ -5818,7 +5818,7 @@ Route.<span class="fn">make</span>({
   <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
   <ul>
     <li>课里把 OpenAI Responses 同时支持 HTTP 与 WebSocket，解释为「哪种传输划算就用哪种，并把选择做成一个可拨动的旋钮」，而不是「为了时髦上 WebSocket」。结合 HTTP（无状态、省心、universal）与 WebSocket（双向、实时、但要管连接保活/重连）的权衡，谈谈你会在什么场景选 WebSocket、什么场景坚持 HTTP？把传输做成「旋钮」而非写死，给未来留下了什么样的余地？</li>
-    <li>课里强调「正交不等于放任」：这几个正交件能自由组合，但类型参数 Frame 在 framing 和 protocol 的接缝处强制对齐（SSE 切出 string 帧，配它的 protocol.stream.event 就得是 Codec<Event, string>）。请谈谈「用类型系统在模块接缝处设防」相比「靠文档约定/代码评审来防止错配」的优势；你能想到自己项目里哪个接缝，也值得用类型（而非口头约定）来强制对齐？</li>
+    <li>课里强调「正交不等于放任」：这几个正交件能自由组合，但类型参数 Frame 在 framing 和 protocol 的接缝处强制对齐（SSE 切出 string 帧，配它的 protocol.stream.event 就得是 Codec&lt;Event, string&gt;）。请谈谈「用类型系统在模块接缝处设防」相比「靠文档约定/代码评审来防止错配」的优势；你能想到自己项目里哪个接缝，也值得用类型（而非口头约定）来强制对齐？</li>
   </ul>
 </div>
 </div>
@@ -6261,7 +6261,7 @@ Schema.<span class="fn">decodeUnknownEffect</span>(config.input)(call.input).pip
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。Tool.make(config)（core/src/tool/tool.ts）是定义工具的唯一入口。Config 核心三件是 input/output/execute：声明「吃什么、吐什么、怎么算」，execute 签名 (input, context) => Effect<output, ToolFailure> 输入输出带类型、错误是值。这和第 29 课「每个协议填同一张两栏表」是同一种设计哲学——把共性钉成一张表，每个实例只管填空。read/bash/grep 千差万别，都在填这同一张 Config。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。Tool.make(config)（core/src/tool/tool.ts）是定义工具的唯一入口。Config 核心三件是 input/output/execute：声明「吃什么、吐什么、怎么算」，execute 签名 (input, context) => Effect&lt;output, ToolFailure&gt; 输入输出带类型、错误是值。这和第 29 课「每个协议填同一张两栏表」是同一种设计哲学——把共性钉成一张表，每个实例只管填空。read/bash/grep 千差万别，都在填这同一张 Config。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -6294,7 +6294,7 @@ Schema.<span class="fn">decodeUnknownEffect</span>(config.input)(call.input).pip
   <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
   <ul>
     <li>课里说 settle 吐出两份——structured（给系统归档的结构化值）和 content（给模型读的 text/file），并把它们刻意解耦：「系统要记的」和「模型该看的」常常不是一回事（如文件读取：结构化里有字节数/行号/编码，给模型只需内容本身）。请结合你设计过的接口，谈谈「同一次操作的结果，对内详尽、对外精炼」这种双输出为什么有用？它和第 42 课「有界工具输出」会怎样配合？</li>
-    <li>课里把工具的 execute 签名 (input, context) => Effect<output, ToolFailure> 和第 29 课协议的「两栏表」相提并论，都是「把一类东西的共性钉成一张表，让每个实例只管填空」。请再举两个你熟悉的、用「同一张表/同一个接口、各自填空」来统一一族实现的例子（如插件系统、Web 中间件、数据库驱动）。这种「定义一张共同的形」相比「每个实现各搞一套」，在新增、测试、复用上分别带来什么好处？</li>
+    <li>课里把工具的 execute 签名 (input, context) => Effect&lt;output, ToolFailure&gt; 和第 29 课协议的「两栏表」相提并论，都是「把一类东西的共性钉成一张表，让每个实例只管填空」。请再举两个你熟悉的、用「同一张表/同一个接口、各自填空」来统一一族实现的例子（如插件系统、Web 中间件、数据库驱动）。这种「定义一张共同的形」相比「每个实现各搞一套」，在新增、测试、复用上分别带来什么好处？</li>
   </ul>
 </div>
 </div>
@@ -6411,14 +6411,14 @@ Effect.<span class="fn">addFinalizer</span>(() =&gt; {
 <div class="quiz">
   <div class="qn">1. 工具注册表的 register 怎么管理工具的「存在」？</div>
   <ol class="opts">
-    <li>一个全局 Map<名字,工具>，新登记直接覆盖旧的、永不恢复</li>
+    <li>一个全局 Map&lt;名字,工具&gt;，新登记直接覆盖旧的、永不恢复</li>
     <li>Scope 绑定 + 同名叠成一摞：登记时装 addFinalizer，作用域关→按 token 自动撤销；同名取 .at(-1) 最新顶班，撤走后被覆盖者自动复位</li>
     <li>工具一旦登记就永久存在</li>
     <li>把工具写进数据库，手动增删</li>
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。local 是 Map<名字, 登记数组>——同名叠成一摞。register 生成唯一 token，把登记压栈，并 addFinalizer：作用域关闭时按 token 精准抽走本次登记，空了删名、剩的自动顶上。于是「工具的存在与作用域同生共死，覆盖可自动恢复」——插件卸载（scope 关）那一刻，它的覆盖自动消失、内置版自动复位，无需手动注销。这是第 23 课 acquireRelease「把清理焊在获取上」的延伸。压栈+装 finalizer 还裹在 uninterruptible 里原子完成。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。local 是 Map&lt;名字, 登记数组&gt;——同名叠成一摞。register 生成唯一 token，把登记压栈，并 addFinalizer：作用域关闭时按 token 精准抽走本次登记，空了删名、剩的自动顶上。于是「工具的存在与作用域同生共死，覆盖可自动恢复」——插件卸载（scope 关）那一刻，它的覆盖自动消失、内置版自动复位，无需手动注销。这是第 23 课 acquireRelease「把清理焊在获取上」的延伸。压栈+装 finalizer 还裹在 uninterruptible 里原子完成。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -7342,7 +7342,7 @@ Ruleset = Rule[]</pre>
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。skill 工具本身不干活、只发讲义。toModelOutput 注入 <skill_content>：指令正文 + 基准目录 URL + <skill_files> 清单。即一个技能=「一份说明书 + 一个装脚本资料的文件夹」。接下来真正的活，是模型用它已有的通用工具去干——read 读 scripts/ 下的脚本、bash 跑、edit 改。漂亮的分工：skill 负责把对的剧本递到手上，执行剧本还是 M7 那套通用的手。模型本就会用这些工具（能做什么固定），它缺的是「该按什么顺序、用什么诀窍组织它们」——这正是技能正文承载的方法论。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。skill 工具本身不干活、只发讲义。toModelOutput 注入 &lt;skill_content&gt;：指令正文 + 基准目录 URL + &lt;skill_files&gt; 清单。即一个技能=「一份说明书 + 一个装脚本资料的文件夹」。接下来真正的活，是模型用它已有的通用工具去干——read 读 scripts/ 下的脚本、bash 跑、edit 改。漂亮的分工：skill 负责把对的剧本递到手上，执行剧本还是 M7 那套通用的手。模型本就会用这些工具（能做什么固定），它缺的是「该按什么顺序、用什么诀窍组织它们」——这正是技能正文承载的方法论。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -7510,7 +7510,7 @@ Ruleset = Rule[]</pre>
 <div class="card spark">
   <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
   <ul>
-    <li>课里把 opencode 的配置层叠（全局默认 < 项目 < 更靠近 cwd）和 CSS cascade、.gitconfig（system<global<local）、editorconfig 等归为同一类「分层就近覆盖」机制。请你提炼这类机制的共同结构（多个有序来源、就近/就具体者覆盖、按项取值），并谈谈它为什么比「单一全局配置」或「每处独立配置」都更好用。它的代价（心智负担、来源排查）又在哪？</li>
+    <li>课里把 opencode 的配置层叠（全局默认 < 项目 < 更靠近 cwd）和 CSS cascade、.gitconfig（system&lt;global&lt;local）、editorconfig 等归为同一类「分层就近覆盖」机制。请你提炼这类机制的共同结构（多个有序来源、就近/就具体者覆盖、按项取值），并谈谈它为什么比「单一全局配置」或「每处独立配置」都更好用。它的代价（心智负担、来源排查）又在哪？</li>
     <li>课里强调这套配置系统的「可解释性」：保留有序来源、按 key 当场裁决，让每一项的来源始终可追，避免「来源成谜」。请结合你维护过的配置系统（如环境变量层叠、k8s 多层 values、构建工具配置），谈谈「配置来源难追溯」给你造成过什么麻烦？一个系统该如何设计，才能在合并多来源配置的同时，仍让人随时回答「这个值到底从哪来」？</li>
   </ul>
 </div>
@@ -8516,7 +8516,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
 <p>那份摘要不是随意的散文，而是填进一张<strong>固定结构的模板</strong>（<span class="mono">SUMMARY_TEMPLATE</span>）——这保证了无论压缩多少次，关键维度都不丢：</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">Goal</div><div class="c-txt">一句话任务目标</div></div>
-  <div class="cell"><div class="c-tag">Constraints & Preferences</div><div class="c-txt">用户的约束、偏好、规格</div></div>
+  <div class="cell"><div class="c-tag">Constraints &amp; Preferences</div><div class="c-txt">用户的约束、偏好、规格</div></div>
   <div class="cell"><div class="c-tag">Progress（Done/In Progress/Blocked）</div><div class="c-txt">已完成 / 进行中 / 受阻</div></div>
   <div class="cell"><div class="c-tag">Key Decisions</div><div class="c-txt">关键决策及其理由</div></div>
   <div class="cell"><div class="c-tag">Next Steps</div><div class="c-txt">有序的下一步行动</div></div>
@@ -8628,7 +8628,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。compactIfNeeded 在请求 token 超过 上下文−max(输出量, 缓冲20000) 时触发。核心是 select 那一刀切分：从对话末尾倒着累加，保留最近约 8000 token（DEFAULT_KEEP_TOKENS）的消息逐字原样（recent），更早的一大段（head）交 LLM 浓缩成结构化摘要——填进固定模板（Goal/Constraints & Preferences/Progress(Done/In Progress/Blocked)/Key Decisions/Next Steps/Critical Context/Relevant Files），保证关键维度不丢。最妙是锚定式增量：已压缩过则在旧摘要上「保留仍成立、删过时、并入新事实」而非重写——否则越早的信息会在一次次压缩中被稀释遗忘；锚定让主线跨多次压缩不断裂。select 甚至能从单条消息中间按剩余字符切两半（×4≈1token4字符），把保留预算用到极致。和 L42 有界输出同一种「上下文稀缺」哲学的不同层级回响。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。compactIfNeeded 在请求 token 超过 上下文−max(输出量, 缓冲20000) 时触发。核心是 select 那一刀切分：从对话末尾倒着累加，保留最近约 8000 token（DEFAULT_KEEP_TOKENS）的消息逐字原样（recent），更早的一大段（head）交 LLM 浓缩成结构化摘要——填进固定模板（Goal/Constraints &amp; Preferences/Progress(Done/In Progress/Blocked)/Key Decisions/Next Steps/Critical Context/Relevant Files），保证关键维度不丢。最妙是锚定式增量：已压缩过则在旧摘要上「保留仍成立、删过时、并入新事实」而非重写——否则越早的信息会在一次次压缩中被稀释遗忘；锚定让主线跨多次压缩不断裂。select 甚至能从单条消息中间按剩余字符切两半（×4≈1token4字符），把保留预算用到极致。和 L42 有界输出同一种「上下文稀缺」哲学的不同层级回响。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -8641,7 +8641,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。snapshot/index.ts 的妙招是另起一个影子 git 仓库：在 数据目录/snapshot/<项目>/<工作目录哈希> 下建独立 git 仓库，所有命令带 --git-dir <影子> --work-tree <你的真实工作目录>，绝不碰项目里真实的 .git。track()=git add 暂存→git write-tree 写出一个树对象返回哈希（这就是一张快照，用最轻的 git 原语、不需 commit 信息/作者/父提交）；restore(snapshot)=git read-tree <快照>+checkout-index -a -f 还原工作目录。三处妙：① write-tree 而非 commit（最轻原语干最纯的事）；② 影子仓库与 .git 彻底隔离（opencode 几乎每步都拍快照，若污染你的 git log 是灾难）；③ 复用 git 二十年的内容寻址存储（增量/去重/diff），如 L39 复用 Ripgrep。还通过 objects/info/alternates 共享真实仓库对象省空间、尊重 .gitignore、屏蔽大文件。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。snapshot/index.ts 的妙招是另起一个影子 git 仓库：在 数据目录/snapshot/&lt;项目&gt;/&lt;工作目录哈希&gt; 下建独立 git 仓库，所有命令带 --git-dir &lt;影子&gt; --work-tree <你的真实工作目录>，绝不碰项目里真实的 .git。track()=git add 暂存→git write-tree 写出一个树对象返回哈希（这就是一张快照，用最轻的 git 原语、不需 commit 信息/作者/父提交）；restore(snapshot)=git read-tree &lt;快照&gt;+checkout-index -a -f 还原工作目录。三处妙：① write-tree 而非 commit（最轻原语干最纯的事）；② 影子仓库与 .git 彻底隔离（opencode 几乎每步都拍快照，若污染你的 git log 是灾难）；③ 复用 git 二十年的内容寻址存储（增量/去重/diff），如 L39 复用 Ripgrep。还通过 objects/info/alternates 共享真实仓库对象省空间、尊重 .gitignore、屏蔽大文件。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -8788,12 +8788,12 @@ sqliteTable(<span class="st">"session_input"</span>, {
   <ol class="opts">
     <li>把界面渲染成图片显示</li>
     <li>在终端里嵌一个真正的浏览器</li>
-    <li>用 opentui——一个把 SolidJS 渲染到终端的渲染器，是「终端里的浏览器」：你照样写 JSX(<box>/<text>)、用 signal 做响应式，opentui 负责把组件树画成终端字符格</li>
+    <li>用 opentui——一个把 SolidJS 渲染到终端的渲染器，是「终端里的浏览器」：你照样写 JSX(&lt;box&gt;/&lt;text&gt;)、用 signal 做响应式，opentui 负责把组件树画成终端字符格</li>
     <li>直接手写 ANSI 转义码、手动算每个字符的坐标</li>
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。opencode 用 opentui——一个把 SolidJS 渲染到终端的渲染器，本质是「终端里的浏览器」。现代框架的精髓是「渲染器与框架分离」：SolidJS 管组件/signal/响应式，画到哪由可插拔渲染器决定——画到浏览器 DOM 是网页、画到终端就是 opentui。它分两层：@opentui/core(引擎：布局/绘制/输入)+@opentui/solid(SolidJS 绑定：render/useRenderer)。JSX 原语是终端版 HTML 标签：<box>(≈div,flexbox 容器)、<text>、<scrollbox>、<input>/<textarea>。布局用 flexDirection/flexGrow/justifyContent 等 CSS flexbox。于是你用和写网页一样的心智模型搭终端 App，opentui 把「组件树怎么变成屏幕字符」全包了——无需手写 ANSI、手算坐标。这是把整个前端渲染范式整体复用（同 L51 复用 git、L39 复用 Ripgrep）。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。opencode 用 opentui——一个把 SolidJS 渲染到终端的渲染器，本质是「终端里的浏览器」。现代框架的精髓是「渲染器与框架分离」：SolidJS 管组件/signal/响应式，画到哪由可插拔渲染器决定——画到浏览器 DOM 是网页、画到终端就是 opentui。它分两层：@opentui/core(引擎：布局/绘制/输入)+@opentui/solid(SolidJS 绑定：render/useRenderer)。JSX 原语是终端版 HTML 标签：&lt;box&gt;(≈div,flexbox 容器)、&lt;text&gt;、&lt;scrollbox&gt;、&lt;input&gt;/&lt;textarea&gt;。布局用 flexDirection/flexGrow/justifyContent 等 CSS flexbox。于是你用和写网页一样的心智模型搭终端 App，opentui 把「组件树怎么变成屏幕字符」全包了——无需手写 ANSI、手算坐标。这是把整个前端渲染范式整体复用（同 L51 复用 git、L39 复用 Ripgrep）。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -8971,7 +8971,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。createSimpleContext(helper.tsx)封了「建 context+provider(跑 init、<Show when=ready> 门控)+use() 钩子」。其 use() 里有 if(!value) throw new Error(`${name} context must be used within a context provider`)。在 SolidJS/React 里最难查的 bug 之一就是「在 Provider 外用了 context、拿到 undefined、然后在八竿子打不着的地方崩」。这里把错误从『沉默的 undefined』提前成『响亮的当场报错』——一旦组件放错位置（忘了用某 Provider 包住），运行第一时间就告诉你哪个 context 没在 Provider 内用。这是「快速失败」的高频应用（同 L37 Stale tool call、L48「库非空却无 session 表」）。更深一层：把良好实践（判空报错、就绪门控、命名一致）固化进一个谁都顺手用的小工具，让正确的事成为最省力的事，远胜写一篇『请记得判空』的文档——同 L36 Tool.make、L47 PluginV2.define「统一模子刻同形」。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。createSimpleContext(helper.tsx)封了「建 context+provider(跑 init、&lt;Show when=ready&gt; 门控)+use() 钩子」。其 use() 里有 if(!value) throw new Error(`${name} context must be used within a context provider`)。在 SolidJS/React 里最难查的 bug 之一就是「在 Provider 外用了 context、拿到 undefined、然后在八竿子打不着的地方崩」。这里把错误从『沉默的 undefined』提前成『响亮的当场报错』——一旦组件放错位置（忘了用某 Provider 包住），运行第一时间就告诉你哪个 context 没在 Provider 内用。这是「快速失败」的高频应用（同 L37 Stale tool call、L48「库非空却无 session 表」）。更深一层：把良好实践（判空报错、就绪门控、命名一致）固化进一个谁都顺手用的小工具，让正确的事成为最省力的事，远胜写一篇『请记得判空』的文档——同 L36 Tool.make、L47 PluginV2.define「统一模子刻同形」。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -9607,14 +9607,14 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
 <div class="quiz">
   <div class="qn">1. 在 opencode 里，一个公开插件（@opencode-ai/plugin）本质上是什么？</div>
   <ol class="opts">
-    <li>一个返回「钩子表」的 async 函数——Plugin = (input: PluginInput, options?) => Promise<Hooks>，无类无继承无样板，收一份上下文、返回一个 Hooks 对象</li>
+    <li>一个返回「钩子表」的 async 函数——Plugin = (input: PluginInput, options?) => Promise&lt;Hooks&gt;，无类无继承无样板，收一份上下文、返回一个 Hooks 对象</li>
     <li>一个独立运行的微服务进程</li>
     <li>一段要编进 opencode 源码的代码</li>
     <li>一个必须继承 AbstractPlugin 基类的类</li>
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。opencode 公开插件朴素得惊人：Plugin = (input: PluginInput, options?) => Promise<Hooks>——一个 async 函数，收一份 input 上下文、返回一个 Hooks 对象。无要继承的基类、无要实现的接口方法、无要注册的装饰器，就是「函数进、钩子出」。例子插件几行就注册一个自定义工具：async (ctx) => ({ tool: { mytool: tool({...}) } })。这种极简把「写一个插件」的门槛压到几乎为零——会写一个返回对象的 async 函数就会写 opencode 插件，剩下只是查那张钩子表有哪些键可填。对比传统插件框架的重器械（继承基类、实现一堆生命周期方法、DI 容器、XML 清单），opencode 削到只剩一个函数签名，因为看透了插件本质只需答两问：「你能给我什么」(PluginInput)+「你想何时介入」(Hooks)。呼应全书「最强抽象往往最朴素」（L36 Tool.make、L47 PluginV2.define、L53 createSimpleContext）。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。opencode 公开插件朴素得惊人：Plugin = (input: PluginInput, options?) => Promise&lt;Hooks&gt;——一个 async 函数，收一份 input 上下文、返回一个 Hooks 对象。无要继承的基类、无要实现的接口方法、无要注册的装饰器，就是「函数进、钩子出」。例子插件几行就注册一个自定义工具：async (ctx) => ({ tool: { mytool: tool({...}) } })。这种极简把「写一个插件」的门槛压到几乎为零——会写一个返回对象的 async 函数就会写 opencode 插件，剩下只是查那张钩子表有哪些键可填。对比传统插件框架的重器械（继承基类、实现一堆生命周期方法、DI 容器、XML 清单），opencode 削到只剩一个函数签名，因为看透了插件本质只需答两问：「你能给我什么」(PluginInput)+「你想何时介入」(Hooks)。呼应全书「最强抽象往往最朴素」（L36 Tool.make、L47 PluginV2.define、L53 createSimpleContext）。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -9762,7 +9762,7 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
 <div class="selftest">
 <h2>🧪 自测 · 想一想为什么这么设计</h2>
 <div class="quiz">
-  <div class="qn">1. opencode 插件的绝大多数钩子签名都是 (input, output) => Promise<void>，返回 void。插件怎么靠它施加影响？</div>
+  <div class="qn">1. opencode 插件的绝大多数钩子签名都是 (input, output) => Promise&lt;void&gt;，返回 void。插件怎么靠它施加影响？</div>
   <ol class="opts">
     <li>插件 return 一个新对象替换掉 output</li>
     <li>插件 throw 一个异常来传值</li>
@@ -9771,7 +9771,7 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。所有钩子共享同一个「改草稿」机制：签名 (input, output) => Promise<void>，返回 void、靠就地改 output 生效。input 是只读上下文（现在什么情况），output 是可变草稿对象（改它来施加影响）。触发机制：opencode 先算一份默认 output，plugin.trigger(钩子名, input, 默认output) 把(input,output)交给每个注册该钩子的插件，每个在 output 上涂改一笔，最后 opencode 拿这份被层层涂改过的 output 继续干活。插件不是「返回新值替换」，而是「在 opencode 递来的草稿上改几笔」。好处：①opencode 永远给默认值拿最终值，主动权在宿主、零插件也能正常工作；②多插件可叠加，后者看得到前者的改动（同 L41/L44 层叠）；③草稿的完整结构由 opencode 保证，插件只改几个字段，避免「插件返回残缺对象」。这个「传入可变草稿、就地修改」同 L54 produce。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。所有钩子共享同一个「改草稿」机制：签名 (input, output) => Promise&lt;void&gt;，返回 void、靠就地改 output 生效。input 是只读上下文（现在什么情况），output 是可变草稿对象（改它来施加影响）。触发机制：opencode 先算一份默认 output，plugin.trigger(钩子名, input, 默认output) 把(input,output)交给每个注册该钩子的插件，每个在 output 上涂改一笔，最后 opencode 拿这份被层层涂改过的 output 继续干活。插件不是「返回新值替换」，而是「在 opencode 递来的草稿上改几笔」。好处：①opencode 永远给默认值拿最终值，主动权在宿主、零插件也能正常工作；②多插件可叠加，后者看得到前者的改动（同 L41/L44 层叠）；③草稿的完整结构由 opencode 保证，插件只改几个字段，避免「插件返回残缺对象」。这个「传入可变草稿、就地修改」同 L54 produce。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -9941,12 +9941,12 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
   <ol class="opts">
     <li>诊断只在程序崩溃时才生成</li>
     <li>agent 必须主动开口问才有诊断</li>
-    <li>agent 改文件→didChange 通知服务器→服务器 publishDiagnostics 推回→report 格式化(只留 ERROR、每文件≤20、<diagnostics> 包裹)→喂 agent；有界是因诊断占模型宝贵上下文，全报会淹没真正要命的编译错误（同 L42）</li>
+    <li>agent 改文件→didChange 通知服务器→服务器 publishDiagnostics 推回→report 格式化(只留 ERROR、每文件≤20、&lt;diagnostics&gt; 包裹)→喂 agent；有界是因诊断占模型宝贵上下文，全报会淹没真正要命的编译错误（同 L42）</li>
     <li>report 报所有级别的诊断、不设上限</li>
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。诊断是被动自动的：agent 改完文件→opencode 经 didChange 通知语言服务器→服务器分析后 publishDiagnostics 推回诊断→diagnostic.ts 的 report 整理成 agent 读得懂的样子→喂给 agent。report 做三件克制事：只留 severity===1 的 ERROR（滤掉 warn/hint 噪音）、每文件最多 20 条（超出附「... and N more」）、<diagnostics file> 包裹，无错误返空串。pretty 把每条格成 ERROR [行:列] 消息（行列 +1 对齐编辑器 1-based）。为什么克制？因为诊断要占模型宝贵上下文（同 L42 有界输出的焦虑）：几百条 warning 一股脑塞给模型既烧 token 又淹没真正要命的编译错误。「只报错误、且有界」是「让 agent 看见问题」与「别撑爆注意力」间的精准拿捏——给 agent 的反馈越准越好、非越多越好，信息过载与缺失同样有害。这把 agent 从盲改者变成能即时收到「改对了/改崩了」反馈的自我纠错编码者（喂 M4 循环）。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。诊断是被动自动的：agent 改完文件→opencode 经 didChange 通知语言服务器→服务器分析后 publishDiagnostics 推回诊断→diagnostic.ts 的 report 整理成 agent 读得懂的样子→喂给 agent。report 做三件克制事：只留 severity===1 的 ERROR（滤掉 warn/hint 噪音）、每文件最多 20 条（超出附「... and N more」）、&lt;diagnostics file&gt; 包裹，无错误返空串。pretty 把每条格成 ERROR [行:列] 消息（行列 +1 对齐编辑器 1-based）。为什么克制？因为诊断要占模型宝贵上下文（同 L42 有界输出的焦虑）：几百条 warning 一股脑塞给模型既烧 token 又淹没真正要命的编译错误。「只报错误、且有界」是「让 agent 看见问题」与「别撑爆注意力」间的精准拿捏——给 agent 的反馈越准越好、非越多越好，信息过载与缺失同样有害。这把 agent 从盲改者变成能即时收到「改对了/改崩了」反馈的自我纠错编码者（喂 M4 循环）。</div></div></div>
   </details>
 </div>
 <div class="quiz">

@@ -1,7 +1,7 @@
-"""Part 12 (Part 12 · Practice & Reference) content. Placeholders until M12 fills them in."""
+"""Part 12 (Part 12 · Practice &amp; Reference) content. Placeholders until M12 fills them in."""
 from placeholder import wip
 
-"""Part 12 (Part 12 · Practice & Reference) content. Placeholders until M12 fills them in."""
+"""Part 12 (Part 12 · Practice &amp; Reference) content. Placeholders until M12 fills them in."""
 from placeholder import wip
 
 LESSON_62 = {

@@ -437,14 +437,14 @@ Effect.<span class="fn">addFinalizer</span>(() =&gt; {
 <div class="quiz">
   <div class="qn">1. 工具注册表的 register 怎么管理工具的「存在」？</div>
   <ol class="opts">
-    <li>一个全局 Map<名字,工具>，新登记直接覆盖旧的、永不恢复</li>
+    <li>一个全局 Map&lt;名字,工具&gt;，新登记直接覆盖旧的、永不恢复</li>
     <li>Scope 绑定 + 同名叠成一摞：登记时装 addFinalizer，作用域关→按 token 自动撤销；同名取 .at(-1) 最新顶班，撤走后被覆盖者自动复位</li>
     <li>工具一旦登记就永久存在</li>
     <li>把工具写进数据库，手动增删</li>
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。local 是 Map<名字, 登记数组>——同名叠成一摞。register 生成唯一 token，把登记压栈，并 addFinalizer：作用域关闭时按 token 精准抽走本次登记，空了删名、剩的自动顶上。于是「工具的存在与作用域同生共死，覆盖可自动恢复」——插件卸载（scope 关）那一刻，它的覆盖自动消失、内置版自动复位，无需手动注销。这是第 23 课 acquireRelease「把清理焊在获取上」的延伸。压栈+装 finalizer 还裹在 uninterruptible 里原子完成。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。local 是 Map&lt;名字, 登记数组&gt;——同名叠成一摞。register 生成唯一 token，把登记压栈，并 addFinalizer：作用域关闭时按 token 精准抽走本次登记，空了删名、剩的自动顶上。于是「工具的存在与作用域同生共死，覆盖可自动恢复」——插件卸载（scope 关）那一刻，它的覆盖自动消失、内置版自动复位，无需手动注销。这是第 23 课 acquireRelease「把清理焊在获取上」的延伸。压栈+装 finalizer 还裹在 uninterruptible 里原子完成。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -526,7 +526,7 @@ Effect.<span class="fn">addFinalizer</span>(() =&gt; {
   <div class="col"><h4>materialize · materialization (immutable)</h4><p>A <strong>snapshot</strong> taken at one moment + permission filter + identity freeze; it asks "<strong>this turn, which the model should see and can call</strong>." Once printed, unchanging this turn.</p></div>
 </div>
 
-<h2>Dispatch & anti-forgery: settle's "stale dish" interception</h2>
+<h2>Dispatch &amp; anti-forgery: settle's "stale dish" interception</h2>
 <p>The menu's printed, the model orders a dish (initiates a tool call), and <span class="mono">settle</span> handles <strong>dispatch + execution + cleanup</strong>. This chain collects all the prior lessons' planted seeds:</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">①find</span><span class="t-txt">by call.name find the stack-top registration (or in applications)</span></div>
@@ -550,7 +550,7 @@ Effect.<span class="fn">addFinalizer</span>(() =&gt; {
   <p>The register/materialize line cleanly cuts "which tools exist" from "which this turn sees," giving permissions (lesson 41) and bounded output (lesson 42) clear mount points. So where do these built-in tools "check in"? The answer is <span class="mono">locationLayer</span> in <span class="mono">builtins.ts</span>—it uses <span class="mono">Layer.mergeAll</span> to merge all shipped built-in tools' layers into one, each tool's layer <strong>self-registering</strong> into the registry as it's assembled:</p>
   <div class="cellgroup">
     <div class="cell"><div class="c-tag">file</div><div class="c-txt">read / write / edit / apply-patch (lesson 38)</div></div>
-    <div class="cell"><div class="c-tag">search & exec</div><div class="c-txt">glob / grep / bash (lesson 39)</div></div>
+    <div class="cell"><div class="c-tag">search &amp; exec</div><div class="c-txt">glob / grep / bash (lesson 39)</div></div>
     <div class="cell"><div class="c-tag">other</div><div class="c-txt">webfetch / websearch / question / todowrite (lesson 40)</div></div>
     <div class="cell"><div class="c-tag">Skills</div><div class="c-txt">skill (lesson 43, a permissioned special tool)</div></div>
   </div>
@@ -589,14 +589,14 @@ Effect.<span class="fn">addFinalizer</span>(() =&gt; {
 <div class="quiz">
   <div class="qn">1. How does the tool registry's register manage a tool's "existence"?</div>
   <ol class="opts">
-    <li>A global Map<name,tool>, new registration overwrites old, never restored</li>
+    <li>A global Map&lt;name,tool&gt;, new registration overwrites old, never restored</li>
     <li>Scope binding + same-name stacking: registration installs addFinalizer, scope close→auto-revoke by token; same-name takes .at(-1) latest on shift, the covered one auto-restores on revoke</li>
     <li>Once registered a tool exists forever</li>
     <li>Writes tools into a database, manually added/removed</li>
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. local is Map<name, registration array> — same-name stacks up. register generates a unique token, pushes the registration, and addFinalizer: scope close precisely pulls this call's registration by token, deletes the name if empty, the rest auto-surfaces. So "a tool's existence lives and dies with its scope, overrides auto-restore" — the moment a plugin unloads (scope closes), its override vanishes and the built-in restores, no manual unregister. An extension of lesson 23's acquireRelease "weld cleanup onto acquisition." Push+finalizer also wrapped in uninterruptible for atomicity.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. local is Map&lt;name, registration array&gt; — same-name stacks up. register generates a unique token, pushes the registration, and addFinalizer: scope close precisely pulls this call's registration by token, deletes the name if empty, the rest auto-surfaces. So "a tool's existence lives and dies with its scope, overrides auto-restore" — the moment a plugin unloads (scope closes), its override vanishes and the built-in restores, no manual unregister. An extension of lesson 23's acquireRelease "weld cleanup onto acquisition." Push+finalizer also wrapped in uninterruptible for atomicity.</div></div></div>
   </details>
 </div>
 <div class="quiz">

@@ -815,7 +815,7 @@ LESSON_17 = {
 </div>
 """,
     "en": r"""
-<p class="lead">The past three lessons were like setting a stage: Lesson 14 met the actors (Session/Message/Part), Lesson 15 steadily filed the script into the inbox, Lesson 16's coordinator arranged who goes first and runs serially. Now <strong>the curtain rises</strong> — the coordinator calls <span class="mono">drain</span>, invoking <span class="mono">SessionRunner.run</span>, which is where opencode's brain <strong>truly "thinks."</strong> This lesson is about the core that makes an agent an agent: <strong>the loop that repeatedly advances "think → call tool → see result → think again."</strong> It's not one Q&A but an engine that iterates itself, fetches its own data, and decides on its own when to stop. Understand this lesson and you've touched the heart of opencode's intelligence.</p>
+<p class="lead">The past three lessons were like setting a stage: Lesson 14 met the actors (Session/Message/Part), Lesson 15 steadily filed the script into the inbox, Lesson 16's coordinator arranged who goes first and runs serially. Now <strong>the curtain rises</strong> — the coordinator calls <span class="mono">drain</span>, invoking <span class="mono">SessionRunner.run</span>, which is where opencode's brain <strong>truly "thinks."</strong> This lesson is about the core that makes an agent an agent: <strong>the loop that repeatedly advances "think → call tool → see result → think again."</strong> It's not one Q&amp;A but an engine that iterates itself, fetches its own data, and decides on its own when to stop. Understand this lesson and you've touched the heart of opencode's intelligence.</p>
 <p>Why does this loop deserve a whole lesson? Because the entire divide between an "agent" and a "chatbot" lives in it. A chatbot is <strong>one ask, one answer</strong>: you say a line, it replies, done. An agent is <strong>one goal, many self-driven rounds</strong>: you give a task and it <strong>repeatedly</strong> thinks a step, acts (reads a file, runs a command), checks the result, thinks the next step — until the task is done or it hits a boundary. This lesson unpacks that "self-driving loop": what it does each round, what keeps it from running wild, and how it wires in Lessons 15-16's steer/queue. This is Part 4's <strong>engine room</strong>.</p>
 
 <div class="card analogy">
@@ -1438,7 +1438,7 @@ LESSON_20 = {
   <span class="kw">yield</span>* FiberSet.<span class="fn">clear</span>(toolFibers)          <span class="cm">// 召回所有工具 fiber</span>
   <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">"interrupted"</span>)  <span class="cm">// 没结清的标记失败</span>
 }
-<span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> && !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// 工具真炸了</span>
+<span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> &amp;&amp; !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// 工具真炸了</span>
   <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${message}`</span>)
 }
 <span class="kw">if</span> (stream._tag === <span class="st">"Failure"</span>) <span class="kw">return</span> <span class="kw">yield</span>* Effect.<span class="fn">failCause</span>(stream.cause)  <span class="cm">// 错误如实上抛</span></pre>
@@ -1530,7 +1530,7 @@ LESSON_20 = {
     <li><strong>Lesson 15</strong>: the event-sourced inbox — admit lands input steadily first.</li>
     <li><strong>Lesson 16</strong>: the run coordinator — drain serially within a session, concurrently across.</li>
     <li><strong>Lesson 17</strong>: the agent loop — bounded "think→act→see→think again."</li>
-    <li><strong>Lesson 18</strong>: tool calls & FiberSet — shown by permission, run concurrently, recallable.</li>
+    <li><strong>Lesson 18</strong>: tool calls &amp; FiberSet — shown by permission, run concurrently, recallable.</li>
     <li><strong>Lesson 19</strong>: projected history — events (ledger) projected into messages (statement), reread each round.</li>
     <li><strong>Lesson 20 · this one</strong>: safety guardrails — bounded steps, typed errors, clean halt.</li>
   </ul>
@@ -1545,7 +1545,7 @@ LESSON_20 = {
   <span class="kw">yield</span>* FiberSet.<span class="fn">clear</span>(toolFibers)          <span class="cm">// recall all tool fibers</span>
   <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">"interrupted"</span>)  <span class="cm">// mark unsettled as failed</span>
 }
-<span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> && !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// a tool really blew up</span>
+<span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> &amp;&amp; !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// a tool really blew up</span>
   <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${message}`</span>)
 }
 <span class="kw">if</span> (stream._tag === <span class="st">"Failure"</span>) <span class="kw">return</span> <span class="kw">yield</span>* Effect.<span class="fn">failCause</span>(stream.cause)  <span class="cm">// rethrow the error faithfully</span></pre>

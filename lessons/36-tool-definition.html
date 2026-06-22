@@ -448,7 +448,7 @@ Schema.<span class="fn">decodeUnknownEffect</span>(config.input)(call.input).pip
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。Tool.make(config)（core/src/tool/tool.ts）是定义工具的唯一入口。Config 核心三件是 input/output/execute：声明「吃什么、吐什么、怎么算」，execute 签名 (input, context) => Effect<output, ToolFailure> 输入输出带类型、错误是值。这和第 29 课「每个协议填同一张两栏表」是同一种设计哲学——把共性钉成一张表，每个实例只管填空。read/bash/grep 千差万别，都在填这同一张 Config。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。Tool.make(config)（core/src/tool/tool.ts）是定义工具的唯一入口。Config 核心三件是 input/output/execute：声明「吃什么、吐什么、怎么算」，execute 签名 (input, context) => Effect&lt;output, ToolFailure&gt; 输入输出带类型、错误是值。这和第 29 课「每个协议填同一张两栏表」是同一种设计哲学——把共性钉成一张表，每个实例只管填空。read/bash/grep 千差万别，都在填这同一张 Config。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -481,7 +481,7 @@ Schema.<span class="fn">decodeUnknownEffect</span>(config.input)(call.input).pip
   <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
   <ul>
     <li>课里说 settle 吐出两份——structured（给系统归档的结构化值）和 content（给模型读的 text/file），并把它们刻意解耦：「系统要记的」和「模型该看的」常常不是一回事（如文件读取：结构化里有字节数/行号/编码，给模型只需内容本身）。请结合你设计过的接口，谈谈「同一次操作的结果，对内详尽、对外精炼」这种双输出为什么有用？它和第 42 课「有界工具输出」会怎样配合？</li>
-    <li>课里把工具的 execute 签名 (input, context) => Effect<output, ToolFailure> 和第 29 课协议的「两栏表」相提并论，都是「把一类东西的共性钉成一张表，让每个实例只管填空」。请再举两个你熟悉的、用「同一张表/同一个接口、各自填空」来统一一族实现的例子（如插件系统、Web 中间件、数据库驱动）。这种「定义一张共同的形」相比「每个实现各搞一套」，在新增、测试、复用上分别带来什么好处？</li>
+    <li>课里把工具的 execute 签名 (input, context) => Effect&lt;output, ToolFailure&gt; 和第 29 课协议的「两栏表」相提并论，都是「把一类东西的共性钉成一张表，让每个实例只管填空」。请再举两个你熟悉的、用「同一张表/同一个接口、各自填空」来统一一族实现的例子（如插件系统、Web 中间件、数据库驱动）。这种「定义一张共同的形」相比「每个实现各搞一套」，在新增、测试、复用上分别带来什么好处？</li>
   </ul>
 </div>
 </div></div>
@@ -605,7 +605,7 @@ Schema.<span class="fn">decodeUnknownEffect</span>(config.input)(call.input).pip
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Tool.make(config) (core/src/tool/tool.ts) is the sole entry to defining a tool. Config's core three are input/output/execute: declaring "what it takes, produces, how it computes," with execute's signature (input, context) => Effect<output, ToolFailure> typed I/O and errors-as-values. Same design philosophy as lesson 29's "every protocol fills the two-column form" — nail the commonality into one form, each instance just fills blanks. read/bash/grep, wildly different, all fill this same Config.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Tool.make(config) (core/src/tool/tool.ts) is the sole entry to defining a tool. Config's core three are input/output/execute: declaring "what it takes, produces, how it computes," with execute's signature (input, context) => Effect&lt;output, ToolFailure&gt; typed I/O and errors-as-values. Same design philosophy as lesson 29's "every protocol fills the two-column form" — nail the commonality into one form, each instance just fills blanks. read/bash/grep, wildly different, all fill this same Config.</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -638,7 +638,7 @@ Schema.<span class="fn">decodeUnknownEffect</span>(config.input)(call.input).pip
   <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
   <ul>
     <li>The lesson says settle emits two copies—structured (the structured value filed for the system) and content (text/file read by the model)—deliberately decoupled: "what the system records" and "what the model should see" are often not the same (e.g. file-read: structured has byte counts/line numbers/encoding, the model needs only the content). From an interface you've designed, discuss why this dual output of "detailed inward, concise outward for the same operation's result" is useful. How would it cooperate with lesson 42's "bounded tool output"?</li>
-    <li>The lesson likens a tool's execute signature (input, context) => Effect<output, ToolFailure> to lesson 29's protocol "two-column form," both "nailing a category's commonality into one form so each instance just fills blanks." Give two more examples you know of unifying a family of implementations via "the same form/interface, each filling blanks" (e.g. plugin systems, web middleware, database drivers). Versus "each implementation doing its own thing," what does "defining one common shape" buy for adding, testing, and reuse respectively?</li>
+    <li>The lesson likens a tool's execute signature (input, context) => Effect&lt;output, ToolFailure&gt; to lesson 29's protocol "two-column form," both "nailing a category's commonality into one form so each instance just fills blanks." Give two more examples you know of unifying a family of implementations via "the same form/interface, each filling blanks" (e.g. plugin systems, web middleware, database drivers). Versus "each implementation doing its own thing," what does "defining one common shape" buy for adding, testing, and reuse respectively?</li>
   </ul>
 </div>
 </div></div>

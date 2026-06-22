@@ -319,7 +319,7 @@ details[open] > summary { list-style: none; }
 </head>
 <body>
 <h1>opencode Visual Guide - Print Edition</h1>
-<p style="color:var(--muted)">All 64 lessons - one page each. Use Ctrl/Cmd+P in a browser to export a PDF.</p>
+<p style="color:var(--muted)">All 69 lessons - one page each. Use Ctrl/Cmd+P in a browser to export a PDF.</p>
 <div class="print-toc"><h2>Contents</h2>
 <ol>
   <li>What is opencode</li>
@@ -327,11 +327,11 @@ details[open] > summary { list-style: none; }
   <li>Lifecycle of one prompt</li>
   <li>V1 vs V2: the migration</li>
   <li>Why Effect</li>
-  <li>Services & Layers</li>
+  <li>Services &amp; Layers</li>
   <li>Concurrency primitives</li>
   <li>The Effect toolbox</li>
   <li>The server, overview</li>
-  <li>Route groups & handlers</li>
+  <li>Route groups &amp; handlers</li>
   <li>The SSE event bus</li>
   <li>Generating the SDK</li>
   <li>Multi-client transports</li>
@@ -339,57 +339,57 @@ details[open] > summary { list-style: none; }
   <li>The event-sourced inbox</li>
   <li>The run coordinator</li>
   <li>The V2 agent loop</li>
-  <li>Tool calls & FiberSet</li>
+  <li>Tool calls &amp; FiberSet</li>
   <li>Projected history</li>
-  <li>Bounded steps & errors</li>
+  <li>Bounded steps &amp; errors</li>
   <li>System Context overview</li>
   <li>Context Sources</li>
   <li>The context registry</li>
   <li>The Context Epoch</li>
   <li>Mid-conversation messages</li>
   <li>Built-in sources</li>
-  <li>Agent switch & epoch</li>
+  <li>Agent switch &amp; epoch</li>
   <li>The LLM layer</li>
   <li>Protocol adapters</li>
   <li>The Anthropic protocol</li>
   <li>The OpenAI protocols</li>
-  <li>Gemini & Bedrock</li>
-  <li>Routing & transport</li>
-  <li>Streaming & caching</li>
-  <li>Model resolution & Copilot</li>
+  <li>Gemini &amp; Bedrock</li>
+  <li>Routing &amp; transport</li>
+  <li>Streaming &amp; caching</li>
+  <li>Model resolution &amp; Copilot</li>
   <li>Defining a tool</li>
   <li>The tool registry</li>
   <li>File tools</li>
-  <li>Search & exec tools</li>
+  <li>Search &amp; exec tools</li>
   <li>Other built-in tools</li>
   <li>Permissions</li>
   <li>Bounded tool output</li>
   <li>The skills system</li>
   <li>Loading config</li>
-  <li>Agents: build & plan</li>
+  <li>Agents: build &amp; plan</li>
   <li>MCP integration</li>
   <li>Provider plugins</li>
-  <li>Drizzle & SQLite</li>
+  <li>Drizzle &amp; SQLite</li>
   <li>The core tables</li>
-  <li>V1 storage & migration</li>
-  <li>Compaction & snapshots</li>
+  <li>V1 storage &amp; migration</li>
+  <li>Compaction &amp; snapshots</li>
   <li>The opentui renderer</li>
   <li>TUI app structure</li>
   <li>Events to store</li>
   <li>The prompt component</li>
-  <li>Dialogs & scrollback</li>
+  <li>Dialogs &amp; scrollback</li>
   <li>The plugin system</li>
   <li>Plugin hooks in depth</li>
   <li>LSP integration</li>
-  <li>PTY & shell</li>
-  <li>ACP & the Location model</li>
-  <li>Build & debug</li>
-  <li>Test & contribute</li>
-  <li>Glossary & index</li>
-  <li>Event sourcing & single-writer sync</li>
+  <li>PTY &amp; shell</li>
+  <li>ACP &amp; the Location model</li>
+  <li>Build &amp; debug</li>
+  <li>Test &amp; contribute</li>
+  <li>Glossary &amp; index</li>
+  <li>Event sourcing &amp; single-writer sync</li>
   <li>Slash commands</li>
   <li>http-recorder tape testing</li>
-  <li>Account & device-code OAuth</li>
+  <li>Account &amp; device-code OAuth</li>
   <li>Ecosystem tour</li>
 </ol></div>
 <section class="lesson-print">
@@ -1303,7 +1303,7 @@ Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
 </div>
 </section>
 <section class="lesson-print">
-<h1>Services & Layers</h1>
+<h1>Services &amp; Layers</h1>
 
 <p class="lead">Last lesson we said Effect puts "dependencies" into the type's <strong>R</strong> slot. But that's only half the story — declaring "I need Config" isn't enough; someone must <strong>actually hand a Config in</strong>. This lesson covers opencode's "declare deps, then inject deps" machinery: <strong>Service</strong> declares a capability slot, <strong>Layer</strong> wires that slot to a real implementation. Grasp these two words and the structure all over <span class="mono">packages/core</span> — "screens of <span class="mono">yield* XxxService</span>, assembled at the end with <span class="mono">Layer</span>" — clicks into place.</p>
 <p>This lesson is a bit "circular," because Service and Layer are a <strong>mutually-completing</strong> pair — neither is whole on its own. So we run the "socket and wiring" metaphor throughout: each new point, return to that picture and match it up. Master this pair and you hold the <strong>master key</strong> to reading <span class="mono">packages/core</span> — because nearly every module there, from Agent and Database to LLM and Tool, is cut from this same Service + Layer mold. Learn to read one and you've learned to read them all; conversely, if this pair isn't solid, every module feels "vaguely familiar yet unclear" — that stutter is the sign you haven't recognized the mold.</p>
@@ -1960,7 +1960,7 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
 </div>
 </section>
 <section class="lesson-print">
-<h1>Route groups & handlers</h1>
+<h1>Route groups &amp; handlers</h1>
 
 <p class="lead">Last lesson we stood at the door and saw the server's overall shape: one <span class="mono">webHandler</span>, with <strong>20 route groups</strong> behind it. This lesson we <strong>push the door open</strong> and zoom in on <strong>one group</strong> to see what it's made of. You'll find every opencode API endpoint splits in two: <strong>the "group" declares the contract</strong> (what this endpoint is called, what it wants, what it gives back, how it might fail), and <strong>the "handler" fulfils it</strong> (translating validated input into a call on core). Wrap a ring of <strong>middleware</strong> around them, and the three together make a request's full journey in and out. Grasp this lesson and you can take any API path and find, on your own, where it's declared and where it's implemented.</p>
 <p>Why split "declaration" from "implementation"? It's Lessons 5 and 6's worldview cashing out again: <strong>lift the contract to a visible, machine-readable place, and leave the chores in the implementation</strong>. The group is all types, not one line of business logic — because it's "pure," a machine can read it and generate the SDK from it (Lesson 12). The handler is all real calls, but it <strong>needn't worry about validation</strong> — whether input is legal, the group's types settle before the handler ever runs. Each side to its own job — that's the basic skeleton of opencode's routing layer.</p>
@@ -3111,7 +3111,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Via an internal Map<Key,Entry> (one Entry/lane per session): same session ID hits the same Entry → strung into one line; different IDs hit different Entries → each runs its own. A deluxe edition of Lesson 8's KeyedMutex.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Via an internal Map&lt;Key,Entry&gt; (one Entry/lane per session): same session ID hits the same Entry → strung into one line; different IDs hit different Entries → each runs its own. A deluxe edition of Lesson 8's KeyedMutex.</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -3152,7 +3152,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 <section class="lesson-print">
 <h1>The V2 agent loop</h1>
 
-<p class="lead">The past three lessons were like setting a stage: Lesson 14 met the actors (Session/Message/Part), Lesson 15 steadily filed the script into the inbox, Lesson 16's coordinator arranged who goes first and runs serially. Now <strong>the curtain rises</strong> — the coordinator calls <span class="mono">drain</span>, invoking <span class="mono">SessionRunner.run</span>, which is where opencode's brain <strong>truly "thinks."</strong> This lesson is about the core that makes an agent an agent: <strong>the loop that repeatedly advances "think → call tool → see result → think again."</strong> It's not one Q&A but an engine that iterates itself, fetches its own data, and decides on its own when to stop. Understand this lesson and you've touched the heart of opencode's intelligence.</p>
+<p class="lead">The past three lessons were like setting a stage: Lesson 14 met the actors (Session/Message/Part), Lesson 15 steadily filed the script into the inbox, Lesson 16's coordinator arranged who goes first and runs serially. Now <strong>the curtain rises</strong> — the coordinator calls <span class="mono">drain</span>, invoking <span class="mono">SessionRunner.run</span>, which is where opencode's brain <strong>truly "thinks."</strong> This lesson is about the core that makes an agent an agent: <strong>the loop that repeatedly advances "think → call tool → see result → think again."</strong> It's not one Q&amp;A but an engine that iterates itself, fetches its own data, and decides on its own when to stop. Understand this lesson and you've touched the heart of opencode's intelligence.</p>
 <p>Why does this loop deserve a whole lesson? Because the entire divide between an "agent" and a "chatbot" lives in it. A chatbot is <strong>one ask, one answer</strong>: you say a line, it replies, done. An agent is <strong>one goal, many self-driven rounds</strong>: you give a task and it <strong>repeatedly</strong> thinks a step, acts (reads a file, runs a command), checks the result, thinks the next step — until the task is done or it hits a boundary. This lesson unpacks that "self-driving loop": what it does each round, what keeps it from running wild, and how it wires in Lessons 15-16's steer/queue. This is Part 4's <strong>engine room</strong>.</p>
 
 <div class="card analogy">
@@ -3327,7 +3327,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 </div>
 </section>
 <section class="lesson-print">
-<h1>Tool calls & FiberSet</h1>
+<h1>Tool calls &amp; FiberSet</h1>
 
 <p class="lead">Last lesson we surveyed the agent loop from on high: "think→call tool→see result→think again." The "call tool" step was glossed over — "toss into a FiberSet, run concurrently, await all." This lesson, we <strong>crouch down and take that step apart to the bottom</strong>: how are tools "shown" to the model (and only the ones it's permitted)? How is one call actually executed and its result settled? What lets that <span class="mono">FiberSet</span> make a crowd of concurrent tools "either advance together or all be recalled on one command"? And, if the model is interrupted mid-tool-call, how is no half-built mess left behind? This lesson is the loop's <strong>engine room within the engine room</strong> — the precise machinery of tool execution.</p>
 <p>Why a whole lesson for "calling tools"? Because tools are the agent's <strong>hand reaching into the real world</strong>. The model itself only generates text; tools are what let it read files, edit code, run commands — but once it can "act," safety and correctness become paramount: a tool the model shouldn't use must never be shown to it; concurrently-running tools must be cleanly halt-able as a whole; an interruption mid-action must never tear the data in two; a huge output must not blow up the session history. This lesson sees how opencode uses <span class="mono">ToolRegistry</span>, <span class="mono">FiberSet</span>, and an interruption discipline to handle the risky business of "letting the model act safely" with steady poise.</p>
@@ -3633,7 +3633,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 </div>
 </section>
 <section class="lesson-print">
-<h1>Bounded steps & errors</h1>
+<h1>Bounded steps &amp; errors</h1>
 
 <p class="lead">Lesson 17's agent loop is powerful — it thinks and acts on its own drive. But the flip side of powerful is <strong>dangerous</strong>: it obeys a <strong>not-fully-trusted model</strong>, runs <strong>side-effectful tools</strong>, and may at any moment be halted by the user, hit a model error, or have the process crash. A loop that can edit your code and run your commands on its own, without brakes or guardrails, will cause trouble. This lesson, also Part 4's finale, is about the <strong>three safety guardrails</strong> opencode fits on this dangerous engine: it <strong>can't spin forever</strong> (bounded steps), <strong>can't fail silently</strong> (typed errors), and <strong>can't be interrupted into a mess</strong> (clean halt). To cover the loop completely, you must cover its "safety system" thoroughly.</p>
 <p>Why do guardrails deserve their own lesson, not just a mention within the loop? Because "making an agent safe" is far harder than "making it run." Running is stringing "think→act→see" together; safety must answer a string of "what ifs": what if the model loops forever, refusing to stop? what if a tool blows up? what if the user changes their mind mid-way? what if it crashes right when a tool is half-run? Each "what if" could leave the session in <strong>a middle state no one can read</strong>. This lesson sees how opencode plugs these "what ifs" one by one, so that however the loop ends — normal completion, hitting the cap, an error, an interruption, or a crash — it <strong>stops in a clean, self-consistent, recoverable state</strong>.</p>
@@ -3708,7 +3708,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
     <li><strong>Lesson 15</strong>: the event-sourced inbox — admit lands input steadily first.</li>
     <li><strong>Lesson 16</strong>: the run coordinator — drain serially within a session, concurrently across.</li>
     <li><strong>Lesson 17</strong>: the agent loop — bounded "think→act→see→think again."</li>
-    <li><strong>Lesson 18</strong>: tool calls & FiberSet — shown by permission, run concurrently, recallable.</li>
+    <li><strong>Lesson 18</strong>: tool calls &amp; FiberSet — shown by permission, run concurrently, recallable.</li>
     <li><strong>Lesson 19</strong>: projected history — events (ledger) projected into messages (statement), reread each round.</li>
     <li><strong>Lesson 20 · this one</strong>: safety guardrails — bounded steps, typed errors, clean halt.</li>
   </ul>
@@ -3723,7 +3723,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   <span class="kw">yield</span>* FiberSet.<span class="fn">clear</span>(toolFibers)          <span class="cm">// recall all tool fibers</span>
   <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">"interrupted"</span>)  <span class="cm">// mark unsettled as failed</span>
 }
-<span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> && !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// a tool really blew up</span>
+<span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> &amp;&amp; !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// a tool really blew up</span>
   <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${message}`</span>)
 }
 <span class="kw">if</span> (stream._tag === <span class="st">"Failure"</span>) <span class="kw">return</span> <span class="kw">yield</span>* Effect.<span class="fn">failCause</span>(stream.cause)  <span class="cm">// rethrow the error faithfully</span></pre>
@@ -3766,7 +3766,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. run returns Effect<void, RunError>, with RunError in the signature. Every failure (LLMError/StepLimit/MessageDecode…) is a visible, unavoidable branch, no landmine hidden in a throw. Lifting uncertainty from runtime fright to a compile-time checklist — which is itself excellent documentation.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. run returns Effect&lt;void, RunError&gt;, with RunError in the signature. Every failure (LLMError/StepLimit/MessageDecode…) is a visible, unavoidable branch, no landmine hidden in a throw. Lifting uncertainty from runtime fright to a compile-time checklist — which is itself excellent documentation.</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -3919,7 +3919,7 @@ load: Effect.Effect&lt;A | Unavailable&gt;</pre>
   </details>
 </div>
 <div class="quiz">
-  <div class="qn">3. What role does make<A>(source) play in this "source algebra"?</div>
+  <div class="qn">3. What role does make&lt;A&gt;(source) play in this "source algebra"?</div>
   <ol class="opts">
     <li>Store the source in a database</li>
     <li>Execute the source, causing side effects</li>
@@ -4244,7 +4244,7 @@ load: () =&gt; Effect.<span class="fn">gen</span>(<span class="kw">function</spa
   <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
   <ul>
     <li>The lesson says "anything to be compared or reproduced must not depend on incidental order" — concurrency's cost is uncertain completion order, which mustn't leak into the result. From your own concurrent code, give a pitfall where "order randomness leaked into the result, breaking reproducibility."</li>
-    <li>An Entry's load is Effect<SystemContext> (a description of "how to observe"), not a dead value. This makes each load() re-observe, getting the latest environment. If you instead stored a fixed value at registration time, what ability would you lose?</li>
+    <li>An Entry's load is Effect&lt;SystemContext&gt; (a description of "how to observe"), not a dead value. This makes each load() re-observe, getting the latest environment. If you instead stored a fixed value at registration time, what ability would you lose?</li>
   </ul>
 </div>
 </div>
@@ -4323,7 +4323,7 @@ load: () =&gt; Effect.<span class="fn">gen</span>(<span class="kw">function</spa
     <li><strong>Context changes also go through event sourcing</strong>: Updated isn't editing a field but publishing a ContextUpdated — system context's evolution is part of event sourcing.</li>
     <li><strong>baselineSeq closes Lesson 19</strong>: the epoch's nailed-down sequence is exactly history.load's history-window edge-trim line — the context system and session engine are stitched thereby.</li>
   </ul>
-  <p>But two things this lesson only named without unfolding: one, "environment changed, send a <span class="mono">ContextUpdated</span> update event" — in what form does the model read this update <strong>mid-conversation</strong>? That's <strong>Lesson 25 (mid-conversation messages)</strong>. Two, "switched agent, the epoch must re-establish and may be blocked" — what is this <span class="mono">AgentReplacementBlocked</span>, why block? That's <strong>Lesson 27 (agent switch & epoch replacement)</strong>. The epoch's "normal operation" covered, the remaining lessons cover its "two special moments": mid-conversation update, and changing of the guard.</p>
+  <p>But two things this lesson only named without unfolding: one, "environment changed, send a <span class="mono">ContextUpdated</span> update event" — in what form does the model read this update <strong>mid-conversation</strong>? That's <strong>Lesson 25 (mid-conversation messages)</strong>. Two, "switched agent, the epoch must re-establish and may be blocked" — what is this <span class="mono">AgentReplacementBlocked</span>, why block? That's <strong>Lesson 27 (agent switch &amp; epoch replacement)</strong>. The epoch's "normal operation" covered, the remaining lessons cover its "two special moments": mid-conversation update, and changing of the guard.</p>
 </div>
 
 <div class="card detail">
@@ -4640,7 +4640,7 @@ SystemContext.<span class="fn">make</span>({
     <li><strong>Wording distinction</strong>: baseline flat, update uses "now" to lightly flag "this is a change" — even the tone considers the model.</li>
     <li><strong>InstructionContext</strong>: project instructions like AGENTS.md are also an equal-footing source.</li>
   </ul>
-  <p>By here, system context's "normal state" is fully covered: abstraction (L21-23), landing in the session (L24), mid-conversation update (L25), concrete built-ins (this lesson). Part 5 has only the last and hardest puzzle piece left — the <span class="mono">AgentReplacementBlocked</span> Lesson 24 kept naming but never unpacked: <strong>when you switch an agent mid-way, what becomes of the context epoch belonging to the old agent? Why is "replacement" sometimes "blocked"?</strong> That's the next lesson, Part 5's finale — <strong>Agent switch & epoch replacement (Lesson 27)</strong>.</p>
+  <p>By here, system context's "normal state" is fully covered: abstraction (L21-23), landing in the session (L24), mid-conversation update (L25), concrete built-ins (this lesson). Part 5 has only the last and hardest puzzle piece left — the <span class="mono">AgentReplacementBlocked</span> Lesson 24 kept naming but never unpacked: <strong>when you switch an agent mid-way, what becomes of the context epoch belonging to the old agent? Why is "replacement" sometimes "blocked"?</strong> That's the next lesson, Part 5's finale — <strong>Agent switch &amp; epoch replacement (Lesson 27)</strong>.</p>
 </div>
 
 <div class="card detail">
@@ -4729,7 +4729,7 @@ SystemContext.<span class="fn">make</span>({
 </div>
 </section>
 <section class="lesson-print">
-<h1>Agent switch & epoch</h1>
+<h1>Agent switch &amp; epoch</h1>
 
 <p class="lead">All through Part 5, one name was repeatedly invoked yet never unpacked — <span class="mono">AgentReplacementBlocked</span>. Lesson 24 on epochs said "switching agent takes replace, may be blocked"; Lessons 25 and 26 twice teased "this is the finale's hard bone." Now, time to crack it. This lesson, also Part 5's finale, answers a question that sounds simple but is subtle to do: <strong>when you switch an agent mid-session, what becomes of the context epoch built for the old agent? Why is "replacement" sometimes "blocked"?</strong> The answer illuminates, at once, Lesson 21's seemingly-unremarkable <span class="mono">unavailable ≠ removed</span> principle and the whole system's character of "rather block than be incomplete." Reading it, you don't just understand an edge mechanism but touch opencode's near-stubborn prudence toward "foundational changes."</p>
 <p>Why is "switching agent" a hard bone needing careful handling? Because it demands <strong>rebuilding a complete baseline from scratch</strong>. Lesson 24 covered: a same agent's environment evolution takes <span class="mono">reconcile</span> (increment); but switch the agent and the old baseline's "persona" is wholly void, requiring <span class="mono">replace</span> — <strong>re-observe all sources, stitch a new baseline from scratch</strong>. And "stitch a complete baseline from scratch" has a strict precondition: <strong>all sources must be observable right now</strong>. What if a source happens to be temporarily down (Lesson 21's <span class="mono">unavailable</span>)? This lesson's whole tension lives in that "what if."</p>
@@ -4959,8 +4959,8 @@ SystemContext.<span class="fn">make</span>({
   <ul>
     <li><strong>Lesson 28 · this one</strong>: the master diagram — core speaks canonical (<span class="mono">LLMRequest</span>/<span class="mono">LLMEvent</span>), protocol adapters as the "translation wall"; protocol vs provider two layers.</li>
     <li><strong>Lesson 29</strong>: a protocol adapter's <strong>common skeleton</strong> — what "translation" duties a protocol must implement.</li>
-    <li><strong>Lessons 30-32</strong>: the three big dialects in detail — <strong>Anthropic</strong> (30), <strong>OpenAI</strong> Chat/Responses (31), <strong>Gemini & Bedrock</strong> (32).</li>
-    <li><strong>Lessons 33-35</strong>: routing & transport (33), streaming & caching (34), model resolution & Copilot (35).</li>
+    <li><strong>Lessons 30-32</strong>: the three big dialects in detail — <strong>Anthropic</strong> (30), <strong>OpenAI</strong> Chat/Responses (31), <strong>Gemini &amp; Bedrock</strong> (32).</li>
+    <li><strong>Lessons 33-35</strong>: routing &amp; transport (33), streaming &amp; caching (34), model resolution &amp; Copilot (35).</li>
   </ul>
   <p>Remember this lesson's core intuition: <strong>opencode's core forever speaks only one canonical language, fully isolating the dirty job of "interfacing with wildly different providers" into a protocol-adapter layer.</strong> This is a textbook practice of "anti-corruption layer / adapter pattern" on the "multi-model interfacing" dimension. Next lesson we approach the translation wall to see what "translation duties" make up a single protocol adapter inside.</p>
 </div>
@@ -5511,7 +5511,7 @@ OpenAICompatible.route = Route.make({ protocol: OpenAIChat.protocol, endpoint: <
 </div>
 </section>
 <section class="lesson-print">
-<h1>Gemini & Bedrock</h1>
+<h1>Gemini &amp; Bedrock</h1>
 
 <p class="lead">Lessons 30 and 31 looked at Anthropic's and OpenAI's "filled-in forms." This lesson covers two more vendors at once—Gemini and Bedrock—each bringing a new dimension of insight. <strong>Gemini</strong> is another variation on the "dialect" theme: it renames nearly every field (Google's camelCase style), and gives "reasoning signature" a <strong>third name</strong>—so now three big vendors, three names; you'll smile knowingly when you see this "same thing, different names" table. But <strong>Bedrock</strong> is this lesson's real star, revealing something profound: <strong>the same Claude, run on AWS Bedrock, needs a separately written protocol</strong>—not because the dialect changed (it still speaks Anthropic's blocks+signature), but because the <strong>"network transport" changed entirely</strong>: Bedrock doesn't use the familiar SSE but AWS's own <strong>binary event stream</strong>. This exactly confirms lesson 31's closing line: "same dialect, different network—still needs another protocol."</p>
 <p>So this lesson really covers two things. On the surface, getting to know Gemini's and Bedrock's two new dialects; underneath, using Bedrock as a perfect sample to see that beneath lesson 29's form's <span class="mono">stream</span> hides yet another layer—<strong>framing</strong>. protocol owns "frame→event," but how is a frame itself cut from the byte stream? SSE's "split on blank line" is so simple you didn't even notice its existence; but Bedrock's binary framing <strong>solidly displays</strong> this "byte→frame" state machine for you. After reading you'll find: streaming decode is a <strong>nesting doll</strong>—byte→frame is one state machine, frame→event is another.</p>
@@ -5666,7 +5666,7 @@ OpenAICompatible.route = Route.make({ protocol: OpenAIChat.protocol, endpoint: <
 </div>
 </section>
 <section class="lesson-print">
-<h1>Routing & transport</h1>
+<h1>Routing &amp; transport</h1>
 
 <p class="lead">Lessons 29–32, we walked through all six protocols' "dialects." But did you notice something: <strong>from start to finish, a protocol never touches the network</strong>. It only handles "what to encode the request into, what to decode the response into"—purely <strong>language-layer</strong> work. But the message has to actually go out, the bytes have to actually come back, right? This lesson's star is the <strong>conveyor belt that actually carries bytes</strong> beneath the protocol: transport, framing, endpoint, auth. Together with the protocol, they're assembled by <span class="mono">Route</span> into one complete pipeline. After this lesson, lesson 29's "two-column form" gets <strong>powered up and spinning</strong> for the first time—you'll see a request's <strong>full journey</strong> from canonical object through encoding, addressing, signing, going on the wire, framing, decoding, finally back into a stream of canonical events.</p>
 <p>More importantly, this lesson reveals the <strong>final form</strong> of opencode's design: a <span class="mono">Route</span> isn't monolithic but assembled from what the source calls the <strong>four orthogonal pieces</strong>—protocol, endpoint, auth, framing—<strong>plus an id</strong>. Each piece is independently swappable. (The "transport" HTTP/WebSocket choice isn't a separate fifth piece but an extension of the framing axis: in the common HTTP case you pass only <span class="mono">framing</span> and the Route builds an HTTP transport from it; for WebSocket you supply a <span class="mono">transport</span> in place of framing.) That's exactly why lesson 31's "OpenAI-compatible only changes the endpoint" and lesson 32's "Bedrock only swaps framing" could be done so lightly, as "<strong>swap one piece, leave the rest</strong>." This lesson lays these pieces out in a row to show you the full picture of this <strong>building-block</strong> architecture.</p>
@@ -5716,7 +5716,7 @@ OpenAICompatible.route = Route.make({ protocol: OpenAIChat.protocol, endpoint: <
 <h2>Four orthogonal pieces: the building-block Route</h2>
 <p>Combine this lesson with the prior ones and the <strong>final form</strong> of opencode's LLM layer is clear—<span class="mono">Route.make</span>'s source comment spells it out: a <span class="mono">Route</span> is assembled from <strong>four orthogonal pieces</strong>, plus an id.</p>
 <div class="cellgroup">
-  <div class="cell"><div class="c-tag">id</div><div class="c-txt">route identity, for diagnostics & resolution</div></div>
+  <div class="cell"><div class="c-tag">id</div><div class="c-txt">route identity, for diagnostics &amp; resolution</div></div>
   <div class="cell"><div class="c-tag">protocol</div><div class="c-txt">dialect codec (body.from + stream.step)</div></div>
   <div class="cell"><div class="c-tag">endpoint</div><div class="c-txt">which URL to hit</div></div>
   <div class="cell"><div class="c-tag">auth</div><div class="c-txt">how to sign/authenticate</div></div>
@@ -5818,13 +5818,13 @@ Route.<span class="fn">make</span>({
   <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
   <ul>
     <li>The lesson explains OpenAI Responses supporting both HTTP and WebSocket as "use whichever transport is worthwhile, making the choice a turnable knob," not "adopt WebSocket to be trendy." Weighing HTTP (stateless, carefree, universal) against WebSocket (bidirectional, real-time, but must manage keepalive/reconnect), discuss when you'd choose WebSocket and when you'd stick with HTTP. Making transport a "knob" rather than hardcoded leaves what headroom for the future?</li>
-    <li>The lesson stresses "orthogonal doesn't mean lawless": the orthogonal pieces combine freely, but the type parameter Frame forces alignment at the framing/protocol seam (SSE cuts string frames, so its protocol.stream.event must be Codec<Event, string>). Discuss the advantage of "guarding a module seam with the type system" over "preventing mismatches via documentation/code review." Which seam in your own project also deserves type-enforced (not verbal) alignment?</li>
+    <li>The lesson stresses "orthogonal doesn't mean lawless": the orthogonal pieces combine freely, but the type parameter Frame forces alignment at the framing/protocol seam (SSE cuts string frames, so its protocol.stream.event must be Codec&lt;Event, string&gt;). Discuss the advantage of "guarding a module seam with the type system" over "preventing mismatches via documentation/code review." Which seam in your own project also deserves type-enforced (not verbal) alignment?</li>
   </ul>
 </div>
 </div>
 </section>
 <section class="lesson-print">
-<h1>Streaming & caching</h1>
+<h1>Streaming &amp; caching</h1>
 
 <p class="lead">This lesson is M6's "knot-tying" lesson—it ties several threads running through the whole book into firm knots here. First knot: when lesson 28 covered the "anti-corruption layer," we saw the canonical language <span class="mono">LLMRequest</span> core sends <strong>out</strong>; this lesson fills in the other half coming <strong>back</strong>—the <strong>canonical event stream <span class="mono">LLMEvent</span></strong>, the unified vocabulary that the six protocols' <span class="mono">stream.step</span> labor to <strong>translate into</strong>, and exactly what lesson 17's agent loop actually <strong>consumes</strong>. The second knot is even neater: lesson 24's Context Epoch works hard to keep the "baseline prefix stable," lesson 30's Anthropic has a "4 cache-breakpoint budget"—this lesson's <span class="mono">cache-policy.ts</span> tells you <strong>exactly where those 3 auto cache breakpoints land and why</strong>, thereby <strong>connecting, right before your eyes</strong>, the last wire between "stable prefix" and "saving money."</p>
 <p>So this lesson has two themes, matching exactly one trip out and one back: the <strong>"canonical event stream" coming back</strong> (LLMEvent, the inbound half of the anti-corruption layer) and the <strong>"auto cache policy" going out</strong> (cache-policy, caching the stable prefix). The two seem unrelated, but share a deep theme—<strong>collecting design intentions scattered across lessons into one concrete place to cash in</strong>. After reading, you'll feel the satisfaction of "so all those earlier pains were for this moment."</p>
@@ -5978,7 +5978,7 @@ Route.<span class="fn">make</span>({
 </div>
 </section>
 <section class="lesson-print">
-<h1>Model resolution & Copilot</h1>
+<h1>Model resolution &amp; Copilot</h1>
 
 <p class="lead">This is M6's <strong>finale</strong>. Over the prior six lessons, we walked from the "anti-corruption layer" overview (L28) through the protocol skeleton (L29), four dialects (L30–32), transport's building blocks (L33), event stream and caching (L34). But one plain question lingered unanswered: <strong>when a user types a model name in the UI (say <span class="mono">anthropic/claude-sonnet</span>), how does opencode resolve that string all the way to "which Route to ride, which pieces to set, what price, what limits"?</strong> This lesson fills in that "from a name to a configured pipeline" resolution thread. And taking the final bow is <strong>GitHub Copilot</strong>—an "ultimate sample" that collects all six prior lessons' threads: it reuses OpenAI's protocol (even its very Route) yet brings its own distinctive auth, the last and most beautiful display of the "building-block architecture"'s power.</p>
 <p>This lesson clarifies two things. One, opencode <strong>doesn't hardcode model facts in code</strong>, but <strong>fetches models.dev, a community-maintained "model encyclopedia"</strong>—whether a model supports tool calling, how big its context is, the price of input/output, the discount on cache read/write… all from this external catalog. Two, <strong>catalog</strong> turns this directory into a queryable in-memory structure, enabling the "model name → a configured Route" resolution. Understand these two and the whole LLM loop—"core speaks canonical → adapters translate dialects → transport delivers → events come back → caching saves money"—is <strong>fully closed</strong>.</p>
@@ -6069,7 +6069,7 @@ Route.<span class="fn">make</span>({
     <li><strong>L28 anti-corruption layer</strong>: core speaks only canonical (LLMRequest out / LLMEvent back), adapters wall off with translation.</li>
     <li><strong>L29 protocol skeleton</strong>: every protocol fills the same "two-column form" (body request side + stream response-side state machine).</li>
     <li><strong>L30–32 four dialects</strong>: Anthropic (blocks + cache budget), OpenAI (Chat/Responses dual protocol + 24-line ecosystem free-ride), Gemini+Bedrock (renamed dialect + binary transport / nesting-doll state machine).</li>
-    <li><strong>L33 transport & building blocks</strong>: a Route is assembled from four orthogonal pieces (protocol/endpoint/auth/framing) + id, orthogonal and composable (the HTTP/WS transport choice is an extension of the framing axis).</li>
+    <li><strong>L33 transport &amp; building blocks</strong>: a Route is assembled from four orthogonal pieces (protocol/endpoint/auth/framing) + id, orthogonal and composable (the HTTP/WS transport choice is an extension of the framing axis).</li>
     <li><strong>L34 events and caching</strong>: LLMEvent (inbound canonical vocabulary, completing the translation wall) + cache-policy (cache the stable prefix, connecting Context Epoch).</li>
     <li><strong>L35 resolution and Copilot</strong>: models.dev (externalized model encyclopedia, factual bedrock) → catalog (model name → configured Route); Copilot reuses OpenAI's Route, swapping only endpoint+auth, sealing this building-block architecture.</li>
   </ul>
@@ -6260,7 +6260,7 @@ Schema.<span class="fn">decodeUnknownEffect</span>(config.input)(call.input).pip
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Tool.make(config) (core/src/tool/tool.ts) is the sole entry to defining a tool. Config's core three are input/output/execute: declaring "what it takes, produces, how it computes," with execute's signature (input, context) => Effect<output, ToolFailure> typed I/O and errors-as-values. Same design philosophy as lesson 29's "every protocol fills the two-column form" — nail the commonality into one form, each instance just fills blanks. read/bash/grep, wildly different, all fill this same Config.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. Tool.make(config) (core/src/tool/tool.ts) is the sole entry to defining a tool. Config's core three are input/output/execute: declaring "what it takes, produces, how it computes," with execute's signature (input, context) => Effect&lt;output, ToolFailure&gt; typed I/O and errors-as-values. Same design philosophy as lesson 29's "every protocol fills the two-column form" — nail the commonality into one form, each instance just fills blanks. read/bash/grep, wildly different, all fill this same Config.</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -6293,7 +6293,7 @@ Schema.<span class="fn">decodeUnknownEffect</span>(config.input)(call.input).pip
   <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
   <ul>
     <li>The lesson says settle emits two copies—structured (the structured value filed for the system) and content (text/file read by the model)—deliberately decoupled: "what the system records" and "what the model should see" are often not the same (e.g. file-read: structured has byte counts/line numbers/encoding, the model needs only the content). From an interface you've designed, discuss why this dual output of "detailed inward, concise outward for the same operation's result" is useful. How would it cooperate with lesson 42's "bounded tool output"?</li>
-    <li>The lesson likens a tool's execute signature (input, context) => Effect<output, ToolFailure> to lesson 29's protocol "two-column form," both "nailing a category's commonality into one form so each instance just fills blanks." Give two more examples you know of unifying a family of implementations via "the same form/interface, each filling blanks" (e.g. plugin systems, web middleware, database drivers). Versus "each implementation doing its own thing," what does "defining one common shape" buy for adding, testing, and reuse respectively?</li>
+    <li>The lesson likens a tool's execute signature (input, context) => Effect&lt;output, ToolFailure&gt; to lesson 29's protocol "two-column form," both "nailing a category's commonality into one form so each instance just fills blanks." Give two more examples you know of unifying a family of implementations via "the same form/interface, each filling blanks" (e.g. plugin systems, web middleware, database drivers). Versus "each implementation doing its own thing," what does "defining one common shape" buy for adding, testing, and reuse respectively?</li>
   </ul>
 </div>
 </div>
@@ -6345,7 +6345,7 @@ Schema.<span class="fn">decodeUnknownEffect</span>(config.input)(call.input).pip
   <div class="col"><h4>materialize · materialization (immutable)</h4><p>A <strong>snapshot</strong> taken at one moment + permission filter + identity freeze; it asks "<strong>this turn, which the model should see and can call</strong>." Once printed, unchanging this turn.</p></div>
 </div>
 
-<h2>Dispatch & anti-forgery: settle's "stale dish" interception</h2>
+<h2>Dispatch &amp; anti-forgery: settle's "stale dish" interception</h2>
 <p>The menu's printed, the model orders a dish (initiates a tool call), and <span class="mono">settle</span> handles <strong>dispatch + execution + cleanup</strong>. This chain collects all the prior lessons' planted seeds:</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">①find</span><span class="t-txt">by call.name find the stack-top registration (or in applications)</span></div>
@@ -6369,7 +6369,7 @@ Schema.<span class="fn">decodeUnknownEffect</span>(config.input)(call.input).pip
   <p>The register/materialize line cleanly cuts "which tools exist" from "which this turn sees," giving permissions (lesson 41) and bounded output (lesson 42) clear mount points. So where do these built-in tools "check in"? The answer is <span class="mono">locationLayer</span> in <span class="mono">builtins.ts</span>—it uses <span class="mono">Layer.mergeAll</span> to merge all shipped built-in tools' layers into one, each tool's layer <strong>self-registering</strong> into the registry as it's assembled:</p>
   <div class="cellgroup">
     <div class="cell"><div class="c-tag">file</div><div class="c-txt">read / write / edit / apply-patch (lesson 38)</div></div>
-    <div class="cell"><div class="c-tag">search & exec</div><div class="c-txt">glob / grep / bash (lesson 39)</div></div>
+    <div class="cell"><div class="c-tag">search &amp; exec</div><div class="c-txt">glob / grep / bash (lesson 39)</div></div>
     <div class="cell"><div class="c-tag">other</div><div class="c-txt">webfetch / websearch / question / todowrite (lesson 40)</div></div>
     <div class="cell"><div class="c-tag">Skills</div><div class="c-txt">skill (lesson 43, a permissioned special tool)</div></div>
   </div>
@@ -6409,14 +6409,14 @@ Effect.<span class="fn">addFinalizer</span>(() =&gt; {
 <div class="quiz">
   <div class="qn">1. How does the tool registry's register manage a tool's "existence"?</div>
   <ol class="opts">
-    <li>A global Map<name,tool>, new registration overwrites old, never restored</li>
+    <li>A global Map&lt;name,tool&gt;, new registration overwrites old, never restored</li>
     <li>Scope binding + same-name stacking: registration installs addFinalizer, scope close→auto-revoke by token; same-name takes .at(-1) latest on shift, the covered one auto-restores on revoke</li>
     <li>Once registered a tool exists forever</li>
     <li>Writes tools into a database, manually added/removed</li>
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. local is Map<name, registration array> — same-name stacks up. register generates a unique token, pushes the registration, and addFinalizer: scope close precisely pulls this call's registration by token, deletes the name if empty, the rest auto-surfaces. So "a tool's existence lives and dies with its scope, overrides auto-restore" — the moment a plugin unloads (scope closes), its override vanishes and the built-in restores, no manual unregister. An extension of lesson 23's acquireRelease "weld cleanup onto acquisition." Push+finalizer also wrapped in uninterruptible for atomicity.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. local is Map&lt;name, registration array&gt; — same-name stacks up. register generates a unique token, pushes the registration, and addFinalizer: scope close precisely pulls this call's registration by token, deletes the name if empty, the rest auto-surfaces. So "a tool's existence lives and dies with its scope, overrides auto-restore" — the moment a plugin unloads (scope closes), its override vanishes and the built-in restores, no manual unregister. An extension of lesson 23's acquireRelease "weld cleanup onto acquisition." Push+finalizer also wrapped in uninterruptible for atomicity.</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -6497,7 +6497,7 @@ Effect.<span class="fn">addFinalizer</span>(() =&gt; {
   <div class="t-row"><span class="t-num">②ask permission</span><span class="t-txt">permission.assert(...): is this file allowed to change? (lesson 41)</span></div>
   <div class="t-row"><span class="t-num">③read source</span><span class="t-txt">readFile + decodeUtf8 (handle BOM)</span></div>
   <div class="t-row"><span class="t-num">④normalize line ending</span><span class="t-txt">detect file's \n or \r\n, convert old/new to the same</span></div>
-  <div class="t-row"><span class="t-num">⑤count matches</span><span class="t-txt">countOccurrences: 0→reject "not found"; &gt;1 & not replaceAll→reject "ambiguous"</span></div>
+  <div class="t-row"><span class="t-num">⑤count matches</span><span class="t-txt">countOccurrences: 0→reject "not found"; &gt;1 &amp; not replaceAll→reject "ambiguous"</span></div>
   <div class="t-row"><span class="t-num">⑥replace</span><span class="t-txt">replaceAll ? replace all : replace first</span></div>
   <div class="t-row"><span class="t-num">⑦optimistic write</span><span class="t-txt">writeIfUnchanged(expected=just-read bytes): reject if someone changed it</span></div>
 </div>
@@ -6530,7 +6530,7 @@ Effect.<span class="fn">addFinalizer</span>(() =&gt; {
     <li><strong>edit's four guardrails</strong>: exact match (no fuzzy), ambiguity refusal (multiple matches, no guessing), line-ending normalization (\n↔\r\n), optimistic-concurrency write (<span class="mono">writeIfUnchanged</span> doesn't clobber). Only one line actually "replaces," the rest all guardrails.</li>
     <li><strong>Path boundary</strong>: resolved relative to "active Location"; external absolute paths need <span class="mono">external_directory</span> approval. A security fence keeping the agent within its workspace by default.</li>
   </ul>
-  <p>This lesson's main theme—"letting AI safely change code, the difficulty is in guardrails not replacement"—runs through all of M7. The next lesson (39) turns to <strong>search & exec tools</strong>: <span class="mono">glob</span> (find files by name), <span class="mono">grep</span> (search by content), <span class="mono">bash</span> (run commands)—where bash runs via spawned subprocess (batch), another ring of fine guardrails (note: bash does NOT use PTY, the next lesson clarifies). Reading files, searching files, running commands are a coding agent's three basic skills; these two lessons cover the first two thoroughly.</p>
+  <p>This lesson's main theme—"letting AI safely change code, the difficulty is in guardrails not replacement"—runs through all of M7. The next lesson (39) turns to <strong>search &amp; exec tools</strong>: <span class="mono">glob</span> (find files by name), <span class="mono">grep</span> (search by content), <span class="mono">bash</span> (run commands)—where bash runs via spawned subprocess (batch), another ring of fine guardrails (note: bash does NOT use PTY, the next lesson clarifies). Reading files, searching files, running commands are a coding agent's three basic skills; these two lessons cover the first two thoroughly.</p>
 </div>
 
 <div class="card detail">
@@ -6556,7 +6556,7 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
   <ul>
     <li><strong>Four file tools</strong> (<span class="mono">core/src/tool/{read,write,edit,apply-patch}.ts</span>) cover the change spectrum: <span class="mono">read</span> (read-only/paging/directory listing), <span class="mono">write</span> (whole-file overwrite), <span class="mono">edit</span> (exact find-replace), <span class="mono">apply_patch</span> (multi-file batch add/update/delete). All different fillings of lesson 36's <span class="mono">Config</span> form + <span class="mono">withPermission</span>.</li>
     <li><strong>edit's execution is a guardrail pipeline</strong>: ①validate (old==new/empty→reject) ②permission.assert ③read+decodeUtf8(BOM) ④normalize line endings (\n↔\r\n) ⑤count matches ⑥replace ⑦optimistic write. Only step ⑥, one line, actually replaces.</li>
-    <li><strong>edit's four guardrails</strong>: exact match (incl. spaces/indentation, not found → reject); ambiguity refusal (multiple matches & not replaceAll → stop and ask, no guessing for the model); auto line-ending normalization (avoiding false mismatches); <strong>optimistic-concurrency write</strong>.</li>
+    <li><strong>edit's four guardrails</strong>: exact match (incl. spaces/indentation, not found → reject); ambiguity refusal (multiple matches &amp; not replaceAll → stop and ask, no guessing for the model); auto line-ending normalization (avoiding false mismatches); <strong>optimistic-concurrency write</strong>.</li>
     <li><strong><span class="mono">writeIfUnchanged(expected=read bytes)</span> = compare-and-swap</strong>: write only if disk content still equals what was originally read, else reject—locking "read-modify-write" concurrency risk into an atomic operation, preventing lost updates (optimistic concurrency control OCC, no pessimistic lock).</li>
     <li><strong>Paths resolve relative to "active Location"</strong>, external absolute paths need <span class="mono">external_directory</span> approval (security fence). All "rejections" go through <span class="mono">ToolFailure</span> back to the model; the error message is the model's operating guide.</li>
   </ul>
@@ -6613,7 +6613,7 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
 </div>
 </section>
 <section class="lesson-print">
-<h1>Search & exec tools</h1>
+<h1>Search &amp; exec tools</h1>
 
 <p class="lead">Last lesson covered the agent's four hands for changing files. But before changing, you must <strong>find</strong> what to change; many tasks also need to <strong>run a command</strong> and see results (install deps, run tests, git status). This lesson's three tools are a coding agent's other two basic skills: <strong>search</strong> and <strong>execute</strong>. <span class="mono">glob</span> (find by filename), <span class="mono">grep</span> (search by file content), <span class="mono">bash</span> (run shell commands). The first two are "<strong>eyes</strong>"—quickly locating in the codebase; the last is the "<strong>universal hand</strong>"—it can do the odd jobs the specialized tools above can't, but for that very reason has <strong>the most power and the most guardrails</strong>.</p>
 <p>This lesson shows an interesting contrast: <strong>specialized vs general</strong>. glob/grep are <strong>specialized</strong> tools—making the high-frequency "search" into two fast, stable, bounded narrow interfaces (both backed by ripgrep); bash is the <strong>general escape hatch</strong>—it has "the host user's filesystem, process, and network authority," near-omnipotent, so opencode wraps it in a whole ring of seatbelts: <strong>time-limited, volume-limited, doubly-permissioned, force-terminable</strong>. I'll also clear up a common misconception—<strong>the bash tool does NOT run via "PTY (pseudo-terminal)"</strong>; PTY is separate infrastructure for "interactive terminals," a different thing from the "run a command, get results" bash tool. Clearing this up sharpens your boundary between "batch execution" and "interactive terminal."</p>
@@ -6753,14 +6753,14 @@ spawn(command, { cwd, shell, stdin: <span class="st">"ignore"</span>,
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. A common misconception. The bash tool executes via AppProcess.run, underneath ChildProcessSpawner (a cross-platform wrapper over child_process/spawn) — a batch model of "launch child process, run, collect stdout/stderr," not a pseudo-terminal. pty/* (Proc.onData/write/resize) is separate: for interactive terminals (lesson 10's pty/pty-connect routes, lesson 33's WebSocketTracker), letting a human open a live typeable shell in the UI. The model needs deterministic batch (Q&A), not a live stream that spits characters and awaits input (so stdin is ignore). Two interaction models, two mechanisms, an honest split rather than forced unification.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. A common misconception. The bash tool executes via AppProcess.run, underneath ChildProcessSpawner (a cross-platform wrapper over child_process/spawn) — a batch model of "launch child process, run, collect stdout/stderr," not a pseudo-terminal. pty/* (Proc.onData/write/resize) is separate: for interactive terminals (lesson 10's pty/pty-connect routes, lesson 33's WebSocketTracker), letting a human open a live typeable shell in the UI. The model needs deterministic batch (Q&amp;A), not a live stream that spits characters and awaits input (so stdin is ignore). Two interaction models, two mechanisms, an honest split rather than forced unification.</div></div></div>
   </details>
 </div>
 <div class="card spark">
   <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
   <ul>
     <li>The lesson splits tools into "specialized" (glob/grep, making high-frequency things narrow and fast) and "general" (bash, the full-authority escape hatch), with the principle "greater power, stricter guardrails." From a system you've designed or used, discuss this principle's manifestations (sudo, double-confirmation for dangerous APIs, write permission in production). What are the pros/cons of one "do-anything" general interface versus a set of "each minds its own" specialized interfaces?</li>
-    <li>The lesson stresses opencode uses two different mechanisms for "run commands for the model" (batch spawn) and "open a terminal for a human" (PTY streaming, typeable), refusing to force one onto the other interaction. Argue: why are "real-time interactive" and "deterministic batch" essentially different needs? Contrasting the model's "think-act" rhythm (Q&A) with a human watching a terminal (wants real-time, Ctrl-C, typing y), explain why each needs a different execution model.</li>
+    <li>The lesson stresses opencode uses two different mechanisms for "run commands for the model" (batch spawn) and "open a terminal for a human" (PTY streaming, typeable), refusing to force one onto the other interaction. Argue: why are "real-time interactive" and "deterministic batch" essentially different needs? Contrasting the model's "think-act" rhythm (Q&amp;A) with a human watching a terminal (wants real-time, Ctrl-C, typing y), explain why each needs a different execution model.</li>
   </ul>
 </div>
 </div>
@@ -6829,7 +6829,7 @@ spawn(command, { cwd, shell, stdin: <span class="st">"ignore"</span>,
     <li><strong>Still the same Config form</strong>: each tool declares input/output schema + execute, wrapped in permission—again confirming lesson 36's "one form, each fills blanks," only the "hand" reaches toward network, people, self.</li>
     <li><strong>Capability = the world the hands can touch</strong>: an agent that can only change local files is stumped by "how to use the latest API"; an agent that can search, ask, and plan is a reliable collaborator.</li>
   </ul>
-  <p>By here, opencode's <strong>built-in tool family</strong> is complete: file (read/write/edit/apply-patch), search & exec (glob/grep/bash), network & collaboration (webfetch/websearch/question/todowrite), plus lesson 43's skill later. The next lesson (41) turns back to a cross-cutting line running through all tools—the <strong>permission system</strong>: the <span class="mono">withPermission</span> / <span class="mono">permission.assert</span> appearing in every tool above—how it evaluates, and how it hands the "may this step be done" decision back to the user. Tools cover "what can be done," permissions cover "what's allowed"—the former is capability, the latter the boundary; together they make an agent both useful and controllable.</p>
+  <p>By here, opencode's <strong>built-in tool family</strong> is complete: file (read/write/edit/apply-patch), search &amp; exec (glob/grep/bash), network &amp; collaboration (webfetch/websearch/question/todowrite), plus lesson 43's skill later. The next lesson (41) turns back to a cross-cutting line running through all tools—the <strong>permission system</strong>: the <span class="mono">withPermission</span> / <span class="mono">permission.assert</span> appearing in every tool above—how it evaluates, and how it hands the "may this step be done" decision back to the user. Tools cover "what can be done," permissions cover "what's allowed"—the former is capability, the latter the boundary; together they make an agent both useful and controllable.</p>
 </div>
 
 <div class="card detail">
@@ -7266,7 +7266,7 @@ Ruleset = Rule[]</pre>
   <div class="cell"><div class="c-tag">uses the registry (L37)</div><div class="c-txt">the skill tool self-registers in locationLayer via SkillTool.layer</div></div>
   <div class="cell"><div class="c-tag">uses permissions (L41)</div><div class="c-txt">the skill tool calls permission.assert(action: skill) internally—loading a skill needs permission too</div></div>
   <div class="cell"><div class="c-tag">uses read etc. (L38)</div><div class="c-txt">the body's referenced scripts/files are fetched by the general read tool</div></div>
-  <div class="cell"><div class="c-tag">discovery & download</div><div class="c-txt">SkillDiscovery indexes from a directory, and can download skills from a URL</div></div>
+  <div class="cell"><div class="c-tag">discovery &amp; download</div><div class="c-txt">SkillDiscovery indexes from a directory, and can download skills from a URL</div></div>
 </div>
 <p>From this table you see why Skills is M5+M7's <strong>meeting point</strong>: it has one foot in "system context" (M5, deciding what world the model sees) and one in "the tool system" (M7, deciding what the model can do). A skill is <strong>half-context, half-tool</strong>—its name half is context, its body half is a tool. This "spanning two major subsystems" design shows Skills isn't yet another isolated feature but a <strong>higher-level reuse mechanism built atop all the prior abstractions</strong>. And precisely because the underlying parts (tools isomorphic, context composable, permissions stackable) are all polished, Skills can stitch them together so lightly—<strong>a good high-level abstraction often isn't conjured from nothing but "grows" naturally once the lower parts are solid enough.</strong> Incidentally, <span class="mono">SkillDiscovery</span> can also index skills from a directory, even download them from a URL—skills aren't hardcoded but <strong>discoverable, distributable, extensible</strong> content, making "adding a competence to the agent" something the community can join in.</p>
 <div class="flow">
@@ -7339,7 +7339,7 @@ Ruleset = Rule[]</pre>
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. The skill tool itself doesn't work, only hands out the handbook. toModelOutput injects <skill_content>: the instruction body + base directory URL + <skill_files> list. So a skill = "a manual + a folder holding scripts/materials." The actual work that follows is done by the model using its existing general tools — read for scripts under scripts/, bash to run, edit to change. A beautiful division of labor: the skill puts the right script in hand, executing it still uses M7's general hands. The model already knows these tools (what it can do is fixed); what it lacks is "in what order, with what tricks to organize them" — exactly the methodology the skill body carries.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. The skill tool itself doesn't work, only hands out the handbook. toModelOutput injects &lt;skill_content&gt;: the instruction body + base directory URL + &lt;skill_files&gt; list. So a skill = "a manual + a folder holding scripts/materials." The actual work that follows is done by the model using its existing general tools — read for scripts under scripts/, bash to run, edit to change. A beautiful division of labor: the skill puts the right script in hand, executing it still uses M7's general hands. The model already knows these tools (what it can do is fixed); what it lacks is "in what order, with what tricks to organize them" — exactly the methodology the skill body carries.</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -7508,14 +7508,14 @@ Ruleset = Rule[]</pre>
 <div class="card spark">
   <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
   <ul>
-    <li>The lesson groups opencode's config cascade (global default < project < closer-to-cwd) with CSS cascade, .gitconfig (system<global<local), editorconfig as the same "layered closer-overrides" mechanism. Distill this class's common structure (multiple ordered sources, closer/more-specific overrides, per-item resolution), and discuss why it beats both "a single global config" and "independent config everywhere." What's its cost (cognitive load, source debugging)?</li>
+    <li>The lesson groups opencode's config cascade (global default < project < closer-to-cwd) with CSS cascade, .gitconfig (system&lt;global&lt;local), editorconfig as the same "layered closer-overrides" mechanism. Distill this class's common structure (multiple ordered sources, closer/more-specific overrides, per-item resolution), and discuss why it beats both "a single global config" and "independent config everywhere." What's its cost (cognitive load, source debugging)?</li>
     <li>The lesson stresses this config system's "explainability": keeping ordered sources and adjudicating per-key keeps each item's source always traceable, avoiding "source is a mystery." From config systems you've maintained (env-var layering, k8s multi-layer values, build-tool config), discuss what trouble "config source hard to trace" caused you. How should a system be designed so that, while merging multi-source config, it still lets you answer "where exactly does this value come from" anytime?</li>
   </ul>
 </div>
 </div>
 </section>
 <section class="lesson-print">
-<h1>Agents: build & plan</h1>
+<h1>Agents: build &amp; plan</h1>
 
 <p class="lead">Last lesson's config gathered, validated, and composed "what the user wants" into one effective config. This lesson fixes on its most core cell—<span class="mono">agents</span>—to see <strong>what an "agent" actually is</strong>, and how it becomes a runnable role from config. You might think "agent" is something mystical, but opencode defines it strikingly plainly: <strong>an agent is a bundle of "role config"</strong>—which model (brain), what system prompt (instructions), which permissions (what it can do), how it runs (mode/step cap). Bundle these, give it a name, and that's an agent. This "reduce the complex into a config" approach is itself worth savoring: it means "<strong>agent</strong>" isn't an object you must write code to new up, but data that can be <strong>declared, configured, customized by the user at will</strong>. Want a "test-writing agent" or a "security-review agent"? No need to change a line of opencode source—just add a role card to the config.</p>
 <p>This lesson's most illuminating part is opencode's two built-in agents: <strong><span class="mono">build</span> and <span class="mono">plan</span></strong>—the best sample for understanding the whole agent abstraction. <strong>build</strong> is the default all-around coding agent, able to edit files, run commands, do anything; <strong>plan</strong> is "plan mode," able to read, search, think, <strong>yet forbidden from touching any code</strong> (allowed only to write plan files). The cleverest part: <strong>build and plan use the same agent machinery, the same model and tools, and the only difference is almost entirely in the "permission profile."</strong> This beautifully connects lesson 41's permissions with this lesson's agent—<strong>swap a permission set, and the same agent engine lives as a different role</strong>. Grasp build vs plan and you'll understand "why the agent abstraction is, at heart, a named packaging of 'brain + hands + a permit.'"</p>
@@ -7997,7 +7997,7 @@ sdks.<span class="fn">set</span>(sdkKey, sdk)               <span class="cm">// 
 </div>
 </section>
 <section class="lesson-print">
-<h1>Drizzle & SQLite</h1>
+<h1>Drizzle &amp; SQLite</h1>
 
 <p class="lead">The first eight parts were all about the agent while it's "alive": how it talks to the model (M6), calls tools (M7), gets configured into a role (M8). But an agent can't live forever—processes exit, machines reboot, you close the terminal and come back tomorrow. So <strong>where do the sessions it ran, the messages back and forth, the context it accrued, get stored?</strong> That's what M9 "Persistence and Storage" answers. This lesson is M9's foundation: opencode uses <strong>SQLite</strong> (an embedded, single-file relational database) as the storage base, and <strong>Drizzle</strong> (a type-safe TypeScript ORM) to write out the database's "table structure" as code. This lesson isn't about which specific tables are stored (that's the next lesson, L49) but specifically about <strong>two foundational things</strong>: ① how the table structure is defined with Drizzle in a "code-as-schema" way; ② when the structure needs to evolve (add a column, change a table), how that <strong>database migration</strong> system safely upgrades an old DB to the new structure.</p>
 <p>The insight to take from this lesson hides in opencode's migration system—it walks a <strong>"dual path"</strong>: for a <strong>brand-new empty database</strong>, it won't foolishly replay all thirty-some historical migrations from scratch, but <strong>directly applies the current latest full schema snapshot</strong>, then marks those thirty-some migrations <strong>all as "completed"</strong>; only for an <strong>existing old database</strong> does it <strong>backfill, one by one, the migrations not yet run</strong>. This "snapshot for new, increment for old" design is exceptionally clever: it makes a new user's first launch fast and clean (the latest structure built in one shot), and lets an old user's DB smoothly upgrade bit by bit without ever losing data. Grasp this and you'll understand "how software, while constantly changing its data structures, neither burdens new users nor abandons old ones"—the core dilemma every long-evolving stateful software inevitably faces.</p>
@@ -8178,7 +8178,7 @@ sdks.<span class="fn">set</span>(sdkKey, sdk)               <span class="cm">// 
 <h2>session: the hub of the whole table web</h2>
 <p>The <span class="mono">session</span> table is the root of everything. Its columns are surprisingly many—but don't be daunted; that's exactly how much information a "session" carries: who it is, which project it belongs to, what model and permissions it runs with, how many tokens it spent, when created and when archived. Roughly grouped, each group answers one question about a session:</p>
 <div class="cellgroup">
-  <div class="cell"><div class="c-tag">identity & belonging</div><div class="c-txt"><span class="mono">id</span>(PK), <span class="mono">project_id</span>(→project,cascade), <span class="mono">workspace_id</span>, <span class="mono">parent_id</span>(self-ref→parent session), <span class="mono">slug</span>, <span class="mono">directory</span>/<span class="mono">path</span></div></div>
+  <div class="cell"><div class="c-tag">identity &amp; belonging</div><div class="c-txt"><span class="mono">id</span>(PK), <span class="mono">project_id</span>(→project,cascade), <span class="mono">workspace_id</span>, <span class="mono">parent_id</span>(self-ref→parent session), <span class="mono">slug</span>, <span class="mono">directory</span>/<span class="mono">path</span></div></div>
   <div class="cell"><div class="c-tag">display</div><div class="c-txt"><span class="mono">title</span>, <span class="mono">version</span>, <span class="mono">share_url</span>, <span class="mono">summary_*</span>(changed lines/files/diff)</div></div>
   <div class="cell"><div class="c-tag">usage stats</div><div class="c-txt"><span class="mono">cost</span>, <span class="mono">tokens_input/output/reasoning/cache_read/cache_write</span></div></div>
   <div class="cell"><div class="c-tag">runtime state</div><div class="c-txt"><span class="mono">agent</span>, <span class="mono">model</span>(JSON), <span class="mono">permission</span>(JSON,L41 Ruleset), <span class="mono">revert</span>(JSON)</div></div>
@@ -8336,7 +8336,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
 </div>
 </section>
 <section class="lesson-print">
-<h1>V1 storage & migration</h1>
+<h1>V1 storage &amp; migration</h1>
 
 <p class="lead">Last lesson we saw something intriguing: the <span class="mono">message</span>/<span class="mono">part</span> tables in SQLite store <strong>V1</strong>-structured data. But that V1 data originally <strong>wasn't in SQLite at all</strong>—it lay in the file system, one JSON file per object. This lesson clarifies that "migration history": what opencode's <strong>V1 file storage</strong> looks like (<span class="mono">storage/storage.ts</span>), and how it migrates data scattered across thousands of JSON files <strong>into V2's SQLite</strong>. This isn't a corner detail but a real plot nearly every long-evolving software lives through: <strong>you start with the simplest storage scheme, run it a long time, until its simplicity starts to become a burden, and then you must, without losing a single piece of old data, move your whole household into a stronger new scheme.</strong></p>
 <p>This lesson's insight has two layers. First, the <strong>"key-as-path" minimalist file storage</strong>: V1 stores each object as a JSON file, using a <span class="mono">string[]</span> array as the key, directly mapped to a nested file path—<span class="mono">read(["session", projectID, sessionID])</span> reads <span class="mono">storage/session/&lt;projectID&gt;/&lt;sessionID&gt;.json</span>. The whole "database" is a directory tree, plain enough to need no database engine. Second, <strong>the "journal-table bookkeeping" migration paradigm is reused twice</strong>: last lesson L48's schema migration uses a <span class="mono">migration</span> table recording "which structure changes ran"; this lesson's V1→V2 data migration uses <strong>another <span class="mono">data_migration</span> table</strong> recording "which data moves ran." The same "bookkeeping = idempotency" plain idea applied to two different problems. Grasp these two and you understand "how software gracefully grows from 'a pile of files' into 'a database' without shattering any old furniture mid-move."</p>
@@ -8493,7 +8493,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
 </div>
 </section>
 <section class="lesson-print">
-<h1>Compaction & snapshots</h1>
+<h1>Compaction &amp; snapshots</h1>
 
 <p class="lead">The last three lessons (L48–50) were all about faithfully storing and moving data—the SQLite foundation, the core table web, V1→V2 migration. But storing alone isn't enough. This lesson covers <strong>higher-order "memory management" atop "persistence,"</strong> solving two real pains. The first pain is <strong>too much memory</strong>: a conversation grows longer and longer, messages overflowing the model's limited context window—what then? The answer is <strong>compaction and summarization</strong>—folding stale conversation into a structured summary, keeping only the most recent few rounds verbatim. The second pain is <strong>wanting to go back in time</strong>: the agent changed a pile of files, you regret it, you want to roll the conversation and working directory <strong>back to a few steps ago</strong>—how? The answer is <strong>snapshots and revert</strong>—opencode gives the working directory a time machine via a clever "shadow git repo." Compaction manages "memory capacity," snapshots manage "memory's timeline"; together they let the agent's "memory" both fit and roll back.</p>
 <p>This lesson has two designs most worth taking away. First, <strong>compaction = "keep recent verbatim + fold the far into a structured summary"</strong>: when the conversation's token estimate exceeds the context window (minus the output margin), opencode automatically keeps the most recent ~8000 tokens of conversation <strong>verbatim</strong> and hands the earlier conversation to the LLM to <strong>fill into a fixed-structure summary template</strong> (Goal/Constraints/Progress/Decisions/Next Steps/Critical Context/Relevant Files), and this summary is <strong>"anchored" incrementally updated</strong>—the next compaction doesn't rewrite but, on the old summary, "keeps still-true, removes stale, merges new."</p>
@@ -8514,7 +8514,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
 <p>That summary isn't arbitrary prose but filled into a <strong>fixed-structure template</strong> (<span class="mono">SUMMARY_TEMPLATE</span>)—this guarantees that no matter how many compactions, the key dimensions aren't lost:</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">Goal</div><div class="c-txt">single-sentence task summary</div></div>
-  <div class="cell"><div class="c-tag">Constraints & Preferences</div><div class="c-txt">user constraints, preferences, specs</div></div>
+  <div class="cell"><div class="c-tag">Constraints &amp; Preferences</div><div class="c-txt">user constraints, preferences, specs</div></div>
   <div class="cell"><div class="c-tag">Progress (Done/In Progress/Blocked)</div><div class="c-txt">completed / current / blocked</div></div>
   <div class="cell"><div class="c-tag">Key Decisions</div><div class="c-txt">key decisions and their reasons</div></div>
   <div class="cell"><div class="c-tag">Next Steps</div><div class="c-txt">ordered next actions</div></div>
@@ -8626,7 +8626,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. compactIfNeeded triggers when request tokens exceed context−max(output, buffer 20000). The core is the select split: accumulating backward from the conversation's end, keep the most recent ~8000 tokens (DEFAULT_KEEP_TOKENS) of messages verbatim (recent), hand the big earlier stretch (head) to the LLM to condense into a structured summary—filled into a fixed template (Goal/Constraints & Preferences/Progress(Done/In Progress/Blocked)/Key Decisions/Next Steps/Critical Context/Relevant Files), guaranteeing key dimensions aren't lost. The finest is anchored incremental: if already compacted, "preserve still-true, remove stale, merge new facts" on the old summary rather than rewrite—else the earliest info would be diluted and forgotten across successive compactions; anchoring keeps the main thread unbroken across compactions. select can even cut a single message in two by remaining chars (×4≈1token 4chars), using the keep budget to the hilt. The same "context scarce" philosophy as L42 bounded output echoing at a different level.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. compactIfNeeded triggers when request tokens exceed context−max(output, buffer 20000). The core is the select split: accumulating backward from the conversation's end, keep the most recent ~8000 tokens (DEFAULT_KEEP_TOKENS) of messages verbatim (recent), hand the big earlier stretch (head) to the LLM to condense into a structured summary—filled into a fixed template (Goal/Constraints &amp; Preferences/Progress(Done/In Progress/Blocked)/Key Decisions/Next Steps/Critical Context/Relevant Files), guaranteeing key dimensions aren't lost. The finest is anchored incremental: if already compacted, "preserve still-true, remove stale, merge new facts" on the old summary rather than rewrite—else the earliest info would be diluted and forgotten across successive compactions; anchoring keeps the main thread unbroken across compactions. select can even cut a single message in two by remaining chars (×4≈1token 4chars), using the keep budget to the hilt. The same "context scarce" philosophy as L42 bounded output echoing at a different level.</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -8639,7 +8639,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. snapshot/index.ts's trick is spinning up a shadow git repo: build a separate git repo under data-dir/snapshot/<project>/<worktree-hash>, all commands carrying --git-dir <shadow> --work-tree <your real working directory>, never touching the project's real .git. track()=git add stages→git write-tree writes a tree object returning a hash (that's a snapshot, the lightest git primitive, no commit message/author/parent needed); restore(snapshot)=git read-tree <snapshot>+checkout-index -a -f restores the working dir. Three clever points: ① write-tree not commit (lightest primitive for the purest job); ② the shadow repo is fully isolated from .git (opencode snapshots around almost every step; polluting your git log would be a disaster); ③ reuse git's twenty-years content-addressable storage (incremental/dedup/diff), like L39 reusing Ripgrep. It also shares the real repo's objects via objects/info/alternates to save space, respects .gitignore, blocks large files.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. snapshot/index.ts's trick is spinning up a shadow git repo: build a separate git repo under data-dir/snapshot/&lt;project&gt;/&lt;worktree-hash&gt;, all commands carrying --git-dir &lt;shadow&gt; --work-tree &lt;your real working directory&gt;, never touching the project's real .git. track()=git add stages→git write-tree writes a tree object returning a hash (that's a snapshot, the lightest git primitive, no commit message/author/parent needed); restore(snapshot)=git read-tree &lt;snapshot&gt;+checkout-index -a -f restores the working dir. Three clever points: ① write-tree not commit (lightest primitive for the purest job); ② the shadow repo is fully isolated from .git (opencode snapshots around almost every step; polluting your git log would be a disaster); ③ reuse git's twenty-years content-addressable storage (incremental/dedup/diff), like L39 reusing Ripgrep. It also shares the real repo's objects via objects/info/alternates to save space, respects .gitignore, blocks large files.</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -8786,12 +8786,12 @@ sqliteTable(<span class="st">"session_input"</span>, {
   <ol class="opts">
     <li>Render the interface as an image to display</li>
     <li>Embed an actual browser in the terminal</li>
-    <li>With opentui — a renderer that renders SolidJS to the terminal, "a browser for the terminal": you still write JSX (<box>/<text>), use signals for reactivity, and opentui paints the component tree into terminal character cells</li>
+    <li>With opentui — a renderer that renders SolidJS to the terminal, "a browser for the terminal": you still write JSX (&lt;box&gt;/&lt;text&gt;), use signals for reactivity, and opentui paints the component tree into terminal character cells</li>
     <li>Hand-write ANSI escape codes directly, manually computing each character's coordinates</li>
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. opencode uses opentui — a renderer that renders SolidJS to the terminal, essentially "a browser for the terminal." The essence of modern frameworks is "separating renderer from framework": SolidJS handles components/signals/reactivity, where to paint is decided by a pluggable renderer — paint to the browser DOM and it's a web page, to the terminal and it's opentui. It's two layers: @opentui/core (engine: layout/paint/input) + @opentui/solid (SolidJS bindings: render/useRenderer). JSX primitives are terminal HTML tags: <box> (≈div, flexbox container), <text>, <scrollbox>, <input>/<textarea>. Layout via flexDirection/flexGrow/justifyContent CSS flexbox. So you build a terminal app with the same mental model as a web page, opentui handles all of "how the component tree becomes screen characters" — no hand-writing ANSI, no manual coordinates. This reuses the entire frontend rendering paradigm wholesale (like L51 reusing git, L39 reusing Ripgrep).</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. opencode uses opentui — a renderer that renders SolidJS to the terminal, essentially "a browser for the terminal." The essence of modern frameworks is "separating renderer from framework": SolidJS handles components/signals/reactivity, where to paint is decided by a pluggable renderer — paint to the browser DOM and it's a web page, to the terminal and it's opentui. It's two layers: @opentui/core (engine: layout/paint/input) + @opentui/solid (SolidJS bindings: render/useRenderer). JSX primitives are terminal HTML tags: &lt;box&gt; (≈div, flexbox container), &lt;text&gt;, &lt;scrollbox&gt;, &lt;input&gt;/&lt;textarea&gt;. Layout via flexDirection/flexGrow/justifyContent CSS flexbox. So you build a terminal app with the same mental model as a web page, opentui handles all of "how the component tree becomes screen characters" — no hand-writing ANSI, no manual coordinates. This reuses the entire frontend rendering paradigm wholesale (like L51 reusing git, L39 reusing Ripgrep).</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -8969,7 +8969,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. createSimpleContext (helper.tsx) packs "build context+provider (run init, <Show when=ready> gate)+use() hook." Its use() has if(!value) throw new Error(`${name} context must be used within a context provider`). In SolidJS/React one of the hardest-to-trace bugs is "using a context outside its Provider, getting undefined, then crashing somewhere unrelated." Here it moves the error from a 'silent undefined' forward to a 'loud on-the-spot error'—the moment a component is misplaced (forgot to wrap in some Provider), the first run tells you which context wasn't used inside a Provider. This is a high-frequency "fail fast" application (like L37 Stale tool call, L48 "DB non-empty yet no session table"). Deeper: solidifying good practices (null-check error, readiness gate, consistent naming) into a tool everyone reaches for makes the right thing the least-effort thing, far beating a 'please null-check' doc—like L36 Tool.make, L47 PluginV2.define "uniform mold stamps same shape."</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. createSimpleContext (helper.tsx) packs "build context+provider (run init, &lt;Show when=ready&gt; gate)+use() hook." Its use() has if(!value) throw new Error(`${name} context must be used within a context provider`). In SolidJS/React one of the hardest-to-trace bugs is "using a context outside its Provider, getting undefined, then crashing somewhere unrelated." Here it moves the error from a 'silent undefined' forward to a 'loud on-the-spot error'—the moment a component is misplaced (forgot to wrap in some Provider), the first run tells you which context wasn't used inside a Provider. This is a high-frequency "fail fast" application (like L37 Stale tool call, L48 "DB non-empty yet no session table"). Deeper: solidifying good practices (null-check error, readiness gate, consistent naming) into a tool everyone reaches for makes the right thing the least-effort thing, far beating a 'please null-check' doc—like L36 Tool.make, L47 PluginV2.define "uniform mold stamps same shape."</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -9315,7 +9315,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
 </div>
 </section>
 <section class="lesson-print">
-<h1>Dialogs & scrollback</h1>
+<h1>Dialogs &amp; scrollback</h1>
 
 <p class="lead">All through M10 we've disassembled the interactive TUI's renderer (L52), structure (L53), data flow (L54), prompt editor (L55). This final lesson ties off two loose ends: one is the batch of <strong>dialogs and the command palette</strong> in the TUI—those overlays that pop up on a keypress to pick a model, switch agents, run commands, choose a theme; the other is an intriguing contrast: the <strong>scrollback</strong> in <span class="mono">opencode run</span>'s <strong>non-interactive CLI mode</strong>. The same conversation, in the interactive TUI, is a scrollable, clickable, modally-stacked full-screen app; while in <span class="mono">run</span> mode it becomes a <strong>linearly-appended scrolling log printed to stdout</strong>—pipeable, scriptable, CI-feedable. This lesson's biggest highlight is the deeper meaning behind this contrast: <strong>the same session data can be "rendered" into two wholly different interfaces.</strong></p>
 <p>This lesson has two highlights most worth taking away. First, <strong>dialogs are a "modal stack"</strong>: opening a dialog <strong>pushes</strong>, pressing ESC <strong>pops the top</strong> one—the stack data structure perfectly matches the need "a modal can open another modal" (e.g. the model-picking dialog pops a variant-picking dialog). And those twenty-some concrete dialogs (pick model, pick agent, pick MCP, pick skill, pick theme, list sessions…) plus the command palette are <strong>nearly all built on the same reusable "<span class="mono">DialogSelect</span> (filtered select box)"</strong>—again "a uniform mold stamps the same shape." Second, and deeper: <strong>the TUI and run scrollback are two "front-ends" over the same session data</strong>. The underlying session, message (M9) are one copy; how to <strong>present</strong> it to you—as an interactive full-screen app or a pipe-friendly streaming log—is a <strong>replaceable presentation layer</strong>. Grasp this and you'll understand "why opencode gives you a pretty terminal interface yet is equally usable in a script scenario like <span class="mono">opencode run \"...\" | tee log.txt</span>."</p>
@@ -9605,14 +9605,14 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
 <div class="quiz">
   <div class="qn">1. In opencode, what is a public plugin (@opencode-ai/plugin) essentially?</div>
   <ol class="opts">
-    <li>An async function returning a "hook table"—Plugin = (input: PluginInput, options?) => Promise<Hooks>, no class/inheritance/boilerplate, takes a context, returns a Hooks object</li>
+    <li>An async function returning a "hook table"—Plugin = (input: PluginInput, options?) => Promise&lt;Hooks&gt;, no class/inheritance/boilerplate, takes a context, returns a Hooks object</li>
     <li>A standalone microservice process</li>
     <li>Code that must be compiled into opencode's source</li>
     <li>A class that must inherit an AbstractPlugin base class</li>
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. opencode's public plugin is astonishingly plain: Plugin = (input: PluginInput, options?) => Promise<Hooks>—an async function, takes an input context, returns a Hooks object. No base class to inherit, no interface methods to implement, no decorator to register, just "function in, hooks out." The example plugin registers a custom tool in a few lines: async (ctx) => ({ tool: { mytool: tool({...}) } }). This minimalism presses the barrier of "writing a plugin" to nearly zero—if you can write an async function returning an object you can write an opencode plugin, the rest is just looking up which keys you can fill in that hook table. Contrast the heavy machinery of traditional plugin frameworks (inherit a base class, implement a pile of lifecycle methods, a DI container, an XML manifest), opencode pares down to one function signature, because it sees through that a plugin's essence need only answer two questions: "what can you give me" (PluginInput) + "when do you want to step in" (Hooks). Echoes the book's "the strongest abstraction is often the plainest" (L36 Tool.make, L47 PluginV2.define, L53 createSimpleContext).</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. opencode's public plugin is astonishingly plain: Plugin = (input: PluginInput, options?) => Promise&lt;Hooks&gt;—an async function, takes an input context, returns a Hooks object. No base class to inherit, no interface methods to implement, no decorator to register, just "function in, hooks out." The example plugin registers a custom tool in a few lines: async (ctx) => ({ tool: { mytool: tool({...}) } }). This minimalism presses the barrier of "writing a plugin" to nearly zero—if you can write an async function returning an object you can write an opencode plugin, the rest is just looking up which keys you can fill in that hook table. Contrast the heavy machinery of traditional plugin frameworks (inherit a base class, implement a pile of lifecycle methods, a DI container, an XML manifest), opencode pares down to one function signature, because it sees through that a plugin's essence need only answer two questions: "what can you give me" (PluginInput) + "when do you want to step in" (Hooks). Echoes the book's "the strongest abstraction is often the plainest" (L36 Tool.make, L47 PluginV2.define, L53 createSimpleContext).</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -9760,7 +9760,7 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
 <div class="selftest">
 <h2>🧪 Self-test - think about the design</h2>
 <div class="quiz">
-  <div class="qn">1. Most opencode plugin hooks have the signature (input, output) => Promise<void>, returning void. How does a plugin exert influence through it?</div>
+  <div class="qn">1. Most opencode plugin hooks have the signature (input, output) => Promise&lt;void&gt;, returning void. How does a plugin exert influence through it?</div>
   <ol class="opts">
     <li>The plugin returns a new object replacing output</li>
     <li>The plugin throws an exception to pass a value</li>
@@ -9769,7 +9769,7 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. All hooks share the same "edit a draft" mechanism: signature (input, output) => Promise<void>, returns void, takes effect by editing output in place. input is read-only context (what the situation is), output is a mutable draft object (edit it to exert influence). The trigger mechanism: opencode first computes a default output, plugin.trigger(hookName, input, defaultOutput) hands (input,output) to each plugin that registered the hook, each marks up the output, finally opencode takes this layer-by-layer marked-up output and carries on. The plugin doesn't "return a new value to replace" but "marks up a few strokes on the draft opencode handed." Benefits: ① opencode always gives the default and takes the final, initiative with the host, works fine with zero plugins; ② multiple plugins can stack, later ones see earlier edits (like L41/L44 stacking); ③ the draft's complete structure is guaranteed by opencode, the plugin only edits a few fields, avoiding "plugin returns a defective object." This "pass a mutable draft, modify in place" is like L54 produce.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. All hooks share the same "edit a draft" mechanism: signature (input, output) => Promise&lt;void&gt;, returns void, takes effect by editing output in place. input is read-only context (what the situation is), output is a mutable draft object (edit it to exert influence). The trigger mechanism: opencode first computes a default output, plugin.trigger(hookName, input, defaultOutput) hands (input,output) to each plugin that registered the hook, each marks up the output, finally opencode takes this layer-by-layer marked-up output and carries on. The plugin doesn't "return a new value to replace" but "marks up a few strokes on the draft opencode handed." Benefits: ① opencode always gives the default and takes the final, initiative with the host, works fine with zero plugins; ② multiple plugins can stack, later ones see earlier edits (like L41/L44 stacking); ③ the draft's complete structure is guaranteed by opencode, the plugin only edits a few fields, avoiding "plugin returns a defective object." This "pass a mutable draft, modify in place" is like L54 produce.</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -9939,12 +9939,12 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
   <ol class="opts">
     <li>Diagnostics are only generated when the program crashes</li>
     <li>The agent must actively ask to get diagnostics</li>
-    <li>agent edits file→didChange notifies server→server publishDiagnostics pushes back→report formats (keep only ERROR, ≤20 per file, <diagnostics> wrap)→feed agent; bounded because diagnostics occupy the model's precious context, reporting all would drown the truly fatal compile errors (like L42)</li>
+    <li>agent edits file→didChange notifies server→server publishDiagnostics pushes back→report formats (keep only ERROR, ≤20 per file, &lt;diagnostics&gt; wrap)→feed agent; bounded because diagnostics occupy the model's precious context, reporting all would drown the truly fatal compile errors (like L42)</li>
     <li>report reports all severity levels with no cap</li>
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. Diagnostics are passive-automatic: agent edits file→opencode notifies the language server via didChange→the server analyzes and publishDiagnostics pushes back→diagnostic.ts's report tidies into something the agent can read→feed the agent. report does three restrained things: keep only severity===1 ERROR (filter warn/hint noise), at most 20 per file (append "... and N more" if over), <diagnostics file> wrap, return empty if no errors. pretty shapes each into ERROR [line:col] message (line/col +1 to match the editor's 1-based). Why restrained? Because diagnostics occupy the model's precious context (the same anxiety as L42 bounded output): stuffing hundreds of warnings into the model both burns tokens and drowns the truly fatal compile errors. "Report only errors, and bounded" is the precise calibration between "letting the agent see problems" and "not overflowing its attention"—feedback to the agent is better the more precise, not the more, information overload and absence equally harmful. This turns the agent from a blind editor into a self-correcting coder who instantly receives "got it right / broke it" (feeding M4's loop).</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. Diagnostics are passive-automatic: agent edits file→opencode notifies the language server via didChange→the server analyzes and publishDiagnostics pushes back→diagnostic.ts's report tidies into something the agent can read→feed the agent. report does three restrained things: keep only severity===1 ERROR (filter warn/hint noise), at most 20 per file (append "... and N more" if over), &lt;diagnostics file&gt; wrap, return empty if no errors. pretty shapes each into ERROR [line:col] message (line/col +1 to match the editor's 1-based). Why restrained? Because diagnostics occupy the model's precious context (the same anxiety as L42 bounded output): stuffing hundreds of warnings into the model both burns tokens and drowns the truly fatal compile errors. "Report only errors, and bounded" is the precise calibration between "letting the agent see problems" and "not overflowing its attention"—feedback to the agent is better the more precise, not the more, information overload and absence equally harmful. This turns the agent from a blind editor into a self-correcting coder who instantly receives "got it right / broke it" (feeding M4's loop).</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -9970,9 +9970,9 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
 </div>
 </section>
 <section class="lesson-print">
-<h1>PTY & shell</h1>
+<h1>PTY &amp; shell</h1>
 
-<p class="lead">Remember that key clarification in lesson 39—opencode's bash tool is <strong>batch</strong> (spawn a child process, run to completion, collect stdout), while <span class="mono">pty/*</span> is <strong>a separate</strong> infrastructure for interactive terminals. We set PTY aside then; this lesson fills it in: <strong>PTY (pseudo-terminal)</strong>. The question is concrete: why isn't a batch bash enough for opencode, why build a real terminal too? Because some programs <strong>require a real terminal</strong>—interactive REPLs (you must read output while typing input), programs that detect "am I attached to a terminal?" before showing color/progress bars, commands you need to <strong>type into in real time</strong>. Batch bash is helpless with these (it's one-shot Q&A, can't input mid-way, and the program knows it isn't attached to a terminal). PTY gives a <strong>real terminal you can stream output from, type into, and resize</strong>—just like that terminal window you open on screen itself.</p>
+<p class="lead">Remember that key clarification in lesson 39—opencode's bash tool is <strong>batch</strong> (spawn a child process, run to completion, collect stdout), while <span class="mono">pty/*</span> is <strong>a separate</strong> infrastructure for interactive terminals. We set PTY aside then; this lesson fills it in: <strong>PTY (pseudo-terminal)</strong>. The question is concrete: why isn't a batch bash enough for opencode, why build a real terminal too? Because some programs <strong>require a real terminal</strong>—interactive REPLs (you must read output while typing input), programs that detect "am I attached to a terminal?" before showing color/progress bars, commands you need to <strong>type into in real time</strong>. Batch bash is helpless with these (it's one-shot Q&amp;A, can't input mid-way, and the program knows it isn't attached to a terminal). PTY gives a <strong>real terminal you can stream output from, type into, and resize</strong>—just like that terminal window you open on screen itself.</p>
 <p>This lesson has two highlights most worth taking away. First, <strong>PTY is a clean, cross-platform "real terminal" abstraction</strong>: a <span class="mono">Proc</span> interface (<span class="mono">onData</span> streams output, <span class="mono">write</span> types in, <span class="mono">resize</span> adjusts size, <span class="mono">kill</span> kills it), backed by two implementations, Bun and Node; its output can also <strong>stream to a client over WebSocket</strong> (with "cursor replay," resume from a point after a drop), guarded by <strong>short-lived tickets</strong> on "who can attach to this terminal." Second, and the most eye-opening—<strong>a PTY's environment variables are "stacked layer by layer,"</strong> and the stacking order hides intent: first the <strong>caller's values</strong>, then a <strong>host overlay</strong> (exactly lesson 58's <span class="mono">shell.env</span> plugin hook!), and finally opencode's <strong>forced terminal invariants</strong> (like <span class="mono">TERM</span>, <span class="mono">OPENCODE_TERMINAL</span>) stamped on top. Grasp this "<strong>customizable in the middle, non-negotiable last</strong>" stacking order and you'll understand how a seasoned system <strong>gives ample flexibility yet holds the bottom line</strong>.</p>
 
 <div class="card analogy">
@@ -9983,7 +9983,7 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
 <h2>PTY vs batch: why you need a real terminal</h2>
 <p>Lesson 39 already noted: the bash tool goes <strong>batch</strong> via <span class="mono">AppProcess</span> (spawn a child process, run to completion, collect the result), while PTY is <strong>a separate</strong> thing. The difference isn't "fast vs slow" but "interactive or not":</p>
 <div class="cols">
-  <div class="col"><h4>batch bash (L39)</h4><p>one-shot Q&A: give a command, wait for it to finish, collect stdout. <strong>Can't input mid-way</strong>, and the program knows it's <strong>not attached to a terminal</strong> (so it often omits color/progress bars). Suited to "run a command, get the result" for the model.</p></div>
+  <div class="col"><h4>batch bash (L39)</h4><p>one-shot Q&amp;A: give a command, wait for it to finish, collect stdout. <strong>Can't input mid-way</strong>, and the program knows it's <strong>not attached to a terminal</strong> (so it often omits color/progress bars). Suited to "run a command, get the result" for the model.</p></div>
   <div class="col"><h4>interactive PTY</h4><p>a real terminal: <strong>stream</strong> output, <strong>type in anytime</strong>, can <strong>resize</strong>. The program "thinks" it's attached to a live person, interacting confidently. Suited to REPLs, TTY-requiring tools, real-time human operation.</p></div>
 </div>
 <p>PTY abstracts "a real terminal" into a minimal <span class="mono">Proc</span> interface (<span class="mono">pty/pty.ts</span>), clean as a device's remote control:</p>
@@ -10036,7 +10036,7 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
   <div class="tag">🗺️ The Big Picture</div>
   <p>This lesson fills in the PTY L39 set aside—opencode's real-terminal infrastructure:</p>
   <ul>
-    <li><strong>PTY = real interactive terminal</strong> (vs L39 batch bash): batch is one-shot Q&A, can't input mid-way; PTY streams output + type anytime + resize, the program "thinks" it's attached to a live person. The <span class="mono">Proc</span> interface (<span class="mono">pty/pty.ts</span>) = onData/write/resize/onExit/kill, <strong>Bun/Node two implementations satisfy the same interface</strong> (platform difference hidden under the interface, like L52/L46).</li>
+    <li><strong>PTY = real interactive terminal</strong> (vs L39 batch bash): batch is one-shot Q&amp;A, can't input mid-way; PTY streams output + type anytime + resize, the program "thinks" it's attached to a live person. The <span class="mono">Proc</span> interface (<span class="mono">pty/pty.ts</span>) = onData/write/resize/onExit/kill, <strong>Bun/Node two implementations satisfy the same interface</strong> (platform difference hidden under the interface, like L52/L46).</li>
     <li><strong>streaming + connecting</strong> (<span class="mono">pty/protocol.ts</span>/<span class="mono">ticket.ts</span>): WebSocket delivers the terminal to clients, raw UTF-8 chunks outbound + cursor control frame (0x00+JSON) for <strong>drop replay</strong>, REPLAY_CHUNK 64KB chunking; connecting needs a <strong>short-lived ticket</strong> (60s, bound to ptyID+directory+workspace, one-time) to guard (strong capability bound to strict authorization, like L41/L46).</li>
     <li><strong>environment stacking (most eye-opening)</strong>: PTY creation merges in order ① caller values → ② host overlay (triggers L58 <span class="mono">shell.env</span> plugin hook) → ③ core-forced terminal invariants (<span class="mono">TERM</span>/<span class="mono">OPENCODE_TERMINAL</span>). <strong>Customizable in the middle, non-negotiable last overriding all</strong>—the later the higher priority, the bottom line gets the highest priority.</li>
     <li><strong>mechanism vs policy layering</strong>: the "PTY Environment" is a server-layer concern, not a Core PTY one—Core only makes the terminal (pure mechanism), "what env to configure" (policy) is left to the more context-aware server layer (standalone server uses an empty adapter). The book's "cut mechanism from policy" aesthetic.</li>
@@ -10064,7 +10064,7 @@ PtyEnvironment.Service.of({
 <div class="card key">
   <div class="tag">🎯 Key Takeaways</div>
   <ul>
-    <li><strong>PTY = real interactive terminal</strong> (vs L39 batch bash): batch is one-shot Q&A can't input mid-way, the program knows it's not attached; PTY streams output + type anytime + resize, the program "thinks" it's attached to a live person (REPLs/TTY-requiring tools/real-time human operation). The <span class="mono">Proc</span> interface onData/write/resize/kill, Bun/Node two implementations satisfy the same interface (platform difference hidden under the interface, like L52/L46).</li>
+    <li><strong>PTY = real interactive terminal</strong> (vs L39 batch bash): batch is one-shot Q&amp;A can't input mid-way, the program knows it's not attached; PTY streams output + type anytime + resize, the program "thinks" it's attached to a live person (REPLs/TTY-requiring tools/real-time human operation). The <span class="mono">Proc</span> interface onData/write/resize/kill, Bun/Node two implementations satisfy the same interface (platform difference hidden under the interface, like L52/L46).</li>
     <li><strong>streaming + connecting</strong>: WebSocket delivers the terminal (<span class="mono">protocol.ts</span>), raw UTF-8 chunks + cursor frame (0x00+JSON) for drop replay, REPLAY_CHUNK 64KB; connecting needs a short-lived ticket (60s/bound to ptyID+directory+workspace/one-time, <span class="mono">ticket.ts</span>) to guard—strong capability bound to strict authorization (like L41/L46).</li>
     <li><strong>environment stacking (most eye-opening)</strong>: PTY creation merges in order ① caller values → ② host overlay (triggers L58 <span class="mono">shell.env</span> hook) → ③ core-forced invariants (<span class="mono">TERM</span>/<span class="mono">OPENCODE_TERMINAL</span>). Customizable in the middle, non-negotiable last overriding all—the later the higher priority, the bottom line gets the highest priority.</li>
     <li><strong>blocks interlocking</strong>: the PTY environment's "middle layer" directly reuses L58's <span class="mono">shell.env</span> hook (<span class="mono">plugin.trigger("shell.env",{cwd},{env:{}})</span> "edit a draft")—a new need snaps together from an existing mechanism, showing the seams were found accurately, the abstraction generic enough for unexpected reuse.</li>
@@ -10077,14 +10077,14 @@ PtyEnvironment.Service.of({
 <div class="quiz">
   <div class="qn">1. Why isn't opencode's batch bash tool (L39) enough, requiring a PTY real-terminal infrastructure too?</div>
   <ol class="opts">
-    <li>Some programs require a real terminal—interactive REPLs (read output while typing input), programs showing color/progress bars only on a TTY, commands you type into in real time; batch is one-shot Q&A, can't input mid-way, and the program knows it's not attached to a terminal</li>
+    <li>Some programs require a real terminal—interactive REPLs (read output while typing input), programs showing color/progress bars only on a TTY, commands you type into in real time; batch is one-shot Q&amp;A, can't input mid-way, and the program knows it's not attached to a terminal</li>
     <li>Purely for aesthetics</li>
     <li>Batch can't run shell commands</li>
     <li>PTY runs faster than batch</li>
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. L39 already clarified: the bash tool goes batch via AppProcess (spawn a child process, run to completion, collect stdout), PTY is a separate thing. The difference isn't fast/slow but interactive-or-not. Batch is one-shot Q&A: give a command, wait, collect stdout, can't input mid-way, and the program knows it's not attached to a terminal (often omits color/progress bars), suited to "run a command, get the result" for the model. But some programs require a real terminal: interactive REPLs (you must read output while typing input), programs that detect "am I attached to a terminal?" before showing color/progress bars, commands you type into in real time—batch is helpless with these. PTY gives a real terminal: stream output, type anytime (write), can resize, the program "thinks" it's attached to a live person and interacts confidently. PTY abstracts a real terminal into a minimal Proc interface (onData/write/resize/onExit/kill), with Bun/Node two implementations satisfying the same interface, platform difference hidden under the interface (like L52 opentui, L46 MCP transport).</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. L39 already clarified: the bash tool goes batch via AppProcess (spawn a child process, run to completion, collect stdout), PTY is a separate thing. The difference isn't fast/slow but interactive-or-not. Batch is one-shot Q&amp;A: give a command, wait, collect stdout, can't input mid-way, and the program knows it's not attached to a terminal (often omits color/progress bars), suited to "run a command, get the result" for the model. But some programs require a real terminal: interactive REPLs (you must read output while typing input), programs that detect "am I attached to a terminal?" before showing color/progress bars, commands you type into in real time—batch is helpless with these. PTY gives a real terminal: stream output, type anytime (write), can resize, the program "thinks" it's attached to a live person and interacts confidently. PTY abstracts a real terminal into a minimal Proc interface (onData/write/resize/onExit/kill), with Bun/Node two implementations satisfying the same interface, platform difference hidden under the interface (like L52 opentui, L46 MCP transport).</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -10123,7 +10123,7 @@ PtyEnvironment.Service.of({
 </div>
 </section>
 <section class="lesson-print">
-<h1>ACP & the Location model</h1>
+<h1>ACP &amp; the Location model</h1>
 
 <p class="lead">All through M11 we've seen several doors opencode opens outward: plugins (L57/58) let you hook into its lifecycle, LSP (L59) lets it borrow language servers' brains, PTY (L60) lets it manage real terminals. This final lesson covers <strong>the deepest layer of opening</strong>—it's no longer "add something to opencode" but making <strong>the agent itself</strong> an entity <strong>not bound to a specific frontend, nor to a specific location</strong>, drivable by anyone, freely movable. Behind this are two abstractions: <strong>ACP</strong> (letting opencode, conversely, be an "agent server" that other editors connect to) and <strong>Location</strong> (the "place" abstraction that fully decouples a "session" from "where it runs"). After this lesson, you'll see opencode took "opening outward" to a profound level: even "who uses this agent" and "where this agent works" become replaceable and movable.</p>
 <p>This lesson has two highlights most worth taking away. First, <strong>ACP is the mirror of LSP</strong>. Remember L59—there opencode was an <strong>LSP client</strong>, going to <strong>consume</strong> language servers' code intelligence. Here it's reversed: opencode implements <strong>ACP (Agent Client Protocol)</strong>, making itself an <strong>ACP server</strong> to be <strong>consumed</strong> by other editors (like Zed)—the editor as "client," opencode as "agent backend." <span class="mono">ACP is to agents what LSP is to language servers</span>: both use a standard protocol to collapse the "M editors × N agents" problem into "M + N." Second, <strong>Location decouples a "session" from "where it runs."</strong> A <span class="mono">Location</span> is just a piece of "location info," <span class="mono">{directory, workspace, project}</span>, and opencode makes tools, permissions, the filesystem, model resolution all <strong>Location-scoped</strong>—so a session <strong>isn't nailed to one location</strong>, it can be <span class="mono">move-session</span>'d, along with its file changes, <strong>to another directory</strong> to continue. Grasp these two and you'll understand this lesson's throughline: <strong>decoupling "what" from "where"—the agent isn't bound to the editor, the session isn't bound to the directory.</strong></p>
@@ -10276,7 +10276,7 @@ PtyEnvironment.Service.of({
 </div>
 </section>
 <section class="lesson-print">
-<h1>Build & debug</h1>
+<h1>Build &amp; debug</h1>
 <p class="lead">Over the previous 61 lessons we dissected opencode's <strong>internal mechanisms</strong> end to end—the Effect foundation, client/server, the Session main loop, the context system, the LLM protocol, tools, config, persistence, TUI, extensions and integration. But one humble thing remains: <strong>how do you actually run, change, and debug this project on your own machine?</strong> This lesson fills in that practical loop "from source to a runnable binary." It's aimed at <strong>you who want to contribute to opencode, or to seriously hack on it</strong>—understanding the internals is one thing; being able to run it yourself, change a line and see the effect, and set a breakpoint when something breaks is quite another. It comes down to two things: during development, <span class="mono">bun dev</span> <strong>runs straight from source, instantly</strong> (changes take effect immediately, no compile step); to ship, <span class="mono">build.ts</span> <strong>compresses the whole project into one self-contained single-file binary</strong> (Web UI and model data stuffed in, runnable on any machine). Sandwiched between is a topic countless people trip over: <strong>how to attach a debugger</strong>.</p>
 <p>There are two insights worth taking away. First, <strong><span class="mono">bun dev</span> and <span class="mono">opencode</span> are two faces of the <em>same</em> CLI</strong>—the former runs from source (the dev loop, second-level feedback), the latter is the compiled product (production release), and the commands correspond one-to-one (<span class="mono">bun dev serve</span> ↔ <span class="mono">opencode serve</span>). Grasp this and you'll never again wonder "do the dev and release versions behave differently"—they're literally one codebase, just run differently: one feeds source to the runtime for instant execution, the other compiles source into a fixed binary. Second, the real gem—<strong><span class="mono">build.ts</span> uses Bun's "compile to a single executable" ability to embed <em>code + Web UI + models.dev data</em>, all three, into <em>one</em> binary</strong>; the artifact depends on neither node_modules nor a runtime, a truly "copy it and run" standalone file. Understand this "<strong>embed everything into one self-contained artifact</strong>" idea and you'll see why opencode can be installed with a single <span class="mono">curl | bash</span>, cross-platform. Together these two insights answer a new contributor's most basic question: how does the source I edit turn into that <span class="mono">opencode</span> command in a user's hands?</p>
 
@@ -10413,7 +10413,7 @@ PtyEnvironment.Service.of({
 </div>
 </section>
 <section class="lesson-print">
-<h1>Test & contribute</h1>
+<h1>Test &amp; contribute</h1>
 <p class="lead">Last lesson you learned to <strong>run, build, and debug</strong> opencode. This lesson is the final touch: <strong>how do you verify your change is correct, and how do you contribute it back?</strong>—that is, "testing" and "the contribution process." These two look like one's technical and one's procedural, but by the end you'll find they're threaded by the same hidden line. First, testing: opencode runs tests with Bun's built-in runner (<span class="mono">bun test</span>), 500-plus test files repo-wide, but with a counterintuitive rule—<strong>tests cannot run at the repo root</strong>, where the <span class="mono">test</span> script is deliberately written to "print 'do not run tests from root' and exit with an error." Next, contributing: opencode has an <strong>unusually strict</strong> process—you must open an issue first, PRs must be small and focused, titles must follow conventional commits, there's even an explicit rule <strong>forbidding "AI-generated walls of text,"</strong> and a vouch trust list that can "denounce" repeat spammers.</p>
 <p>There's only one insight worth taking away, but it explains every seemingly-scattered rule above: <strong>opencode's entire testing and contribution norms serve one goal—in an age where AI can mass-produce code and text, <em>fiercely guarding the signal-to-noise ratio and respecting maintainers' time</em></strong>. Savor the unified intent behind these rules: "issue first" guards against duplicate work and lets maintainers head off unfit directions early; "PRs small and focused + explain how you verified" lets reviewers quickly grasp and reproduce your conclusion; "no AI walls of text" and "issues must use a template, vague ones auto-close" filter out <strong>high-volume, low-density</strong> noise; and the vouch list flatly names "repeatedly submitting low-quality AI contributions" as grounds for denouncement. </p>
 <p><strong>A project that is itself an AI coding agent nonetheless plants the strictest sign at its contribution gate: please don't dump undigested AI output on us.</strong> </p>
@@ -10549,7 +10549,7 @@ PtyEnvironment.Service.of({
 </div>
 </section>
 <section class="lesson-print">
-<h1>Glossary & index</h1>
+<h1>Glossary &amp; index</h1>
 <p class="lead">Congratulations on reaching the final lesson. Over the previous 63 lessons, we took apart everything from "what opencode is" all the way to "how to contribute code to it"—the foundation (Effect), the skeleton (client/server), the main loop (Session and the agent loop), memory (the Context Epoch system), the mouth (the LLM protocol), the hands (tools), config, persistence, the interface (TUI), extensions, and practice. This lesson introduces no new mechanism; it does two closing things: <strong>one "concept map" threading the whole book's concepts together</strong>, and <strong>one "glossary cheat sheet" that jumps back to every lesson</strong>. It's both review and index—when you later read opencode source and forget what some term means, come back here, look it up, and click the link to jump back to that lesson.</p>
 <p>And this lesson itself hides an <strong>insight worth taking away</strong>: <strong>a precise, shared vocabulary is itself an engineering tool</strong>. opencode's root <span class="mono">CONTEXT.md</span> has a dedicated <span class="mono">Language</span> section that, like a dictionary, defines each core concept, even spelling out "<strong>what NOT to call it</strong>"—e.g. "System Context" annotated "_Avoid_: System prompt," "Session History" annotated "_Avoid_: Session Context." Why would a code project be so fussy about wording? Because <strong>when a team (now including AI collaborators) shares one precise, unambiguous vocabulary, communication loss, misunderstanding bugs, and back-and-forth clarification all drop sharply</strong>. Giving a concept a good name and insisting on only that name is the first step to explaining a complex system clearly—and what this visual guide does is, in essence, the same thing. So this glossary isn't merely an "appendix"; it's a continuation of opencode's "wording is design" philosophy.</p>
 
@@ -10630,7 +10630,7 @@ PtyEnvironment.Service.of({
 
 </section>
 <section class="lesson-print">
-<h1>Event sourcing & single-writer sync</h1>
+<h1>Event sourcing &amp; single-writer sync</h1>
 <p class="lead">When Lesson 11 covered the event bus, we looked at the <strong>transport</strong> layer: the server <strong>pushes</strong> events to clients over SSE. But a deeper question went untouched: how do these events get <strong>persisted, ordered, and made consistent across multiple devices</strong>? That's <span class="mono">EventV2</span>—opencode's <strong>persistent event-sourcing + single-writer sync</strong> foundation (<span class="mono">core/src/event.ts</span>, <span class="mono">event/sql.ts</span>, <span class="mono">opencode/src/sync/README.md</span>). It's also the ground beneath Lesson 19's "projected history": the projector can project a clean read model from events only because the events themselves <strong>carry durable, totally-ordered numbering (one order per session)</strong>. It also answers a very practical product question: you have a session open in the terminal and want to <strong>see its live progress on the web or your phone</strong>—that "many devices, one session" ability rests, underneath, on the event log and sync this lesson covers. This lesson fills the missing piece between Lesson 11's "transport" and Lesson 19's "projection."</p>
 <p>There's only one insight worth taking away, but it's elegant enough to make you smile: <strong>because opencode mandates "<em>only one device may write a given session</em>," the entire sync system is radically simplified</strong>. The source <span class="mono">sync/README.md</span> says it plainly—"<strong>Because only one device is allowed to write, we don't need any kind of sophisticated distributed system clocks or causal ordering.</strong>" The hardest part of multi-device collaboration (two people editing at once, who came first, how to merge) is sidestepped by one design decision: since there's only one writer, just <strong>use a simple, monotonically-increasing <span class="mono">seq</span> (incremented by one per event) to give a total order</strong>. </p>
 <p>For other devices to "sync" is nothing more than <strong>fetching the event log and replaying it forward from where they last were</strong>—replay it and they match the writer exactly. Grasp this "<strong>trade a constraint for simplicity</strong>" idea and you'll see why opencode achieves multi-end consistency with a few plain tables—without shouldering a distributed-consensus burden. </p>
@@ -11035,7 +11035,7 @@ PtyEnvironment.Service.of({
 </div>
 </section>
 <section class="lesson-print">
-<h1>Account & device-code OAuth</h1>
+<h1>Account &amp; device-code OAuth</h1>
 <p class="lead">The first time you have opencode connect to an account/service in the terminal, you see this: the screen shows a <strong>short code</strong> (like <span class="mono">WDJB-MJHT</span>) and a URL, telling you to "<strong>open this URL in a browser and enter this code</strong>"; you do it, click authorize, return to the terminal, and it's <strong>already logged in</strong>. Behind this is the <strong>device-code OAuth flow</strong>—a login method designed for CLI/terminals that have <strong>no browser callback</strong> (<span class="mono">opencode/src/account/account.ts</span>). The obtained credential goes into a unified <strong>credential store</strong> (<span class="mono">core/src/credential.ts</span>), later fed to a provider to call the model. This lesson makes it clear: with no browser callback, how does a CLI complete OAuth? And the obtained keys/tokens—how are they stored and fed to providers? This is a piece cutting across the whole runtime yet never covered head-on in the prior 64 lessons—connecting to models and services in opencode always requires first "logging in, obtaining credentials," and this lesson fills in that "identity &amp; credentials" link.</p>
 <p>There are two insights worth taking away. First, <strong>the device-code flow decouples "where you authorize" from "where the token lands"</strong>: traditional web OAuth relies on a "browser callback" to send the authorization result back to the app—but a CLI is a terminal process, with no browser and unable to receive a callback. The device-code trick: the terminal only <strong>shows a short code</strong>, you <strong>on any device with a browser</strong> (phone, another computer) open the URL, enter the code, authorize; meanwhile the terminal <strong>"polls" the token endpoint in the background</strong> until your side finishes, then it has the token. "Authorization" happens in the browser, "the token" lands in the CLI, the two ends linked by a short code. </p>
 <p>Second, <strong>credentials are unified into one type-tagged "value"</strong>: whether an OAuth token (<span class="mono">access</span>+<span class="mono">refresh</span>+<span class="mono">expires</span>) or a direct API Key, both are shaped into the same <span class="mono">Credential.Info</span> tagged union, into one credential store with a CRUD interface—another "shape the heterogeneous into one form" (like L66/L36), so the upper layer "fetch a credential and feed the provider" needn't care which kind. </p>

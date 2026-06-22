@@ -447,12 +447,12 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <ol class="opts">
     <li>把界面渲染成图片显示</li>
     <li>在终端里嵌一个真正的浏览器</li>
-    <li>用 opentui——一个把 SolidJS 渲染到终端的渲染器，是「终端里的浏览器」：你照样写 JSX(<box>/<text>)、用 signal 做响应式，opentui 负责把组件树画成终端字符格</li>
+    <li>用 opentui——一个把 SolidJS 渲染到终端的渲染器，是「终端里的浏览器」：你照样写 JSX(&lt;box&gt;/&lt;text&gt;)、用 signal 做响应式，opentui 负责把组件树画成终端字符格</li>
     <li>直接手写 ANSI 转义码、手动算每个字符的坐标</li>
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。opencode 用 opentui——一个把 SolidJS 渲染到终端的渲染器，本质是「终端里的浏览器」。现代框架的精髓是「渲染器与框架分离」：SolidJS 管组件/signal/响应式，画到哪由可插拔渲染器决定——画到浏览器 DOM 是网页、画到终端就是 opentui。它分两层：@opentui/core(引擎：布局/绘制/输入)+@opentui/solid(SolidJS 绑定：render/useRenderer)。JSX 原语是终端版 HTML 标签：<box>(≈div,flexbox 容器)、<text>、<scrollbox>、<input>/<textarea>。布局用 flexDirection/flexGrow/justifyContent 等 CSS flexbox。于是你用和写网页一样的心智模型搭终端 App，opentui 把「组件树怎么变成屏幕字符」全包了——无需手写 ANSI、手算坐标。这是把整个前端渲染范式整体复用（同 L51 复用 git、L39 复用 Ripgrep）。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。opencode 用 opentui——一个把 SolidJS 渲染到终端的渲染器，本质是「终端里的浏览器」。现代框架的精髓是「渲染器与框架分离」：SolidJS 管组件/signal/响应式，画到哪由可插拔渲染器决定——画到浏览器 DOM 是网页、画到终端就是 opentui。它分两层：@opentui/core(引擎：布局/绘制/输入)+@opentui/solid(SolidJS 绑定：render/useRenderer)。JSX 原语是终端版 HTML 标签：&lt;box&gt;(≈div,flexbox 容器)、&lt;text&gt;、&lt;scrollbox&gt;、&lt;input&gt;/&lt;textarea&gt;。布局用 flexDirection/flexGrow/justifyContent 等 CSS flexbox。于是你用和写网页一样的心智模型搭终端 App，opentui 把「组件树怎么变成屏幕字符」全包了——无需手写 ANSI、手算坐标。这是把整个前端渲染范式整体复用（同 L51 复用 git、L39 复用 Ripgrep）。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -608,12 +608,12 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <ol class="opts">
     <li>Render the interface as an image to display</li>
     <li>Embed an actual browser in the terminal</li>
-    <li>With opentui — a renderer that renders SolidJS to the terminal, "a browser for the terminal": you still write JSX (<box>/<text>), use signals for reactivity, and opentui paints the component tree into terminal character cells</li>
+    <li>With opentui — a renderer that renders SolidJS to the terminal, "a browser for the terminal": you still write JSX (&lt;box&gt;/&lt;text&gt;), use signals for reactivity, and opentui paints the component tree into terminal character cells</li>
     <li>Hand-write ANSI escape codes directly, manually computing each character's coordinates</li>
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. opencode uses opentui — a renderer that renders SolidJS to the terminal, essentially "a browser for the terminal." The essence of modern frameworks is "separating renderer from framework": SolidJS handles components/signals/reactivity, where to paint is decided by a pluggable renderer — paint to the browser DOM and it's a web page, to the terminal and it's opentui. It's two layers: @opentui/core (engine: layout/paint/input) + @opentui/solid (SolidJS bindings: render/useRenderer). JSX primitives are terminal HTML tags: <box> (≈div, flexbox container), <text>, <scrollbox>, <input>/<textarea>. Layout via flexDirection/flexGrow/justifyContent CSS flexbox. So you build a terminal app with the same mental model as a web page, opentui handles all of "how the component tree becomes screen characters" — no hand-writing ANSI, no manual coordinates. This reuses the entire frontend rendering paradigm wholesale (like L51 reusing git, L39 reusing Ripgrep).</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. opencode uses opentui — a renderer that renders SolidJS to the terminal, essentially "a browser for the terminal." The essence of modern frameworks is "separating renderer from framework": SolidJS handles components/signals/reactivity, where to paint is decided by a pluggable renderer — paint to the browser DOM and it's a web page, to the terminal and it's opentui. It's two layers: @opentui/core (engine: layout/paint/input) + @opentui/solid (SolidJS bindings: render/useRenderer). JSX primitives are terminal HTML tags: &lt;box&gt; (≈div, flexbox container), &lt;text&gt;, &lt;scrollbox&gt;, &lt;input&gt;/&lt;textarea&gt;. Layout via flexDirection/flexGrow/justifyContent CSS flexbox. So you build a terminal app with the same mental model as a web page, opentui handles all of "how the component tree becomes screen characters" — no hand-writing ANSI, no manual coordinates. This reuses the entire frontend rendering paradigm wholesale (like L51 reusing git, L39 reusing Ripgrep).</div></div></div>
   </details>
 </div>
 <div class="quiz">

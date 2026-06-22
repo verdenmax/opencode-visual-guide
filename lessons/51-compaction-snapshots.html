@@ -348,7 +348,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <p>那份摘要不是随意的散文，而是填进一张<strong>固定结构的模板</strong>（<span class="mono">SUMMARY_TEMPLATE</span>）——这保证了无论压缩多少次，关键维度都不丢：</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">Goal</div><div class="c-txt">一句话任务目标</div></div>
-  <div class="cell"><div class="c-tag">Constraints & Preferences</div><div class="c-txt">用户的约束、偏好、规格</div></div>
+  <div class="cell"><div class="c-tag">Constraints &amp; Preferences</div><div class="c-txt">用户的约束、偏好、规格</div></div>
   <div class="cell"><div class="c-tag">Progress（Done/In Progress/Blocked）</div><div class="c-txt">已完成 / 进行中 / 受阻</div></div>
   <div class="cell"><div class="c-tag">Key Decisions</div><div class="c-txt">关键决策及其理由</div></div>
   <div class="cell"><div class="c-tag">Next Steps</div><div class="c-txt">有序的下一步行动</div></div>
@@ -459,7 +459,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。compactIfNeeded 在请求 token 超过 上下文−max(输出量, 缓冲20000) 时触发。核心是 select 那一刀切分：从对话末尾倒着累加，保留最近约 8000 token（DEFAULT_KEEP_TOKENS）的消息逐字原样（recent），更早的一大段（head）交 LLM 浓缩成结构化摘要——填进固定模板（Goal/Constraints & Preferences/Progress(Done/In Progress/Blocked)/Key Decisions/Next Steps/Critical Context/Relevant Files），保证关键维度不丢。最妙是锚定式增量：已压缩过则在旧摘要上「保留仍成立、删过时、并入新事实」而非重写——否则越早的信息会在一次次压缩中被稀释遗忘；锚定让主线跨多次压缩不断裂。select 甚至能从单条消息中间按剩余字符切两半（×4≈1token4字符），把保留预算用到极致。和 L42 有界输出同一种「上下文稀缺」哲学的不同层级回响。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。compactIfNeeded 在请求 token 超过 上下文−max(输出量, 缓冲20000) 时触发。核心是 select 那一刀切分：从对话末尾倒着累加，保留最近约 8000 token（DEFAULT_KEEP_TOKENS）的消息逐字原样（recent），更早的一大段（head）交 LLM 浓缩成结构化摘要——填进固定模板（Goal/Constraints &amp; Preferences/Progress(Done/In Progress/Blocked)/Key Decisions/Next Steps/Critical Context/Relevant Files），保证关键维度不丢。最妙是锚定式增量：已压缩过则在旧摘要上「保留仍成立、删过时、并入新事实」而非重写——否则越早的信息会在一次次压缩中被稀释遗忘；锚定让主线跨多次压缩不断裂。select 甚至能从单条消息中间按剩余字符切两半（×4≈1token4字符），把保留预算用到极致。和 L42 有界输出同一种「上下文稀缺」哲学的不同层级回响。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -472,7 +472,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。snapshot/index.ts 的妙招是另起一个影子 git 仓库：在 数据目录/snapshot/<项目>/<工作目录哈希> 下建独立 git 仓库，所有命令带 --git-dir <影子> --work-tree <你的真实工作目录>，绝不碰项目里真实的 .git。track()=git add 暂存→git write-tree 写出一个树对象返回哈希（这就是一张快照，用最轻的 git 原语、不需 commit 信息/作者/父提交）；restore(snapshot)=git read-tree <快照>+checkout-index -a -f 还原工作目录。三处妙：① write-tree 而非 commit（最轻原语干最纯的事）；② 影子仓库与 .git 彻底隔离（opencode 几乎每步都拍快照，若污染你的 git log 是灾难）；③ 复用 git 二十年的内容寻址存储（增量/去重/diff），如 L39 复用 Ripgrep。还通过 objects/info/alternates 共享真实仓库对象省空间、尊重 .gitignore、屏蔽大文件。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。snapshot/index.ts 的妙招是另起一个影子 git 仓库：在 数据目录/snapshot/&lt;项目&gt;/&lt;工作目录哈希&gt; 下建独立 git 仓库，所有命令带 --git-dir &lt;影子&gt; --work-tree <你的真实工作目录>，绝不碰项目里真实的 .git。track()=git add 暂存→git write-tree 写出一个树对象返回哈希（这就是一张快照，用最轻的 git 原语、不需 commit 信息/作者/父提交）；restore(snapshot)=git read-tree &lt;快照&gt;+checkout-index -a -f 还原工作目录。三处妙：① write-tree 而非 commit（最轻原语干最纯的事）；② 影子仓库与 .git 彻底隔离（opencode 几乎每步都拍快照，若污染你的 git log 是灾难）；③ 复用 git 二十年的内容寻址存储（增量/去重/diff），如 L39 复用 Ripgrep。还通过 objects/info/alternates 共享真实仓库对象省空间、尊重 .gitignore、屏蔽大文件。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -516,7 +516,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <p>That summary isn't arbitrary prose but filled into a <strong>fixed-structure template</strong> (<span class="mono">SUMMARY_TEMPLATE</span>)—this guarantees that no matter how many compactions, the key dimensions aren't lost:</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">Goal</div><div class="c-txt">single-sentence task summary</div></div>
-  <div class="cell"><div class="c-tag">Constraints & Preferences</div><div class="c-txt">user constraints, preferences, specs</div></div>
+  <div class="cell"><div class="c-tag">Constraints &amp; Preferences</div><div class="c-txt">user constraints, preferences, specs</div></div>
   <div class="cell"><div class="c-tag">Progress (Done/In Progress/Blocked)</div><div class="c-txt">completed / current / blocked</div></div>
   <div class="cell"><div class="c-tag">Key Decisions</div><div class="c-txt">key decisions and their reasons</div></div>
   <div class="cell"><div class="c-tag">Next Steps</div><div class="c-txt">ordered next actions</div></div>
@@ -627,7 +627,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. compactIfNeeded triggers when request tokens exceed context−max(output, buffer 20000). The core is the select split: accumulating backward from the conversation's end, keep the most recent ~8000 tokens (DEFAULT_KEEP_TOKENS) of messages verbatim (recent), hand the big earlier stretch (head) to the LLM to condense into a structured summary—filled into a fixed template (Goal/Constraints & Preferences/Progress(Done/In Progress/Blocked)/Key Decisions/Next Steps/Critical Context/Relevant Files), guaranteeing key dimensions aren't lost. The finest is anchored incremental: if already compacted, "preserve still-true, remove stale, merge new facts" on the old summary rather than rewrite—else the earliest info would be diluted and forgotten across successive compactions; anchoring keeps the main thread unbroken across compactions. select can even cut a single message in two by remaining chars (×4≈1token 4chars), using the keep budget to the hilt. The same "context scarce" philosophy as L42 bounded output echoing at a different level.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. compactIfNeeded triggers when request tokens exceed context−max(output, buffer 20000). The core is the select split: accumulating backward from the conversation's end, keep the most recent ~8000 tokens (DEFAULT_KEEP_TOKENS) of messages verbatim (recent), hand the big earlier stretch (head) to the LLM to condense into a structured summary—filled into a fixed template (Goal/Constraints &amp; Preferences/Progress(Done/In Progress/Blocked)/Key Decisions/Next Steps/Critical Context/Relevant Files), guaranteeing key dimensions aren't lost. The finest is anchored incremental: if already compacted, "preserve still-true, remove stale, merge new facts" on the old summary rather than rewrite—else the earliest info would be diluted and forgotten across successive compactions; anchoring keeps the main thread unbroken across compactions. select can even cut a single message in two by remaining chars (×4≈1token 4chars), using the keep budget to the hilt. The same "context scarce" philosophy as L42 bounded output echoing at a different level.</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -640,7 +640,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. snapshot/index.ts's trick is spinning up a shadow git repo: build a separate git repo under data-dir/snapshot/<project>/<worktree-hash>, all commands carrying --git-dir <shadow> --work-tree <your real working directory>, never touching the project's real .git. track()=git add stages→git write-tree writes a tree object returning a hash (that's a snapshot, the lightest git primitive, no commit message/author/parent needed); restore(snapshot)=git read-tree <snapshot>+checkout-index -a -f restores the working dir. Three clever points: ① write-tree not commit (lightest primitive for the purest job); ② the shadow repo is fully isolated from .git (opencode snapshots around almost every step; polluting your git log would be a disaster); ③ reuse git's twenty-years content-addressable storage (incremental/dedup/diff), like L39 reusing Ripgrep. It also shares the real repo's objects via objects/info/alternates to save space, respects .gitignore, blocks large files.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. snapshot/index.ts's trick is spinning up a shadow git repo: build a separate git repo under data-dir/snapshot/&lt;project&gt;/&lt;worktree-hash&gt;, all commands carrying --git-dir &lt;shadow&gt; --work-tree &lt;your real working directory&gt;, never touching the project's real .git. track()=git add stages→git write-tree writes a tree object returning a hash (that's a snapshot, the lightest git primitive, no commit message/author/parent needed); restore(snapshot)=git read-tree &lt;snapshot&gt;+checkout-index -a -f restores the working dir. Three clever points: ① write-tree not commit (lightest primitive for the purest job); ② the shadow repo is fully isolated from .git (opencode snapshots around almost every step; polluting your git log would be a disaster); ③ reuse git's twenty-years content-addressable storage (incremental/dedup/diff), like L39 reusing Ripgrep. It also shares the real repo's objects via objects/info/alternates to save space, respects .gitignore, blocks large files.</div></div></div>
   </details>
 </div>
 <div class="quiz">

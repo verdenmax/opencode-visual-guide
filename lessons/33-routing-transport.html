@@ -478,7 +478,7 @@ Route.<span class="fn">make</span>({
   <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
   <ul>
     <li>课里把 OpenAI Responses 同时支持 HTTP 与 WebSocket，解释为「哪种传输划算就用哪种，并把选择做成一个可拨动的旋钮」，而不是「为了时髦上 WebSocket」。结合 HTTP（无状态、省心、universal）与 WebSocket（双向、实时、但要管连接保活/重连）的权衡，谈谈你会在什么场景选 WebSocket、什么场景坚持 HTTP？把传输做成「旋钮」而非写死，给未来留下了什么样的余地？</li>
-    <li>课里强调「正交不等于放任」：这几个正交件能自由组合，但类型参数 Frame 在 framing 和 protocol 的接缝处强制对齐（SSE 切出 string 帧，配它的 protocol.stream.event 就得是 Codec<Event, string>）。请谈谈「用类型系统在模块接缝处设防」相比「靠文档约定/代码评审来防止错配」的优势；你能想到自己项目里哪个接缝，也值得用类型（而非口头约定）来强制对齐？</li>
+    <li>课里强调「正交不等于放任」：这几个正交件能自由组合，但类型参数 Frame 在 framing 和 protocol 的接缝处强制对齐（SSE 切出 string 帧，配它的 protocol.stream.event 就得是 Codec&lt;Event, string&gt;）。请谈谈「用类型系统在模块接缝处设防」相比「靠文档约定/代码评审来防止错配」的优势；你能想到自己项目里哪个接缝，也值得用类型（而非口头约定）来强制对齐？</li>
   </ul>
 </div>
 </div></div>
@@ -531,7 +531,7 @@ Route.<span class="fn">make</span>({
 <h2>Four orthogonal pieces: the building-block Route</h2>
 <p>Combine this lesson with the prior ones and the <strong>final form</strong> of opencode's LLM layer is clear—<span class="mono">Route.make</span>'s source comment spells it out: a <span class="mono">Route</span> is assembled from <strong>four orthogonal pieces</strong>, plus an id.</p>
 <div class="cellgroup">
-  <div class="cell"><div class="c-tag">id</div><div class="c-txt">route identity, for diagnostics & resolution</div></div>
+  <div class="cell"><div class="c-tag">id</div><div class="c-txt">route identity, for diagnostics &amp; resolution</div></div>
   <div class="cell"><div class="c-tag">protocol</div><div class="c-txt">dialect codec (body.from + stream.step)</div></div>
   <div class="cell"><div class="c-tag">endpoint</div><div class="c-txt">which URL to hit</div></div>
   <div class="cell"><div class="c-tag">auth</div><div class="c-txt">how to sign/authenticate</div></div>
@@ -632,7 +632,7 @@ Route.<span class="fn">make</span>({
   <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
   <ul>
     <li>The lesson explains OpenAI Responses supporting both HTTP and WebSocket as "use whichever transport is worthwhile, making the choice a turnable knob," not "adopt WebSocket to be trendy." Weighing HTTP (stateless, carefree, universal) against WebSocket (bidirectional, real-time, but must manage keepalive/reconnect), discuss when you'd choose WebSocket and when you'd stick with HTTP. Making transport a "knob" rather than hardcoded leaves what headroom for the future?</li>
-    <li>The lesson stresses "orthogonal doesn't mean lawless": the orthogonal pieces combine freely, but the type parameter Frame forces alignment at the framing/protocol seam (SSE cuts string frames, so its protocol.stream.event must be Codec<Event, string>). Discuss the advantage of "guarding a module seam with the type system" over "preventing mismatches via documentation/code review." Which seam in your own project also deserves type-enforced (not verbal) alignment?</li>
+    <li>The lesson stresses "orthogonal doesn't mean lawless": the orthogonal pieces combine freely, but the type parameter Frame forces alignment at the framing/protocol seam (SSE cuts string frames, so its protocol.stream.event must be Codec&lt;Event, string&gt;). Discuss the advantage of "guarding a module seam with the type system" over "preventing mismatches via documentation/code review." Which seam in your own project also deserves type-enforced (not verbal) alignment?</li>
   </ul>
 </div>
 </div></div>

@@ -468,7 +468,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="card spark">
   <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
   <ul>
-    <li>课里把 opencode 的配置层叠（全局默认 < 项目 < 更靠近 cwd）和 CSS cascade、.gitconfig（system<global<local）、editorconfig 等归为同一类「分层就近覆盖」机制。请你提炼这类机制的共同结构（多个有序来源、就近/就具体者覆盖、按项取值），并谈谈它为什么比「单一全局配置」或「每处独立配置」都更好用。它的代价（心智负担、来源排查）又在哪？</li>
+    <li>课里把 opencode 的配置层叠（全局默认 < 项目 < 更靠近 cwd）和 CSS cascade、.gitconfig（system&lt;global&lt;local）、editorconfig 等归为同一类「分层就近覆盖」机制。请你提炼这类机制的共同结构（多个有序来源、就近/就具体者覆盖、按项取值），并谈谈它为什么比「单一全局配置」或「每处独立配置」都更好用。它的代价（心智负担、来源排查）又在哪？</li>
     <li>课里强调这套配置系统的「可解释性」：保留有序来源、按 key 当场裁决，让每一项的来源始终可追，避免「来源成谜」。请结合你维护过的配置系统（如环境变量层叠、k8s 多层 values、构建工具配置），谈谈「配置来源难追溯」给你造成过什么麻烦？一个系统该如何设计，才能在合并多来源配置的同时，仍让人随时回答「这个值到底从哪来」？</li>
   </ul>
 </div>
@@ -614,7 +614,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="card spark">
   <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
   <ul>
-    <li>The lesson groups opencode's config cascade (global default < project < closer-to-cwd) with CSS cascade, .gitconfig (system<global<local), editorconfig as the same "layered closer-overrides" mechanism. Distill this class's common structure (multiple ordered sources, closer/more-specific overrides, per-item resolution), and discuss why it beats both "a single global config" and "independent config everywhere." What's its cost (cognitive load, source debugging)?</li>
+    <li>The lesson groups opencode's config cascade (global default < project < closer-to-cwd) with CSS cascade, .gitconfig (system&lt;global&lt;local), editorconfig as the same "layered closer-overrides" mechanism. Distill this class's common structure (multiple ordered sources, closer/more-specific overrides, per-item resolution), and discuss why it beats both "a single global config" and "independent config everywhere." What's its cost (cognitive load, source debugging)?</li>
     <li>The lesson stresses this config system's "explainability": keeping ordered sources and adjudicating per-key keeps each item's source always traceable, avoiding "source is a mystery." From config systems you've maintained (env-var layering, k8s multi-layer values, build-tool config), discuss what trouble "config source hard to trace" caused you. How should a system be designed so that, while merging multi-source config, it still lets you answer "where exactly does this value come from" anytime?</li>
   </ul>
 </div>

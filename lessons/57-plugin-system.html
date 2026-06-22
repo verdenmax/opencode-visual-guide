@@ -452,14 +452,14 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="quiz">
   <div class="qn">1. 在 opencode 里，一个公开插件（@opencode-ai/plugin）本质上是什么？</div>
   <ol class="opts">
-    <li>一个返回「钩子表」的 async 函数——Plugin = (input: PluginInput, options?) => Promise<Hooks>，无类无继承无样板，收一份上下文、返回一个 Hooks 对象</li>
+    <li>一个返回「钩子表」的 async 函数——Plugin = (input: PluginInput, options?) => Promise&lt;Hooks&gt;，无类无继承无样板，收一份上下文、返回一个 Hooks 对象</li>
     <li>一个独立运行的微服务进程</li>
     <li>一段要编进 opencode 源码的代码</li>
     <li>一个必须继承 AbstractPlugin 基类的类</li>
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。opencode 公开插件朴素得惊人：Plugin = (input: PluginInput, options?) => Promise<Hooks>——一个 async 函数，收一份 input 上下文、返回一个 Hooks 对象。无要继承的基类、无要实现的接口方法、无要注册的装饰器，就是「函数进、钩子出」。例子插件几行就注册一个自定义工具：async (ctx) => ({ tool: { mytool: tool({...}) } })。这种极简把「写一个插件」的门槛压到几乎为零——会写一个返回对象的 async 函数就会写 opencode 插件，剩下只是查那张钩子表有哪些键可填。对比传统插件框架的重器械（继承基类、实现一堆生命周期方法、DI 容器、XML 清单），opencode 削到只剩一个函数签名，因为看透了插件本质只需答两问：「你能给我什么」(PluginInput)+「你想何时介入」(Hooks)。呼应全书「最强抽象往往最朴素」（L36 Tool.make、L47 PluginV2.define、L53 createSimpleContext）。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。opencode 公开插件朴素得惊人：Plugin = (input: PluginInput, options?) => Promise&lt;Hooks&gt;——一个 async 函数，收一份 input 上下文、返回一个 Hooks 对象。无要继承的基类、无要实现的接口方法、无要注册的装饰器，就是「函数进、钩子出」。例子插件几行就注册一个自定义工具：async (ctx) => ({ tool: { mytool: tool({...}) } })。这种极简把「写一个插件」的门槛压到几乎为零——会写一个返回对象的 async 函数就会写 opencode 插件，剩下只是查那张钩子表有哪些键可填。对比传统插件框架的重器械（继承基类、实现一堆生命周期方法、DI 容器、XML 清单），opencode 削到只剩一个函数签名，因为看透了插件本质只需答两问：「你能给我什么」(PluginInput)+「你想何时介入」(Hooks)。呼应全书「最强抽象往往最朴素」（L36 Tool.make、L47 PluginV2.define、L53 createSimpleContext）。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -620,14 +620,14 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="quiz">
   <div class="qn">1. In opencode, what is a public plugin (@opencode-ai/plugin) essentially?</div>
   <ol class="opts">
-    <li>An async function returning a "hook table"—Plugin = (input: PluginInput, options?) => Promise<Hooks>, no class/inheritance/boilerplate, takes a context, returns a Hooks object</li>
+    <li>An async function returning a "hook table"—Plugin = (input: PluginInput, options?) => Promise&lt;Hooks&gt;, no class/inheritance/boilerplate, takes a context, returns a Hooks object</li>
     <li>A standalone microservice process</li>
     <li>Code that must be compiled into opencode's source</li>
     <li>A class that must inherit an AbstractPlugin base class</li>
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. opencode's public plugin is astonishingly plain: Plugin = (input: PluginInput, options?) => Promise<Hooks>—an async function, takes an input context, returns a Hooks object. No base class to inherit, no interface methods to implement, no decorator to register, just "function in, hooks out." The example plugin registers a custom tool in a few lines: async (ctx) => ({ tool: { mytool: tool({...}) } }). This minimalism presses the barrier of "writing a plugin" to nearly zero—if you can write an async function returning an object you can write an opencode plugin, the rest is just looking up which keys you can fill in that hook table. Contrast the heavy machinery of traditional plugin frameworks (inherit a base class, implement a pile of lifecycle methods, a DI container, an XML manifest), opencode pares down to one function signature, because it sees through that a plugin's essence need only answer two questions: "what can you give me" (PluginInput) + "when do you want to step in" (Hooks). Echoes the book's "the strongest abstraction is often the plainest" (L36 Tool.make, L47 PluginV2.define, L53 createSimpleContext).</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. opencode's public plugin is astonishingly plain: Plugin = (input: PluginInput, options?) => Promise&lt;Hooks&gt;—an async function, takes an input context, returns a Hooks object. No base class to inherit, no interface methods to implement, no decorator to register, just "function in, hooks out." The example plugin registers a custom tool in a few lines: async (ctx) => ({ tool: { mytool: tool({...}) } }). This minimalism presses the barrier of "writing a plugin" to nearly zero—if you can write an async function returning an object you can write an opencode plugin, the rest is just looking up which keys you can fill in that hook table. Contrast the heavy machinery of traditional plugin frameworks (inherit a base class, implement a pile of lifecycle methods, a DI container, an XML manifest), opencode pares down to one function signature, because it sees through that a plugin's essence need only answer two questions: "what can you give me" (PluginInput) + "when do you want to step in" (Hooks). Echoes the book's "the strongest abstraction is often the plainest" (L36 Tool.make, L47 PluginV2.define, L53 createSimpleContext).</div></div></div>
   </details>
 </div>
 <div class="quiz">

@@ -372,7 +372,7 @@ Effect.<span class="fn">addFinalizer</span>(() =&gt; {
   <div class="col"><h4>materialize · materialization (immutable)</h4><p>A <strong>snapshot</strong> taken at one moment + permission filter + identity freeze; it asks "<strong>this turn, which the model should see and can call</strong>." Once printed, unchanging this turn.</p></div>
 </div>
 
-<h2>Dispatch & anti-forgery: settle's "stale dish" interception</h2>
+<h2>Dispatch &amp; anti-forgery: settle's "stale dish" interception</h2>
 <p>The menu's printed, the model orders a dish (initiates a tool call), and <span class="mono">settle</span> handles <strong>dispatch + execution + cleanup</strong>. This chain collects all the prior lessons' planted seeds:</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">①find</span><span class="t-txt">by call.name find the stack-top registration (or in applications)</span></div>
@@ -396,7 +396,7 @@ Effect.<span class="fn">addFinalizer</span>(() =&gt; {
   <p>The register/materialize line cleanly cuts "which tools exist" from "which this turn sees," giving permissions (lesson 41) and bounded output (lesson 42) clear mount points. So where do these built-in tools "check in"? The answer is <span class="mono">locationLayer</span> in <span class="mono">builtins.ts</span>—it uses <span class="mono">Layer.mergeAll</span> to merge all shipped built-in tools' layers into one, each tool's layer <strong>self-registering</strong> into the registry as it's assembled:</p>
   <div class="cellgroup">
     <div class="cell"><div class="c-tag">file</div><div class="c-txt">read / write / edit / apply-patch (lesson 38)</div></div>
-    <div class="cell"><div class="c-tag">search & exec</div><div class="c-txt">glob / grep / bash (lesson 39)</div></div>
+    <div class="cell"><div class="c-tag">search &amp; exec</div><div class="c-txt">glob / grep / bash (lesson 39)</div></div>
     <div class="cell"><div class="c-tag">other</div><div class="c-txt">webfetch / websearch / question / todowrite (lesson 40)</div></div>
     <div class="cell"><div class="c-tag">Skills</div><div class="c-txt">skill (lesson 43, a permissioned special tool)</div></div>
   </div>
@@ -580,7 +580,7 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
   <div class="t-row"><span class="t-num">②ask permission</span><span class="t-txt">permission.assert(...): is this file allowed to change? (lesson 41)</span></div>
   <div class="t-row"><span class="t-num">③read source</span><span class="t-txt">readFile + decodeUtf8 (handle BOM)</span></div>
   <div class="t-row"><span class="t-num">④normalize line ending</span><span class="t-txt">detect file's \n or \r\n, convert old/new to the same</span></div>
-  <div class="t-row"><span class="t-num">⑤count matches</span><span class="t-txt">countOccurrences: 0→reject "not found"; &gt;1 & not replaceAll→reject "ambiguous"</span></div>
+  <div class="t-row"><span class="t-num">⑤count matches</span><span class="t-txt">countOccurrences: 0→reject "not found"; &gt;1 &amp; not replaceAll→reject "ambiguous"</span></div>
   <div class="t-row"><span class="t-num">⑥replace</span><span class="t-txt">replaceAll ? replace all : replace first</span></div>
   <div class="t-row"><span class="t-num">⑦optimistic write</span><span class="t-txt">writeIfUnchanged(expected=just-read bytes): reject if someone changed it</span></div>
 </div>
@@ -613,7 +613,7 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
     <li><strong>edit's four guardrails</strong>: exact match (no fuzzy), ambiguity refusal (multiple matches, no guessing), line-ending normalization (\n↔\r\n), optimistic-concurrency write (<span class="mono">writeIfUnchanged</span> doesn't clobber). Only one line actually "replaces," the rest all guardrails.</li>
     <li><strong>Path boundary</strong>: resolved relative to "active Location"; external absolute paths need <span class="mono">external_directory</span> approval. A security fence keeping the agent within its workspace by default.</li>
   </ul>
-  <p>This lesson's main theme—"letting AI safely change code, the difficulty is in guardrails not replacement"—runs through all of M7. The next lesson (39) turns to <strong>search & exec tools</strong>: <span class="mono">glob</span> (find files by name), <span class="mono">grep</span> (search by content), <span class="mono">bash</span> (run commands)—where bash runs via spawned subprocess (batch), another ring of fine guardrails (note: bash does NOT use PTY, the next lesson clarifies). Reading files, searching files, running commands are a coding agent's three basic skills; these two lessons cover the first two thoroughly.</p>
+  <p>This lesson's main theme—"letting AI safely change code, the difficulty is in guardrails not replacement"—runs through all of M7. The next lesson (39) turns to <strong>search &amp; exec tools</strong>: <span class="mono">glob</span> (find files by name), <span class="mono">grep</span> (search by content), <span class="mono">bash</span> (run commands)—where bash runs via spawned subprocess (batch), another ring of fine guardrails (note: bash does NOT use PTY, the next lesson clarifies). Reading files, searching files, running commands are a coding agent's three basic skills; these two lessons cover the first two thoroughly.</p>
 </div>
 
 <div class="card detail">
@@ -639,7 +639,7 @@ files.<span class="fn">writeIfUnchanged</span>({ target, expected: source.conten
   <ul>
     <li><strong>Four file tools</strong> (<span class="mono">core/src/tool/{read,write,edit,apply-patch}.ts</span>) cover the change spectrum: <span class="mono">read</span> (read-only/paging/directory listing), <span class="mono">write</span> (whole-file overwrite), <span class="mono">edit</span> (exact find-replace), <span class="mono">apply_patch</span> (multi-file batch add/update/delete). All different fillings of lesson 36's <span class="mono">Config</span> form + <span class="mono">withPermission</span>.</li>
     <li><strong>edit's execution is a guardrail pipeline</strong>: ①validate (old==new/empty→reject) ②permission.assert ③read+decodeUtf8(BOM) ④normalize line endings (\n↔\r\n) ⑤count matches ⑥replace ⑦optimistic write. Only step ⑥, one line, actually replaces.</li>
-    <li><strong>edit's four guardrails</strong>: exact match (incl. spaces/indentation, not found → reject); ambiguity refusal (multiple matches & not replaceAll → stop and ask, no guessing for the model); auto line-ending normalization (avoiding false mismatches); <strong>optimistic-concurrency write</strong>.</li>
+    <li><strong>edit's four guardrails</strong>: exact match (incl. spaces/indentation, not found → reject); ambiguity refusal (multiple matches &amp; not replaceAll → stop and ask, no guessing for the model); auto line-ending normalization (avoiding false mismatches); <strong>optimistic-concurrency write</strong>.</li>
     <li><strong><span class="mono">writeIfUnchanged(expected=read bytes)</span> = compare-and-swap</strong>: write only if disk content still equals what was originally read, else reject—locking "read-modify-write" concurrency risk into an atomic operation, preventing lost updates (optimistic concurrency control OCC, no pessimistic lock).</li>
     <li><strong>Paths resolve relative to "active Location"</strong>, external absolute paths need <span class="mono">external_directory</span> approval (security fence). All "rejections" go through <span class="mono">ToolFailure</span> back to the model; the error message is the model's operating guide.</li>
   </ul>
@@ -1002,7 +1002,7 @@ description = <span class="st">`...The current year is ${new Date().getFullYear(
     <li><strong>Still the same Config form</strong>: each tool declares input/output schema + execute, wrapped in permission—again confirming lesson 36's "one form, each fills blanks," only the "hand" reaches toward network, people, self.</li>
     <li><strong>Capability = the world the hands can touch</strong>: an agent that can only change local files is stumped by "how to use the latest API"; an agent that can search, ask, and plan is a reliable collaborator.</li>
   </ul>
-  <p>By here, opencode's <strong>built-in tool family</strong> is complete: file (read/write/edit/apply-patch), search & exec (glob/grep/bash), network & collaboration (webfetch/websearch/question/todowrite), plus lesson 43's skill later. The next lesson (41) turns back to a cross-cutting line running through all tools—the <strong>permission system</strong>: the <span class="mono">withPermission</span> / <span class="mono">permission.assert</span> appearing in every tool above—how it evaluates, and how it hands the "may this step be done" decision back to the user. Tools cover "what can be done," permissions cover "what's allowed"—the former is capability, the latter the boundary; together they make an agent both useful and controllable.</p>
+  <p>By here, opencode's <strong>built-in tool family</strong> is complete: file (read/write/edit/apply-patch), search &amp; exec (glob/grep/bash), network &amp; collaboration (webfetch/websearch/question/todowrite), plus lesson 43's skill later. The next lesson (41) turns back to a cross-cutting line running through all tools—the <strong>permission system</strong>: the <span class="mono">withPermission</span> / <span class="mono">permission.assert</span> appearing in every tool above—how it evaluates, and how it hands the "may this step be done" decision back to the user. Tools cover "what can be done," permissions cover "what's allowed"—the former is capability, the latter the boundary; together they make an agent both useful and controllable.</p>
 </div>
 
 <div class="card detail">
@@ -1592,7 +1592,7 @@ LESSON_43 = {
   <div class="cell"><div class="c-tag">uses the registry (L37)</div><div class="c-txt">the skill tool self-registers in locationLayer via SkillTool.layer</div></div>
   <div class="cell"><div class="c-tag">uses permissions (L41)</div><div class="c-txt">the skill tool calls permission.assert(action: skill) internally—loading a skill needs permission too</div></div>
   <div class="cell"><div class="c-tag">uses read etc. (L38)</div><div class="c-txt">the body's referenced scripts/files are fetched by the general read tool</div></div>
-  <div class="cell"><div class="c-tag">discovery & download</div><div class="c-txt">SkillDiscovery indexes from a directory, and can download skills from a URL</div></div>
+  <div class="cell"><div class="c-tag">discovery &amp; download</div><div class="c-txt">SkillDiscovery indexes from a directory, and can download skills from a URL</div></div>
 </div>
 <p>From this table you see why Skills is M5+M7's <strong>meeting point</strong>: it has one foot in "system context" (M5, deciding what world the model sees) and one in "the tool system" (M7, deciding what the model can do). A skill is <strong>half-context, half-tool</strong>—its name half is context, its body half is a tool. This "spanning two major subsystems" design shows Skills isn't yet another isolated feature but a <strong>higher-level reuse mechanism built atop all the prior abstractions</strong>. And precisely because the underlying parts (tools isomorphic, context composable, permissions stackable) are all polished, Skills can stitch them together so lightly—<strong>a good high-level abstraction often isn't conjured from nothing but "grows" naturally once the lower parts are solid enough.</strong> Incidentally, <span class="mono">SkillDiscovery</span> can also index skills from a directory, even download them from a URL—skills aren't hardcoded but <strong>discoverable, distributable, extensible</strong> content, making "adding a competence to the agent" something the community can join in.</p>
 <div class="flow">

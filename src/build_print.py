@@ -20,8 +20,8 @@ from registry import CONTENT  # noqa: E402
 
 TITLE = {"zh": "opencode 图解学习指南 - 打印版", "en": "opencode Visual Guide - Print Edition"}
 INTRO = {
-    "zh": "全 64 课 - 逐课分页。用浏览器 Ctrl/Cmd+P 即可导出 PDF。",
-    "en": "All 64 lessons - one page each. Use Ctrl/Cmd+P in a browser to export a PDF.",
+    "zh": "全 69 课 - 逐课分页。用浏览器 Ctrl/Cmd+P 即可导出 PDF。",
+    "en": "All 69 lessons - one page each. Use Ctrl/Cmd+P in a browser to export a PDF.",
 }
 TOC = {"zh": "目录", "en": "Contents"}
 
@@ -58,7 +58,7 @@ def build_lang(lang):
     toc = [f'<div class="print-toc"><h2>{TOC[lang]}</h2>\n<ol>']
     for page in shell.PAGES:
         title = page[1] if lang == "zh" else page[2]
-        toc.append(f"  <li>{title}</li>")
+        toc.append(f"  <li>{shell.esc(title)}</li>")
     toc.append("</ol></div>")
     parts.append("\n".join(toc))
     for page in shell.PAGES:
@@ -68,7 +68,7 @@ def build_lang(lang):
         title = page[1] if lang == "zh" else page[2]
         body = _expand_details(CONTENT[fname][lang])
         quiz = _expand_details(quizzes.render(fname, lang))
-        parts.append(f'<section class="lesson-print">\n<h1>{title}</h1>\n{body}\n{quiz}\n</section>')
+        parts.append(f'<section class="lesson-print">\n<h1>{shell.esc(title)}</h1>\n{body}\n{quiz}\n</section>')
     return head + "\n".join(parts) + "\n</body>\n</html>\n"
 
 

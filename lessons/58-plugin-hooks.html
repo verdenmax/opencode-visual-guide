@@ -435,7 +435,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="selftest">
 <h2>🧪 自测 · 想一想为什么这么设计</h2>
 <div class="quiz">
-  <div class="qn">1. opencode 插件的绝大多数钩子签名都是 (input, output) => Promise<void>，返回 void。插件怎么靠它施加影响？</div>
+  <div class="qn">1. opencode 插件的绝大多数钩子签名都是 (input, output) => Promise&lt;void&gt;，返回 void。插件怎么靠它施加影响？</div>
   <ol class="opts">
     <li>插件 return 一个新对象替换掉 output</li>
     <li>插件 throw 一个异常来传值</li>
@@ -444,7 +444,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。所有钩子共享同一个「改草稿」机制：签名 (input, output) => Promise<void>，返回 void、靠就地改 output 生效。input 是只读上下文（现在什么情况），output 是可变草稿对象（改它来施加影响）。触发机制：opencode 先算一份默认 output，plugin.trigger(钩子名, input, 默认output) 把(input,output)交给每个注册该钩子的插件，每个在 output 上涂改一笔，最后 opencode 拿这份被层层涂改过的 output 继续干活。插件不是「返回新值替换」，而是「在 opencode 递来的草稿上改几笔」。好处：①opencode 永远给默认值拿最终值，主动权在宿主、零插件也能正常工作；②多插件可叠加，后者看得到前者的改动（同 L41/L44 层叠）；③草稿的完整结构由 opencode 保证，插件只改几个字段，避免「插件返回残缺对象」。这个「传入可变草稿、就地修改」同 L54 produce。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。所有钩子共享同一个「改草稿」机制：签名 (input, output) => Promise&lt;void&gt;，返回 void、靠就地改 output 生效。input 是只读上下文（现在什么情况），output 是可变草稿对象（改它来施加影响）。触发机制：opencode 先算一份默认 output，plugin.trigger(钩子名, input, 默认output) 把(input,output)交给每个注册该钩子的插件，每个在 output 上涂改一笔，最后 opencode 拿这份被层层涂改过的 output 继续干活。插件不是「返回新值替换」，而是「在 opencode 递来的草稿上改几笔」。好处：①opencode 永远给默认值拿最终值，主动权在宿主、零插件也能正常工作；②多插件可叠加，后者看得到前者的改动（同 L41/L44 层叠）；③草稿的完整结构由 opencode 保证，插件只改几个字段，避免「插件返回残缺对象」。这个「传入可变草稿、就地修改」同 L54 produce。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -588,7 +588,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="selftest">
 <h2>🧪 Self-test - think about the design</h2>
 <div class="quiz">
-  <div class="qn">1. Most opencode plugin hooks have the signature (input, output) => Promise<void>, returning void. How does a plugin exert influence through it?</div>
+  <div class="qn">1. Most opencode plugin hooks have the signature (input, output) => Promise&lt;void&gt;, returning void. How does a plugin exert influence through it?</div>
   <ol class="opts">
     <li>The plugin returns a new object replacing output</li>
     <li>The plugin throws an exception to pass a value</li>
@@ -597,7 +597,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. All hooks share the same "edit a draft" mechanism: signature (input, output) => Promise<void>, returns void, takes effect by editing output in place. input is read-only context (what the situation is), output is a mutable draft object (edit it to exert influence). The trigger mechanism: opencode first computes a default output, plugin.trigger(hookName, input, defaultOutput) hands (input,output) to each plugin that registered the hook, each marks up the output, finally opencode takes this layer-by-layer marked-up output and carries on. The plugin doesn't "return a new value to replace" but "marks up a few strokes on the draft opencode handed." Benefits: ① opencode always gives the default and takes the final, initiative with the host, works fine with zero plugins; ② multiple plugins can stack, later ones see earlier edits (like L41/L44 stacking); ③ the draft's complete structure is guaranteed by opencode, the plugin only edits a few fields, avoiding "plugin returns a defective object." This "pass a mutable draft, modify in place" is like L54 produce.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. All hooks share the same "edit a draft" mechanism: signature (input, output) => Promise&lt;void&gt;, returns void, takes effect by editing output in place. input is read-only context (what the situation is), output is a mutable draft object (edit it to exert influence). The trigger mechanism: opencode first computes a default output, plugin.trigger(hookName, input, defaultOutput) hands (input,output) to each plugin that registered the hook, each marks up the output, finally opencode takes this layer-by-layer marked-up output and carries on. The plugin doesn't "return a new value to replace" but "marks up a few strokes on the draft opencode handed." Benefits: ① opencode always gives the default and takes the final, initiative with the host, works fine with zero plugins; ② multiple plugins can stack, later ones see earlier edits (like L41/L44 stacking); ③ the draft's complete structure is guaranteed by opencode, the plugin only edits a few fields, avoiding "plugin returns a defective object." This "pass a mutable draft, modify in place" is like L54 produce.</div></div></div>
   </details>
 </div>
 <div class="quiz">

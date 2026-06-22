@@ -174,8 +174,8 @@ LESSON_28 = {
   <ul>
     <li><strong>Lesson 28 · this one</strong>: the master diagram — core speaks canonical (<span class="mono">LLMRequest</span>/<span class="mono">LLMEvent</span>), protocol adapters as the "translation wall"; protocol vs provider two layers.</li>
     <li><strong>Lesson 29</strong>: a protocol adapter's <strong>common skeleton</strong> — what "translation" duties a protocol must implement.</li>
-    <li><strong>Lessons 30-32</strong>: the three big dialects in detail — <strong>Anthropic</strong> (30), <strong>OpenAI</strong> Chat/Responses (31), <strong>Gemini & Bedrock</strong> (32).</li>
-    <li><strong>Lessons 33-35</strong>: routing & transport (33), streaming & caching (34), model resolution & Copilot (35).</li>
+    <li><strong>Lessons 30-32</strong>: the three big dialects in detail — <strong>Anthropic</strong> (30), <strong>OpenAI</strong> Chat/Responses (31), <strong>Gemini &amp; Bedrock</strong> (32).</li>
+    <li><strong>Lessons 33-35</strong>: routing &amp; transport (33), streaming &amp; caching (34), model resolution &amp; Copilot (35).</li>
   </ul>
   <p>Remember this lesson's core intuition: <strong>opencode's core forever speaks only one canonical language, fully isolating the dirty job of "interfacing with wildly different providers" into a protocol-adapter layer.</strong> This is a textbook practice of "anti-corruption layer / adapter pattern" on the "multi-model interfacing" dimension. Next lesson we approach the translation wall to see what "translation duties" make up a single protocol adapter inside.</p>
 </div>
@@ -1209,7 +1209,7 @@ Route.<span class="fn">make</span>({
 <h2>Four orthogonal pieces: the building-block Route</h2>
 <p>Combine this lesson with the prior ones and the <strong>final form</strong> of opencode's LLM layer is clear—<span class="mono">Route.make</span>'s source comment spells it out: a <span class="mono">Route</span> is assembled from <strong>four orthogonal pieces</strong>, plus an id.</p>
 <div class="cellgroup">
-  <div class="cell"><div class="c-tag">id</div><div class="c-txt">route identity, for diagnostics & resolution</div></div>
+  <div class="cell"><div class="c-tag">id</div><div class="c-txt">route identity, for diagnostics &amp; resolution</div></div>
   <div class="cell"><div class="c-tag">protocol</div><div class="c-txt">dialect codec (body.from + stream.step)</div></div>
   <div class="cell"><div class="c-tag">endpoint</div><div class="c-txt">which URL to hit</div></div>
   <div class="cell"><div class="c-tag">auth</div><div class="c-txt">how to sign/authenticate</div></div>
@@ -1673,7 +1673,7 @@ LESSON_35 = {
     <li><strong>L28 anti-corruption layer</strong>: core speaks only canonical (LLMRequest out / LLMEvent back), adapters wall off with translation.</li>
     <li><strong>L29 protocol skeleton</strong>: every protocol fills the same "two-column form" (body request side + stream response-side state machine).</li>
     <li><strong>L30–32 four dialects</strong>: Anthropic (blocks + cache budget), OpenAI (Chat/Responses dual protocol + 24-line ecosystem free-ride), Gemini+Bedrock (renamed dialect + binary transport / nesting-doll state machine).</li>
-    <li><strong>L33 transport & building blocks</strong>: a Route is assembled from four orthogonal pieces (protocol/endpoint/auth/framing) + id, orthogonal and composable (the HTTP/WS transport choice is an extension of the framing axis).</li>
+    <li><strong>L33 transport &amp; building blocks</strong>: a Route is assembled from four orthogonal pieces (protocol/endpoint/auth/framing) + id, orthogonal and composable (the HTTP/WS transport choice is an extension of the framing axis).</li>
     <li><strong>L34 events and caching</strong>: LLMEvent (inbound canonical vocabulary, completing the translation wall) + cache-policy (cache the stable prefix, connecting Context Epoch).</li>
     <li><strong>L35 resolution and Copilot</strong>: models.dev (externalized model encyclopedia, factual bedrock) → catalog (model name → configured Route); Copilot reuses OpenAI's Route, swapping only endpoint+auth, sealing this building-block architecture.</li>
   </ul>

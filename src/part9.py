@@ -367,7 +367,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
 <h2>session: the hub of the whole table web</h2>
 <p>The <span class="mono">session</span> table is the root of everything. Its columns are surprisingly many—but don't be daunted; that's exactly how much information a "session" carries: who it is, which project it belongs to, what model and permissions it runs with, how many tokens it spent, when created and when archived. Roughly grouped, each group answers one question about a session:</p>
 <div class="cellgroup">
-  <div class="cell"><div class="c-tag">identity & belonging</div><div class="c-txt"><span class="mono">id</span>(PK), <span class="mono">project_id</span>(→project,cascade), <span class="mono">workspace_id</span>, <span class="mono">parent_id</span>(self-ref→parent session), <span class="mono">slug</span>, <span class="mono">directory</span>/<span class="mono">path</span></div></div>
+  <div class="cell"><div class="c-tag">identity &amp; belonging</div><div class="c-txt"><span class="mono">id</span>(PK), <span class="mono">project_id</span>(→project,cascade), <span class="mono">workspace_id</span>, <span class="mono">parent_id</span>(self-ref→parent session), <span class="mono">slug</span>, <span class="mono">directory</span>/<span class="mono">path</span></div></div>
   <div class="cell"><div class="c-tag">display</div><div class="c-txt"><span class="mono">title</span>, <span class="mono">version</span>, <span class="mono">share_url</span>, <span class="mono">summary_*</span>(changed lines/files/diff)</div></div>
   <div class="cell"><div class="c-tag">usage stats</div><div class="c-txt"><span class="mono">cost</span>, <span class="mono">tokens_input/output/reasoning/cache_read/cache_write</span></div></div>
   <div class="cell"><div class="c-tag">runtime state</div><div class="c-txt"><span class="mono">agent</span>, <span class="mono">model</span>(JSON), <span class="mono">permission</span>(JSON,L41 Ruleset), <span class="mono">revert</span>(JSON)</div></div>
@@ -708,7 +708,7 @@ LESSON_51 = {
 <p>那份摘要不是随意的散文，而是填进一张<strong>固定结构的模板</strong>（<span class="mono">SUMMARY_TEMPLATE</span>）——这保证了无论压缩多少次，关键维度都不丢：</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">Goal</div><div class="c-txt">一句话任务目标</div></div>
-  <div class="cell"><div class="c-tag">Constraints & Preferences</div><div class="c-txt">用户的约束、偏好、规格</div></div>
+  <div class="cell"><div class="c-tag">Constraints &amp; Preferences</div><div class="c-txt">用户的约束、偏好、规格</div></div>
   <div class="cell"><div class="c-tag">Progress（Done/In Progress/Blocked）</div><div class="c-txt">已完成 / 进行中 / 受阻</div></div>
   <div class="cell"><div class="c-tag">Key Decisions</div><div class="c-txt">关键决策及其理由</div></div>
   <div class="cell"><div class="c-tag">Next Steps</div><div class="c-txt">有序的下一步行动</div></div>
@@ -828,7 +828,7 @@ LESSON_51 = {
 <p>That summary isn't arbitrary prose but filled into a <strong>fixed-structure template</strong> (<span class="mono">SUMMARY_TEMPLATE</span>)—this guarantees that no matter how many compactions, the key dimensions aren't lost:</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">Goal</div><div class="c-txt">single-sentence task summary</div></div>
-  <div class="cell"><div class="c-tag">Constraints & Preferences</div><div class="c-txt">user constraints, preferences, specs</div></div>
+  <div class="cell"><div class="c-tag">Constraints &amp; Preferences</div><div class="c-txt">user constraints, preferences, specs</div></div>
   <div class="cell"><div class="c-tag">Progress (Done/In Progress/Blocked)</div><div class="c-txt">completed / current / blocked</div></div>
   <div class="cell"><div class="c-tag">Key Decisions</div><div class="c-txt">key decisions and their reasons</div></div>
   <div class="cell"><div class="c-tag">Next Steps</div><div class="c-txt">ordered next actions</div></div>

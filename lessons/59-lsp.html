@@ -457,12 +457,12 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <ol class="opts">
     <li>诊断只在程序崩溃时才生成</li>
     <li>agent 必须主动开口问才有诊断</li>
-    <li>agent 改文件→didChange 通知服务器→服务器 publishDiagnostics 推回→report 格式化(只留 ERROR、每文件≤20、<diagnostics> 包裹)→喂 agent；有界是因诊断占模型宝贵上下文，全报会淹没真正要命的编译错误（同 L42）</li>
+    <li>agent 改文件→didChange 通知服务器→服务器 publishDiagnostics 推回→report 格式化(只留 ERROR、每文件≤20、&lt;diagnostics&gt; 包裹)→喂 agent；有界是因诊断占模型宝贵上下文，全报会淹没真正要命的编译错误（同 L42）</li>
     <li>report 报所有级别的诊断、不设上限</li>
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。诊断是被动自动的：agent 改完文件→opencode 经 didChange 通知语言服务器→服务器分析后 publishDiagnostics 推回诊断→diagnostic.ts 的 report 整理成 agent 读得懂的样子→喂给 agent。report 做三件克制事：只留 severity===1 的 ERROR（滤掉 warn/hint 噪音）、每文件最多 20 条（超出附「... and N more」）、<diagnostics file> 包裹，无错误返空串。pretty 把每条格成 ERROR [行:列] 消息（行列 +1 对齐编辑器 1-based）。为什么克制？因为诊断要占模型宝贵上下文（同 L42 有界输出的焦虑）：几百条 warning 一股脑塞给模型既烧 token 又淹没真正要命的编译错误。「只报错误、且有界」是「让 agent 看见问题」与「别撑爆注意力」间的精准拿捏——给 agent 的反馈越准越好、非越多越好，信息过载与缺失同样有害。这把 agent 从盲改者变成能即时收到「改对了/改崩了」反馈的自我纠错编码者（喂 M4 循环）。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。诊断是被动自动的：agent 改完文件→opencode 经 didChange 通知语言服务器→服务器分析后 publishDiagnostics 推回诊断→diagnostic.ts 的 report 整理成 agent 读得懂的样子→喂给 agent。report 做三件克制事：只留 severity===1 的 ERROR（滤掉 warn/hint 噪音）、每文件最多 20 条（超出附「... and N more」）、&lt;diagnostics file&gt; 包裹，无错误返空串。pretty 把每条格成 ERROR [行:列] 消息（行列 +1 对齐编辑器 1-based）。为什么克制？因为诊断要占模型宝贵上下文（同 L42 有界输出的焦虑）：几百条 warning 一股脑塞给模型既烧 token 又淹没真正要命的编译错误。「只报错误、且有界」是「让 agent 看见问题」与「别撑爆注意力」间的精准拿捏——给 agent 的反馈越准越好、非越多越好，信息过载与缺失同样有害。这把 agent 从盲改者变成能即时收到「改对了/改崩了」反馈的自我纠错编码者（喂 M4 循环）。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -615,12 +615,12 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <ol class="opts">
     <li>Diagnostics are only generated when the program crashes</li>
     <li>The agent must actively ask to get diagnostics</li>
-    <li>agent edits file→didChange notifies server→server publishDiagnostics pushes back→report formats (keep only ERROR, ≤20 per file, <diagnostics> wrap)→feed agent; bounded because diagnostics occupy the model's precious context, reporting all would drown the truly fatal compile errors (like L42)</li>
+    <li>agent edits file→didChange notifies server→server publishDiagnostics pushes back→report formats (keep only ERROR, ≤20 per file, &lt;diagnostics&gt; wrap)→feed agent; bounded because diagnostics occupy the model's precious context, reporting all would drown the truly fatal compile errors (like L42)</li>
     <li>report reports all severity levels with no cap</li>
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. Diagnostics are passive-automatic: agent edits file→opencode notifies the language server via didChange→the server analyzes and publishDiagnostics pushes back→diagnostic.ts's report tidies into something the agent can read→feed the agent. report does three restrained things: keep only severity===1 ERROR (filter warn/hint noise), at most 20 per file (append "... and N more" if over), <diagnostics file> wrap, return empty if no errors. pretty shapes each into ERROR [line:col] message (line/col +1 to match the editor's 1-based). Why restrained? Because diagnostics occupy the model's precious context (the same anxiety as L42 bounded output): stuffing hundreds of warnings into the model both burns tokens and drowns the truly fatal compile errors. "Report only errors, and bounded" is the precise calibration between "letting the agent see problems" and "not overflowing its attention"—feedback to the agent is better the more precise, not the more, information overload and absence equally harmful. This turns the agent from a blind editor into a self-correcting coder who instantly receives "got it right / broke it" (feeding M4's loop).</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. Diagnostics are passive-automatic: agent edits file→opencode notifies the language server via didChange→the server analyzes and publishDiagnostics pushes back→diagnostic.ts's report tidies into something the agent can read→feed the agent. report does three restrained things: keep only severity===1 ERROR (filter warn/hint noise), at most 20 per file (append "... and N more" if over), &lt;diagnostics file&gt; wrap, return empty if no errors. pretty shapes each into ERROR [line:col] message (line/col +1 to match the editor's 1-based). Why restrained? Because diagnostics occupy the model's precious context (the same anxiety as L42 bounded output): stuffing hundreds of warnings into the model both burns tokens and drowns the truly fatal compile errors. "Report only errors, and bounded" is the precise calibration between "letting the agent see problems" and "not overflowing its attention"—feedback to the agent is better the more precise, not the more, information overload and absence equally harmful. This turns the agent from a blind editor into a self-correcting coder who instantly receives "got it right / broke it" (feeding M4's loop).</div></div></div>
   </details>
 </div>
 <div class="quiz">

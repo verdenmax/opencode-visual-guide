@@ -450,7 +450,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。skill 工具本身不干活、只发讲义。toModelOutput 注入 <skill_content>：指令正文 + 基准目录 URL + <skill_files> 清单。即一个技能=「一份说明书 + 一个装脚本资料的文件夹」。接下来真正的活，是模型用它已有的通用工具去干——read 读 scripts/ 下的脚本、bash 跑、edit 改。漂亮的分工：skill 负责把对的剧本递到手上，执行剧本还是 M7 那套通用的手。模型本就会用这些工具（能做什么固定），它缺的是「该按什么顺序、用什么诀窍组织它们」——这正是技能正文承载的方法论。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：C</strong>。skill 工具本身不干活、只发讲义。toModelOutput 注入 &lt;skill_content&gt;：指令正文 + 基准目录 URL + &lt;skill_files&gt; 清单。即一个技能=「一份说明书 + 一个装脚本资料的文件夹」。接下来真正的活，是模型用它已有的通用工具去干——read 读 scripts/ 下的脚本、bash 跑、edit 改。漂亮的分工：skill 负责把对的剧本递到手上，执行剧本还是 M7 那套通用的手。模型本就会用这些工具（能做什么固定），它缺的是「该按什么顺序、用什么诀窍组织它们」——这正是技能正文承载的方法论。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -524,7 +524,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="cell"><div class="c-tag">uses the registry (L37)</div><div class="c-txt">the skill tool self-registers in locationLayer via SkillTool.layer</div></div>
   <div class="cell"><div class="c-tag">uses permissions (L41)</div><div class="c-txt">the skill tool calls permission.assert(action: skill) internally—loading a skill needs permission too</div></div>
   <div class="cell"><div class="c-tag">uses read etc. (L38)</div><div class="c-txt">the body's referenced scripts/files are fetched by the general read tool</div></div>
-  <div class="cell"><div class="c-tag">discovery & download</div><div class="c-txt">SkillDiscovery indexes from a directory, and can download skills from a URL</div></div>
+  <div class="cell"><div class="c-tag">discovery &amp; download</div><div class="c-txt">SkillDiscovery indexes from a directory, and can download skills from a URL</div></div>
 </div>
 <p>From this table you see why Skills is M5+M7's <strong>meeting point</strong>: it has one foot in "system context" (M5, deciding what world the model sees) and one in "the tool system" (M7, deciding what the model can do). A skill is <strong>half-context, half-tool</strong>—its name half is context, its body half is a tool. This "spanning two major subsystems" design shows Skills isn't yet another isolated feature but a <strong>higher-level reuse mechanism built atop all the prior abstractions</strong>. And precisely because the underlying parts (tools isomorphic, context composable, permissions stackable) are all polished, Skills can stitch them together so lightly—<strong>a good high-level abstraction often isn't conjured from nothing but "grows" naturally once the lower parts are solid enough.</strong> Incidentally, <span class="mono">SkillDiscovery</span> can also index skills from a directory, even download them from a URL—skills aren't hardcoded but <strong>discoverable, distributable, extensible</strong> content, making "adding a competence to the agent" something the community can join in.</p>
 <div class="flow">
@@ -596,7 +596,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. The skill tool itself doesn't work, only hands out the handbook. toModelOutput injects <skill_content>: the instruction body + base directory URL + <skill_files> list. So a skill = "a manual + a folder holding scripts/materials." The actual work that follows is done by the model using its existing general tools — read for scripts under scripts/, bash to run, edit to change. A beautiful division of labor: the skill puts the right script in hand, executing it still uses M7's general hands. The model already knows these tools (what it can do is fixed); what it lacks is "in what order, with what tricks to organize them" — exactly the methodology the skill body carries.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: C</strong>. The skill tool itself doesn't work, only hands out the handbook. toModelOutput injects &lt;skill_content&gt;: the instruction body + base directory URL + &lt;skill_files&gt; list. So a skill = "a manual + a folder holding scripts/materials." The actual work that follows is done by the model using its existing general tools — read for scripts under scripts/, bash to run, edit to change. A beautiful division of labor: the skill puts the right script in hand, executing it still uses M7's general hands. The model already knows these tools (what it can do is fixed); what it lacks is "in what order, with what tricks to organize them" — exactly the methodology the skill body carries.</div></div></div>
   </details>
 </div>
 <div class="quiz">

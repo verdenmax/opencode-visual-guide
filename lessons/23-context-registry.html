@@ -475,7 +475,7 @@ load: () =&gt; Effect.<span class="fn">gen</span>(<span class="kw">function</spa
   <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
   <ul>
     <li>课里说「凡要被比较、被复现的东西，都不能依赖偶然的顺序」——并发的代价是完成先后不确定，不能让它泄漏到结果。结合你写过的并发代码，举一个「顺序随机泄漏进结果、导致不可复现」的坑。</li>
-    <li>Entry 里的 load 是 Effect<SystemContext>（一段「怎么观察」的描述），而非一个死值。这让每次 load() 都重新观察、拿到最新环境。如果改成注册时就存死一个值，会丢失什么能力？</li>
+    <li>Entry 里的 load 是 Effect&lt;SystemContext&gt;（一段「怎么观察」的描述），而非一个死值。这让每次 load() 都重新观察、拿到最新环境。如果改成注册时就存死一个值，会丢失什么能力？</li>
   </ul>
 </div>
 </div></div>
@@ -626,7 +626,7 @@ load: () =&gt; Effect.<span class="fn">gen</span>(<span class="kw">function</spa
   <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
   <ul>
     <li>The lesson says "anything to be compared or reproduced must not depend on incidental order" — concurrency's cost is uncertain completion order, which mustn't leak into the result. From your own concurrent code, give a pitfall where "order randomness leaked into the result, breaking reproducibility."</li>
-    <li>An Entry's load is Effect<SystemContext> (a description of "how to observe"), not a dead value. This makes each load() re-observe, getting the latest environment. If you instead stored a fixed value at registration time, what ability would you lose?</li>
+    <li>An Entry's load is Effect&lt;SystemContext&gt; (a description of "how to observe"), not a dead value. This makes each load() re-observe, getting the latest environment. If you instead stored a fixed value at registration time, what ability would you lose?</li>
   </ul>
 </div>
 </div></div>

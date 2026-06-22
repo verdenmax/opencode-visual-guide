@@ -575,7 +575,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <li><strong>L28 anti-corruption layer</strong>: core speaks only canonical (LLMRequest out / LLMEvent back), adapters wall off with translation.</li>
     <li><strong>L29 protocol skeleton</strong>: every protocol fills the same "two-column form" (body request side + stream response-side state machine).</li>
     <li><strong>L30–32 four dialects</strong>: Anthropic (blocks + cache budget), OpenAI (Chat/Responses dual protocol + 24-line ecosystem free-ride), Gemini+Bedrock (renamed dialect + binary transport / nesting-doll state machine).</li>
-    <li><strong>L33 transport & building blocks</strong>: a Route is assembled from four orthogonal pieces (protocol/endpoint/auth/framing) + id, orthogonal and composable (the HTTP/WS transport choice is an extension of the framing axis).</li>
+    <li><strong>L33 transport &amp; building blocks</strong>: a Route is assembled from four orthogonal pieces (protocol/endpoint/auth/framing) + id, orthogonal and composable (the HTTP/WS transport choice is an extension of the framing axis).</li>
     <li><strong>L34 events and caching</strong>: LLMEvent (inbound canonical vocabulary, completing the translation wall) + cache-policy (cache the stable prefix, connecting Context Epoch).</li>
     <li><strong>L35 resolution and Copilot</strong>: models.dev (externalized model encyclopedia, factual bedrock) → catalog (model name → configured Route); Copilot reuses OpenAI's Route, swapping only endpoint+auth, sealing this building-block architecture.</li>
   </ul>
