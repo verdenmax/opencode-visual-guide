@@ -640,4 +640,163 @@ LESSON_68 = {
 </div>
 """,
 }
-LESSON_69 = wip('其余生态一览', 'Ecosystem tour')
+LESSON_69 = {
+    "zh": r"""<p class="lead">前面 68 课，我们几乎全程待在 opencode 的<strong>引擎舱</strong>里——Effect 地基、Session 主循环、Context Epoch、LLM 协议、工具、持久化、扩展。但这台引擎的<strong>外围</strong>，还围着一整圈我们一直没正眼看过的东西：你能用的不止终端 TUI，还有<strong>网页版、Electron 桌面版</strong>；你的会话能<strong>分享成一个链接</strong>让别人在线只读旁观；还有 <strong>Slack 机器人、企业版、云基础设施</strong>……这一课不深挖任何一个的实现，而是做一次<strong>鸟瞰</strong>：把这一整圈生态摆开，看清它们各自是什么、以及<strong>它们如何全都连着同一个内核</strong>。作为全书最后一部分的收官一课，它的任务不是再塞给你一个机制，而是<strong>把你前面学的所有引擎零件，放回它们所驱动的那一整辆「车」里看一眼</strong>——让你对 opencode 的全貌，有一个完整、立体的收尾印象。读完你会发现，这一圈看似五花八门的东西，其实都站在前面几课打下的同一块地基上。</p>
+<p>这一课最值得带走的洞见只有一个，但它把全书好几条线收束到了一起：<strong>opencode 是「<em>一台引擎、多副面孔与接口</em>」</strong>。还记得第 9 课「server 拥有一切」、第 56 课「数据与表现分离」、第 61 课「ACP 让编辑器驱动它」吗？这一课就是这三条线的<strong>最终展开</strong>：内核（那个常驻、自描述、广开门户的 server）只有一个，而围着它，长出了 TUI、网页、桌面、Slack、可分享的云视图……这么多张<strong>面孔</strong>与<strong>接入点</strong>。它们之所以能共存且不重复造轮子，全靠它们<strong>共享同一套内核、同一份 SDK、同一条事件流</strong>（L11/L12）。理解这点，你就理解了 opencode 为什么能「一处内核、处处可达」——而你前面学的每一块引擎机制，正是这一整圈生态共同的底座。换句话说，这一课不会教你任何「新机制」，它教你的是一种<strong>看待全局的眼光</strong>：当你面对一个长出了一大圈周边的系统时，别被表面的五花八门迷惑，去找那个<strong>大家共享的内核</strong>——找到它，整个生态的逻辑就一目了然了。</p>
+
+<div class="card analogy">
+  <div class="tag">🚗 生活类比</div>
+  把 opencode 的内核 server 想象成一台<strong>发动机</strong>（第 9 课说它「拥有一切」）。围着这同一台发动机，厂家造出了<strong>不同的车身</strong>：终端 TUI 是那台皮实的<strong>越野车</strong>、网页版是<strong>家用轿车</strong>、Electron 桌面版是带豪华内饰的<strong>同款轿车</strong>——它们外形手感各异，但<strong>动力总成（SDK + 事件流）是同一套</strong>，踩油门的反馈都来自那同一台发动机。<strong>Slack 机器人</strong>像给发动机接了个<strong>远程遥控器</strong>，你在聊天里发个指令它就替你开。<strong>会话分享 + 云同步</strong>，像给车装了个<strong>实时位置直播</strong>：你在本地开车（单写入，第 65 课），别人扫个链接就能在线<strong>只读旁观</strong>你开到哪了。而<strong>企业版、云基础设施</strong>，是把这套东西<strong>批量部署、接进公司流程</strong>的「车队管理」。  关键认知始终是那一句：<strong>无论多少种车身、多少个遥控器，底下都是同一台发动机。</strong>正因如此，厂家想多出一款车、多接一个遥控器，都不必重造发动机——这就是「一台引擎养活一整个生态」的省力之处，也是你前面 64 课为什么值得读：你学的全是那台发动机的内部构造，而这一课，是退后一步，看看这台发动机到底驱动了多少东西。
+</div>
+
+<h2>多前端：一个 server，多副面孔</h2>
+<p>opencode 最根本的架构决定（第 3、9 课）是：<strong>内核跑成一个 server，所有「界面」都只是连上它的客户端</strong>。这一决定的红利，在这一圈前端上体现得淋漓尽致——想象一下若没有这个决定会怎样：每做一种前端，就得把「会话怎么管、工具怎么跑、上下文怎么拼」重写一遍，五种前端就是五套貌合神离、各自有 bug 的内核。而 opencode 选择「一个 server、多客户端」，于是：</p>
+<div class="cols">
+  <div class="col"><h4>没有「一个 server」（设想）</h4><p>每种前端各自实现一套会话/工具/上下文逻辑——五副面孔=五套内核，重复、漂移、各有各的 bug，加一种前端=重写一遍核心。</p></div>
+  <div class="col"><h4>opencode：一个 server、多客户端</h4><p>内核只有一个，前端只是<strong>连上它的客户端</strong>。加一种面孔，只需写「怎么把数据画出来」，<strong>内核一行不用动</strong>。</p></div>
+</div>
+<p>同一个 server，被好几种完全不同的前端共享：</p>
+<div class="layers">
+  <div class="layer"><b>表现层（多副面孔）</b>　TUI（终端）· web app · Electron 桌面 · Slack · 可分享云视图</div>
+  <div class="layer"><b>连接层（同一套）</b>　生成的 SDK（L12）+ SSE 事件流（L11）——所有前端共用</div>
+  <div class="layer"><b>内核（只有一个）</b>　server：Session、工具、Context、LLM…（L09「拥有一切」）</div>
+</div>
+<p>具体看这几副「面孔」：<strong>web app</strong>（<span class="mono">packages/app</span>，<span class="mono">@opencode-ai/app</span>）是用 SolidJS 写的网页 UI，它直接依赖 <span class="mono">@opencode-ai/sdk</span> 和 <span class="mono">@opencode-ai/core</span>——和 TUI 一样，靠 SDK + 事件流连 server，只是把界面画在浏览器里而非终端。<strong>Electron 桌面版</strong>（<span class="mono">packages/desktop</span>，<span class="mono">@opencode-ai/desktop</span>）干脆把这个 web app <strong>用 Electron 壳子包成原生桌面应用</strong>（依赖 <span class="mono">electron-updater</span> 等，带自动更新）——所以桌面版几乎不是「另写一个 app」，而是「给 web app 套个壳」。这正是第 56 课「<strong>数据与表现分离</strong>」的终极兑现：一份内核数据，能渲染成终端、网页、桌面好几副皮，每多一副都<strong>不必重写内核</strong>。这种「壳子套壳子」的复用还体现在桌面版上——它甚至不是「web 之外再写一遍」，而是直接把 web app 装进 Electron，连界面代码都省了重写。各前端各管一摊、却同源：</p>
+<div class="cellgroup">
+  <div class="cel"><b>packages/app</b><br>SolidJS web UI，依赖 sdk+core（网页那副面孔）</div>
+  <div class="cel"><b>packages/desktop</b><br>Electron 包住 web app，带自动更新（桌面那副面孔）</div>
+  <div class="cel"><b>cli/tui</b><br>终端 TUI（L52–56），同样连 server</div>
+  <div class="cel"><b>packages/slack</b><br><span class="mono">@slack/bolt</span> + sdk：Slack 里驱动 opencode</div>
+  <div class="cel"><b>packages/enterprise</b><br>SolidStart 企业版 web（接公司流程）</div>
+  <div class="cel"><b>packages/ui</b><br>共享 UI 组件（shiki/katex/diff…，多前端复用）</div>
+</div>
+
+<h2>分享与云同步：把会话投影到云端</h2>
+<p>第 65 课讲过 opencode 的「单写入 + 事件溯源」同步底座：本地一台设备是写入者，事件带单调 seq 全序排好。<strong>会话分享</strong>（<span class="mono">opencode/src/share</span>）就建在它之上：一个 <span class="mono">SessionShare.Service</span> 提供 <span class="mono">share(sessionID) → { url }</span> 和 <span class="mono">unshare</span>——把一个本地会话<strong>变成一个可分享的链接</strong>。注意这件事之所以能如此轻巧，正是因为第 65 课那块地基已经备好：会话本就是一条<strong>带全序号、可重放</strong>的事件流，「分享」无非是把这条流<strong>转发到云端一个中转站</strong>，让没有你本地进程的人也能订阅、重放。链接背后是 <span class="mono">packages/function</span> 里的一台云端 <strong>Cloudflare Durable Object</strong>（<span class="mono">SyncServer extends DurableObject&lt;Env&gt;</span>）：它用 WebSocket + 自带存储，接收你本地推上去的会话事件（按 <span class="mono">session/</span> 前缀存），再广播给所有打开了那个链接的旁观者。为什么用 Durable Object？因为它天然适合「一个会话对应一个有状态、长连接的中转点」——每个分享的会话就是一个 Durable Object 实例，存着该会话的事件、维护着旁观者们的 WebSocket。于是别人点开链接，就能<strong>在线只读地看你的会话实时进展</strong>——这正是第 65 课「单写入者写、其他设备重放追平」在云端的落地：你的浏览器/手机是「其他设备」，云 Durable Object 是中转的事件日志。整条「本地会话 → 分享 → 云端 → 他人只读」是这样：</p>
+<div class="flow">
+  <div class="node">本地会话<br>（你是单写入者 L65）</div>
+  <div class="arrow">→</div>
+  <div class="node"><span class="mono">share(id)→{url}</span><br>把事件推上云</div>
+  <div class="arrow">→</div>
+  <div class="node">云 Durable Object<br><span class="mono">SyncServer</span> 存+广播</div>
+  <div class="arrow">→</div>
+  <div class="node">他人打开链接<br>WebSocket 只读旁观</div>
+</div>
+
+<h2>接入与运维：触发器、Slack、企业与基础设施</h2>
+<p>除了「人去用」的前端，opencode 还有几块「<strong>接进流程/规模化</strong>」的生态。<strong>Integration（集成）</strong>（<span class="mono">core/src/integration.ts</span>）是一套声明式的<strong>连接与触发</strong>机制（<span class="mono">IntegrationSchema</span>、<span class="mono">IntegrationConnection</span>、<span class="mono">MethodID</span>）——它让外部系统/事件能按声明的条件接进会话，是把 opencode 嵌进自动化流程的接口（也呼应第 68 课的凭据：连外部服务要存凭据）。你可以把它理解成「<strong>当某个外部条件满足时，自动触发一段 opencode 的活</strong>」的声明式接线板：连接定义「连的是谁、用什么凭据」，触发定义「什么时候动」。<strong>Slack 机器人</strong>（<span class="mono">packages/slack</span>）用 <span class="mono">@slack/bolt</span> + SDK，把 opencode 接进团队的 Slack——你在频道里发指令，它就替你跑，这是「多副面孔」里很特别的一副：界面不是你自己画的 UI，而是<strong>借了 Slack 这个现成的聊天界面</strong>。<strong>企业版</strong>（<span class="mono">packages/enterprise</span>，SolidStart）面向公司场景，把这套能力按企业需求重新包装。<strong>基础设施</strong>（<span class="mono">infra/</span>，SST）则用「基础设施即代码」描述云端部署——让「这一切怎么跑在云上」本身也成为可版本化、可复现的代码。这些块各异，但共享同一个底层立场——<strong>都连着那一个 server</strong>：</p>
+<div class="vflow">
+  <div class="vnode"><b>Integration</b>（<span class="mono">core/src/integration.ts</span>）：声明式触发器/连接，把外部事件接进会话——opencode 嵌进自动化流程的接口</div>
+  <div class="vnode"><b>Slack / 企业版</b>（<span class="mono">packages/slack</span> / <span class="mono">enterprise</span>）：把 opencode 接进团队聊天与公司流程，仍经 SDK 连 server</div>
+  <div class="vnode"><b>基础设施</b>（<span class="mono">infra/</span>，SST）：基础设施即代码，描述这一切如何部署上云</div>
+</div>
+<p>最后用一张表把这一整圈生态收拢——你不必记住每个包的细节，只需记住<strong>它们都围着同一个内核、靠同一套 SDK/事件连接</strong>这件事：</p>
+<table class="t">
+  <tr><th>生态块</th><th>是什么</th><th>与内核的关系</th></tr>
+  <tr><td><span class="mono">app</span> / <span class="mono">desktop</span></td><td>web UI / Electron 桌面（套壳 web）</td><td>经 SDK+事件连 server（另几副面孔）</td></tr>
+  <tr><td><span class="mono">share</span> + <span class="mono">function</span></td><td>会话分享 + 云 Durable Object 同步</td><td>把本地单写入 sync（L65）投影到云端只读</td></tr>
+  <tr><td><span class="mono">integration</span></td><td>声明式连接/触发器</td><td>把外部事件接进会话</td></tr>
+  <tr><td><span class="mono">slack</span> / <span class="mono">enterprise</span></td><td>Slack bot / 企业版 web</td><td>把 opencode 接进团队与公司流程</td></tr>
+  <tr><td><span class="mono">infra</span></td><td>SST 基础设施即代码</td><td>描述云端部署</td></tr>
+</table>
+<p>至此，opencode 的全貌真正完整了：一个常驻、自描述、广开门户的内核 server（L09），用一套生成的 SDK 与事件流（L11/L12）向外敞开；围着它，长出了 TUI、网页、桌面这些<strong>面孔</strong>（L52–56、本课），ACP/插件/LSP 这些<strong>扩展</strong>（L57–61），以及分享、集成、Slack、企业、基础设施这一整圈<strong>接入与运维</strong>。而这一切之所以成立，根都在前面那些引擎课——<strong>正因内核被做成了「数据与表现分离、广开门户」的样子，它才能长出这么多副面孔而不重复造轮子</strong>。一台引擎，养活一整个生态。这也正是读源码最值得带走的一种眼光：面对任何一个庞大的系统，先别数它有多少零件，先找到那个<strong>大家共享的核心</strong>，再看每一圈周边如何围着它生长——抓住了核心，再繁茂的生态也有了脉络。这趟从「opencode 是什么」到「它的整个生态如何围着一个内核生长」的旅程，到这里就走完了。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  L69 是<strong>鸟瞰</strong>：opencode = <strong>一台引擎、多副面孔与接口</strong>。<strong>多前端</strong>：<span class="mono">app</span>(SolidJS web)、<span class="mono">desktop</span>(Electron 套壳 web，带自动更新)、TUI（L52–56），全经同一套 SDK（L12）+ 事件流（L11）连同一个 server（L09）——第 56 课「数据与表现分离」的终极兑现。<strong>分享+云同步</strong>：<span class="mono">share</span> 把本地会话变成链接，背后 <span class="mono">function</span> 的 Cloudflare Durable Object <span class="mono">SyncServer</span>（WebSocket）让他人只读旁观——建在 L65 单写入 sync 上。<strong>接入与运维</strong>：<span class="mono">integration</span>（声明式触发器）、<span class="mono">slack</span>(<span class="mono">@slack/bolt</span>)、<span class="mono">enterprise</span>(SolidStart)、<span class="mono">infra</span>(SST)。一句话收束全书：<strong>正因内核被做成「数据与表现分离、广开门户」（L09/L56/L61），它才能长出这么多面孔而不重复造轮子。</strong>读源码的眼光：面对庞大系统，先找那个大家共享的核心，再看周边如何围着它生长。
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 实现细节</div>
+  <span class="mono">packages/app</span>(<span class="mono">@opencode-ai/app</span>)：SolidJS，依赖 <span class="mono">@opencode-ai/sdk</span>+<span class="mono">core</span>+<span class="mono">ui</span>。<span class="mono">packages/desktop</span>(<span class="mono">@opencode-ai/desktop</span>)：Electron（<span class="mono">electron-updater</span>/<span class="mono">electron-store</span>/<span class="mono">electron-log</span>…），壳住 web app。<span class="mono">packages/slack</span>：<span class="mono">@slack/bolt</span>+<span class="mono">@opencode-ai/sdk</span>。<span class="mono">packages/enterprise</span>：<span class="mono">@solidjs/start</span>+<span class="mono">core</span>+<span class="mono">ui</span>+<span class="mono">aws4fetch</span>。<span class="mono">opencode/src/share/session.ts</span>：<span class="mono">Service</span>(<span class="mono">@opencode/SessionShare</span>) 接口 <span class="mono">share(sessionID)→{url}</span> / <span class="mono">unshare</span>，配 <span class="mono">share-next.ts</span>。<span class="mono">packages/function/src/api.ts</span>：<span class="mono">SyncServer extends DurableObject&lt;Env&gt;</span>，<span class="mono">SYNC_SERVER: DurableObjectNamespace</span>，<span class="mono">fetch()</span> 里 <span class="mono">WebSocketPair</span>+<span class="mono">ctx.acceptWebSocket</span>+<span class="mono">ctx.storage.list()</span> 取 <span class="mono">session/</span> 前缀。<span class="mono">core/src/integration.ts</span>：<span class="mono">export * as Integration</span>，<span class="mono">IntegrationSchema</span>/<span class="mono">MethodID</span>/<span class="mono">IntegrationConnection</span>。<span class="mono">infra/</span>：SST。注意这一圈生态的共同点：除内核（<span class="mono">core</span>/<span class="mono">opencode</span>）外，它们几乎都依赖 <span class="mono">@opencode-ai/sdk</span> 或经事件流连 server——「连同一个内核」不是口号，而是从 <span class="mono">package.json</span> 的依赖图里就能读出来的事实。
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>一台引擎、多副面孔</strong>：内核 server 只有一个（L09），TUI/web(<span class="mono">app</span>)/桌面(<span class="mono">desktop</span>，Electron 套壳 web、带自动更新) 都经同一套 SDK（L12）+ 事件流（L11）连它——第 56 课「数据与表现分离」的终极兑现：一份内核，多副皮，每多一副不必重写内核。</li>
+    <li><strong>分享 + 云同步</strong>：<span class="mono">share(sessionID)→{url}</span>（<span class="mono">opencode/src/share</span>）把本地会话变成可分享链接；背后 <span class="mono">packages/function</span> 的 Cloudflare <strong>Durable Object</strong> <span class="mono">SyncServer</span>（WebSocket+存储）让他人<strong>只读旁观</strong>——正是 L65「单写入者写、他设备重放追平」在云端的落地。</li>
+    <li><strong>接入与运维</strong>：<span class="mono">integration</span>（声明式触发器，把外部事件接进会话）、<span class="mono">slack</span>(<span class="mono">@slack/bolt</span> bot)、<span class="mono">enterprise</span>(SolidStart)、<span class="mono">infra</span>(SST IaC)。全书收束：<strong>正因内核「数据与表现分离、广开门户」（L09/L56/L61），才能长出这么多面孔与接入而不重复造轮子。</strong></li>
+  </ul>
+</div>
+""",
+    "en": r"""<p class="lead">Over the previous 68 lessons we stayed almost entirely in opencode's <strong>engine bay</strong>—the Effect foundation, the Session main loop, Context Epoch, the LLM protocol, tools, persistence, extensions. But around this engine's <strong>periphery</strong> is a whole ring of things we never looked at squarely: what you can use isn't just the terminal TUI, but a <strong>web version, an Electron desktop version</strong>; your session can be <strong>shared as a link</strong> for others to watch read-only online; there's also a <strong>Slack bot, an enterprise edition, cloud infrastructure</strong>… This lesson doesn't dig into any one's implementation but takes a <strong>bird's-eye view</strong>: lay out this whole ecosystem ring and see clearly what each is and <strong>how they all connect to the same core</strong>. As the closing lesson of the book's final part, its task isn't to hand you another mechanism but to <strong>put all the engine parts you've learned back into the whole "car" they drive and take a look</strong>—giving you a complete, three-dimensional closing impression of opencode. By the end you'll find this seemingly miscellaneous ring all stands on the same foundation laid by the earlier lessons.</p>
+<p>There's only one insight worth taking away, but it gathers several of the book's threads together: <strong>opencode is "<em>one engine, many faces and interfaces</em>."</strong> Remember Lesson 9's "the server owns everything," Lesson 56's "data separated from presentation," Lesson 61's "ACP lets editors drive it"? This lesson is those three threads' <strong>final unfolding</strong>: the core (that resident, self-describing, doors-wide-open server) is one, and around it grow TUI, web, desktop, Slack, a shareable cloud view… so many <strong>faces</strong> and <strong>entry points</strong>. They coexist without reinventing wheels entirely because they <strong>share the same core, the same SDK, the same event stream</strong> (L11/L12). Grasp this and you grasp why opencode is "one core, reachable everywhere"—and every engine mechanism you learned earlier is this whole ecosystem's shared foundation. In other words, this lesson teaches no "new mechanism"; it teaches a <strong>way of seeing the whole</strong>: facing a system that has grown a large surrounding ring, don't be dazzled by the surface variety—find the <strong>core everyone shares</strong>—find it and the whole ecosystem's logic becomes clear at a glance.</p>
+
+<div class="card analogy">
+  <div class="tag">🚗 Analogy</div>
+  Picture opencode's core server as an <strong>engine</strong> (Lesson 9 says it "owns everything"). Around this same engine, the maker built <strong>different car bodies</strong>: the terminal TUI is the rugged <strong>off-roader</strong>, the web version a <strong>family sedan</strong>, the Electron desktop a <strong>luxe-interior version of that same sedan</strong>—different in look and feel, but the <strong>powertrain (SDK + event stream) is the same</strong>, the throttle feedback all from that same engine. The <strong>Slack bot</strong> is like a <strong>remote control</strong> wired to the engine—you send a command in chat and it drives for you. <strong>Session sharing + cloud sync</strong> is like fitting the car with a <strong>live location broadcast</strong>: you drive locally (single writer, Lesson 65), and others scan a link to <strong>watch read-only online</strong> where you've driven. The <strong>enterprise edition, cloud infrastructure</strong> are the "fleet management" of deploying this in bulk and wiring it into company processes. The key realization is always that one line: <strong>however many bodies, however many remotes, underneath is the same engine.</strong> Precisely because of this, the maker can add a model or wire up another remote without rebuilding the engine—that's the leverage of "one engine sustains a whole ecosystem," and why the earlier 64 lessons were worth reading: you learned that engine's internals, and this lesson steps back to see how much that engine actually drives.
+</div>
+
+<h2>Multiple frontends: one server, many faces</h2>
+<p>opencode's most fundamental architectural decision (Lessons 3, 9) is: <strong>the core runs as a server, all "interfaces" are merely clients connecting to it</strong>. That decision's dividend shows vividly across this ring of frontends—imagine if there were no such decision: every frontend would reimplement "how sessions are managed, how tools run, how context is assembled," five frontends being five superficially-alike, individually-buggy cores. opencode chose "one server, many clients," so:</p>
+<div class="cols">
+  <div class="col"><h4>Without "one server" (hypothetical)</h4><p>Each frontend implements its own session/tool/context logic—five faces = five cores, duplicated, drifting, each buggy; adding a frontend = rewriting the core.</p></div>
+  <div class="col"><h4>opencode: one server, many clients</h4><p>The core is one, frontends are merely <strong>clients connecting to it</strong>. Adding a face only needs "how to draw the data," the <strong>core untouched</strong>.</p></div>
+</div>
+<p>One server, shared by several completely different frontends:</p>
+<div class="layers">
+  <div class="layer"><b>Presentation (many faces)</b>　TUI (terminal) · web app · Electron desktop · Slack · shareable cloud view</div>
+  <div class="layer"><b>Connection (one and the same)</b>　the generated SDK (L12) + SSE event stream (L11)—shared by all frontends</div>
+  <div class="layer"><b>Core (only one)</b>　server: Session, tools, Context, LLM… (L09 "owns everything")</div>
+</div>
+<p>Look at these "faces" concretely: the <strong>web app</strong> (<span class="mono">packages/app</span>, <span class="mono">@opencode-ai/app</span>) is a web UI written in SolidJS, depending directly on <span class="mono">@opencode-ai/sdk</span> and <span class="mono">@opencode-ai/core</span>—like the TUI, it connects to the server via SDK + event stream, just drawing the UI in a browser rather than the terminal. The <strong>Electron desktop</strong> (<span class="mono">packages/desktop</span>, <span class="mono">@opencode-ai/desktop</span>) simply <strong>wraps this web app into a native desktop app with Electron</strong> (depending on <span class="mono">electron-updater</span> etc., with auto-update)—so the desktop version is almost not "writing another app" but "putting a shell on the web app." This is Lesson 56's "<strong>data separated from presentation</strong>" ultimately cashed out: one set of core data renders into several skins—terminal, web, desktop—each new one <strong>needing no core rewrite</strong>. This "shell within a shell" reuse shows on the desktop too—it's not even "written again beyond web" but directly packs the web app into Electron, sparing even rewriting the UI code. Each frontend handles its own slice, yet all share one source:</p>
+<div class="cellgroup">
+  <div class="cel"><b>packages/app</b><br>SolidJS web UI, depends on sdk+core (the web face)</div>
+  <div class="cel"><b>packages/desktop</b><br>Electron wrapping the web app, with auto-update (the desktop face)</div>
+  <div class="cel"><b>cli/tui</b><br>terminal TUI (L52–56), also connects to the server</div>
+  <div class="cel"><b>packages/slack</b><br><span class="mono">@slack/bolt</span> + sdk: drive opencode inside Slack</div>
+  <div class="cel"><b>packages/enterprise</b><br>SolidStart enterprise web (wired into company processes)</div>
+  <div class="cel"><b>packages/ui</b><br>shared UI components (shiki/katex/diff…, reused by frontends)</div>
+</div>
+
+<h2>Sharing &amp; cloud sync: projecting a session to the cloud</h2>
+<p>Lesson 65 covered opencode's "single-writer + event-sourcing" sync foundation: one local device is the writer, events totally ordered by a monotonic seq. <strong>Session sharing</strong> (<span class="mono">opencode/src/share</span>) is built atop it: a <span class="mono">SessionShare.Service</span> provides <span class="mono">share(sessionID) → { url }</span> and <span class="mono">unshare</span>—turning a local session into a <strong>shareable link</strong>. Note this is so lightweight precisely because Lesson 65's foundation is already in place: a session is already a <strong>totally-numbered, replayable</strong> event stream, so "sharing" is no more than <strong>forwarding that stream to a cloud relay</strong> for people without your local process to subscribe and replay. Behind the link is a cloud <strong>Cloudflare Durable Object</strong> in <span class="mono">packages/function</span> (<span class="mono">SyncServer extends DurableObject&lt;Env&gt;</span>): it uses WebSocket + its own storage to receive the session events you push up (stored by <span class="mono">session/</span> prefix), then broadcasts to everyone who opened that link. Why a Durable Object? Because it naturally fits "one session ↔ one stateful, long-connection relay"—each shared session is a Durable Object instance, storing that session's events and maintaining the watchers' WebSockets. So others click the link and can <strong>watch your session's live progress, read-only, online</strong>—exactly Lesson 65's "the single writer writes, other devices replay to catch up" landed in the cloud: your browser/phone is an "other device," the cloud Durable Object the relaying event log. The whole "local session → share → cloud → others read-only" goes like:</p>
+<div class="flow">
+  <div class="node">local session<br>(you're the single writer L65)</div>
+  <div class="arrow">→</div>
+  <div class="node"><span class="mono">share(id)→{url}</span><br>push events to cloud</div>
+  <div class="arrow">→</div>
+  <div class="node">cloud Durable Object<br><span class="mono">SyncServer</span> stores+broadcasts</div>
+  <div class="arrow">→</div>
+  <div class="node">others open the link<br>WebSocket read-only watch</div>
+</div>
+
+<h2>Integration &amp; ops: triggers, Slack, enterprise &amp; infrastructure</h2>
+<p>Beyond the "people use it" frontends, opencode has a few "<strong>wire into processes / scale up</strong>" ecosystem pieces. <strong>Integration</strong> (<span class="mono">core/src/integration.ts</span>) is a declarative <strong>connection &amp; trigger</strong> mechanism (<span class="mono">IntegrationSchema</span>, <span class="mono">IntegrationConnection</span>, <span class="mono">MethodID</span>)—it lets external systems/events plug into a session per declared conditions, the interface for embedding opencode into automation flows (also echoing Lesson 68's credentials: connecting external services needs stored credentials). Think of it as a declarative patch panel of "<strong>when some external condition is met, auto-trigger a piece of opencode work</strong>": the connection defines "who's connected, with what credentials," the trigger defines "when it fires." The <strong>Slack bot</strong> (<span class="mono">packages/slack</span>) uses <span class="mono">@slack/bolt</span> + SDK to wire opencode into the team's Slack—you send a command in a channel and it runs for you, a special "face" among the many: the interface isn't a UI you drew but <strong>borrows Slack's ready-made chat interface</strong>. The <strong>enterprise edition</strong> (<span class="mono">packages/enterprise</span>, SolidStart) targets company scenarios, repackaging this capability per enterprise needs. The <strong>infrastructure</strong> (<span class="mono">infra/</span>, SST) describes cloud deployment with "infrastructure as code"—making "how all this runs in the cloud" itself versionable, reproducible code. These pieces differ, yet share one underlying stance—<strong>all connect to that one server</strong>:</p>
+<div class="vflow">
+  <div class="vnode"><b>Integration</b> (<span class="mono">core/src/integration.ts</span>): declarative triggers/connections, plugging external events into a session—opencode's interface into automation flows</div>
+  <div class="vnode"><b>Slack / enterprise</b> (<span class="mono">packages/slack</span> / <span class="mono">enterprise</span>): wire opencode into team chat and company processes, still connecting to the server via the SDK</div>
+  <div class="vnode"><b>Infrastructure</b> (<span class="mono">infra/</span>, SST): infrastructure as code, describing how all this deploys to the cloud</div>
+</div>
+<p>Finally, gather this whole ecosystem ring in one table—you needn't memorize each package's details, only the fact that <strong>they all surround the same core, connecting via the same SDK/events</strong>:</p>
+<table class="t">
+  <tr><th>Ecosystem piece</th><th>What it is</th><th>Relation to the core</th></tr>
+  <tr><td><span class="mono">app</span> / <span class="mono">desktop</span></td><td>web UI / Electron desktop (shelled web)</td><td>connect to server via SDK+events (more faces)</td></tr>
+  <tr><td><span class="mono">share</span> + <span class="mono">function</span></td><td>session sharing + cloud Durable Object sync</td><td>project local single-writer sync (L65) to a cloud read-only view</td></tr>
+  <tr><td><span class="mono">integration</span></td><td>declarative connections/triggers</td><td>plug external events into a session</td></tr>
+  <tr><td><span class="mono">slack</span> / <span class="mono">enterprise</span></td><td>Slack bot / enterprise web</td><td>wire opencode into team &amp; company processes</td></tr>
+  <tr><td><span class="mono">infra</span></td><td>SST infrastructure as code</td><td>describes cloud deployment</td></tr>
+</table>
+<p>With that, opencode's whole picture is truly complete: a resident, self-describing, doors-wide-open core server (L09), opening outward via a generated SDK and event stream (L11/L12); around it grow the <strong>faces</strong>—TUI, web, desktop (L52–56, this lesson)—the <strong>extensions</strong>—ACP/plugins/LSP (L57–61)—and this whole ring of <strong>integration &amp; ops</strong>: sharing, integration, Slack, enterprise, infrastructure. And all of it holds precisely because of those earlier engine lessons—<strong>because the core was built "data separated from presentation, doors wide open," it can grow so many faces without reinventing wheels</strong>. One engine, sustaining a whole ecosystem. This is also the most worthwhile lens to take from reading source: facing any large system, don't count its parts first, find that <strong>shared core</strong>, then see how each surrounding ring grows around it—grasp the core and even the most luxuriant ecosystem gains a thread. This journey from "what is opencode" to "how its whole ecosystem grows around one core" ends here.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ Big picture</div>
+  L69 is a <strong>bird's-eye view</strong>: opencode = <strong>one engine, many faces and interfaces</strong>. <strong>Multiple frontends</strong>: <span class="mono">app</span>(SolidJS web), <span class="mono">desktop</span>(Electron shelling web, with auto-update), TUI (L52–56), all connecting to one server (L09) via the same SDK (L12) + event stream (L11)—Lesson 56's "data separated from presentation" ultimately cashed out. <strong>Sharing + cloud sync</strong>: <span class="mono">share</span> turns a local session into a link, backed by <span class="mono">function</span>'s Cloudflare Durable Object <span class="mono">SyncServer</span> (WebSocket) letting others watch read-only—built on L65's single-writer sync. <strong>Integration &amp; ops</strong>: <span class="mono">integration</span> (declarative triggers), <span class="mono">slack</span>(<span class="mono">@slack/bolt</span>), <span class="mono">enterprise</span>(SolidStart), <span class="mono">infra</span>(SST). The book's closing line: <strong>because the core was built "data separated from presentation, doors wide open" (L09/L56/L61), it can grow so many faces without reinventing wheels.</strong> The source-reading lens: facing a large system, find the shared core first, then see how the periphery grows around it.
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Implementation details</div>
+  <span class="mono">packages/app</span>(<span class="mono">@opencode-ai/app</span>): SolidJS, depends on <span class="mono">@opencode-ai/sdk</span>+<span class="mono">core</span>+<span class="mono">ui</span>. <span class="mono">packages/desktop</span>(<span class="mono">@opencode-ai/desktop</span>): Electron (<span class="mono">electron-updater</span>/<span class="mono">electron-store</span>/<span class="mono">electron-log</span>…), shells the web app. <span class="mono">packages/slack</span>: <span class="mono">@slack/bolt</span>+<span class="mono">@opencode-ai/sdk</span>. <span class="mono">packages/enterprise</span>: <span class="mono">@solidjs/start</span>+<span class="mono">core</span>+<span class="mono">ui</span>+<span class="mono">aws4fetch</span>. <span class="mono">opencode/src/share/session.ts</span>: <span class="mono">Service</span>(<span class="mono">@opencode/SessionShare</span>) interface <span class="mono">share(sessionID)→{url}</span> / <span class="mono">unshare</span>, with <span class="mono">share-next.ts</span>. <span class="mono">packages/function/src/api.ts</span>: <span class="mono">SyncServer extends DurableObject&lt;Env&gt;</span>, <span class="mono">SYNC_SERVER: DurableObjectNamespace</span>, <span class="mono">fetch()</span> with <span class="mono">WebSocketPair</span>+<span class="mono">ctx.acceptWebSocket</span>+<span class="mono">ctx.storage.list()</span> on the <span class="mono">session/</span> prefix. <span class="mono">core/src/integration.ts</span>: <span class="mono">export * as Integration</span>, <span class="mono">IntegrationSchema</span>/<span class="mono">MethodID</span>/<span class="mono">IntegrationConnection</span>. <span class="mono">infra/</span>: SST. Note this ring's commonality: apart from the core (<span class="mono">core</span>/<span class="mono">opencode</span>), they almost all depend on <span class="mono">@opencode-ai/sdk</span> or connect to the server via the event stream—"connecting to one core" isn't a slogan but a fact readable straight from the <span class="mono">package.json</span> dependency graph.
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li><strong>One engine, many faces</strong>: the core server is one (L09), TUI/web(<span class="mono">app</span>)/desktop(<span class="mono">desktop</span>, Electron shelling web, with auto-update) all connect to it via the same SDK (L12) + event stream (L11)—Lesson 56's "data separated from presentation" ultimately cashed out: one core, many skins, each new one needing no core rewrite.</li>
+    <li><strong>Sharing + cloud sync</strong>: <span class="mono">share(sessionID)→{url}</span> (<span class="mono">opencode/src/share</span>) turns a local session into a shareable link; behind it <span class="mono">packages/function</span>'s Cloudflare <strong>Durable Object</strong> <span class="mono">SyncServer</span> (WebSocket+storage) lets others <strong>watch read-only</strong>—exactly L65's "single writer writes, other devices replay to catch up" landed in the cloud.</li>
+    <li><strong>Integration &amp; ops</strong>: <span class="mono">integration</span> (declarative triggers plugging external events into a session), <span class="mono">slack</span>(<span class="mono">@slack/bolt</span> bot), <span class="mono">enterprise</span>(SolidStart), <span class="mono">infra</span>(SST IaC). The book's wrap-up: <strong>because the core is "data separated from presentation, doors wide open" (L09/L56/L61), it can grow so many faces and entry points without reinventing wheels.</strong></li>
+  </ul>
+</div>
+""",
+}
