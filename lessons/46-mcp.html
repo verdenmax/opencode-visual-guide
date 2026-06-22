@@ -349,13 +349,13 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="f-node">同一个工具注册表<br><small>和内置工具肩并肩</small></div>
 </div>
 <p>关键在 <span class="mono">catalog.ts</span> 的 <span class="mono">convertTool</span>：它把 MCP 服务器报的工具定义，转成一个 <span class="mono">dynamicTool</span>——保留服务器给的 <span class="mono">inputSchema</span> 作参数约束，而 <span class="mono">execute</span> 的实现，只是<strong>把参数原样转发</strong>给 <span class="mono">client.callTool(name, args)</span>，再把服务器返回的结果转回来。所谓「dynamic（动态）」，正是相对于内置工具的「static（静态）」而言：内置工具的 schema 和实现都写在源码里，而 MCP 工具的 schema 是运行时问来的、实现只是一根<strong>通往远端的转发线</strong>。这里还藏着一个呼应全书的主题——「<strong>便宜地广而告之，按需地昂贵兑现</strong>」（L37 注册表只存定义、L42 预览/溢出、L43 skills 只报名字）：opencode 连上服务器时，只<strong>廉价地拉一份工具清单</strong>（名字 + schema + 描述），真正昂贵的工具执行，要等模型<strong>实际点名调用</strong>那一刻，才通过 <span class="mono">callTool</span> 转发过去。一台 MCP 服务器哪怕提供上百个工具，发现阶段也只是过一遍清单，绝不会预先把它们全跑一遍。</p>
-<p>那「作用域（scoped）」又是什么意思？多台 MCP 服务器可能各有一个叫 <span class="mono">search</span> 的工具，怎么不打架？opencode 的办法是给每个工具名<strong>冠上服务器名做前缀</strong>。名字先经 <span class="mono">sanitize</span> 洗一遍（把非 <span class="mono">[a-zA-Z0-9_-]</span> 的字符替换成 <span class="mono">_</span>），再用 <span class="mono">_</span> 拼起来：</p>
+<p>那「作用域（scoped）」又是什么意思？多台 MCP 服务器可能各有一个叫 <span class="mono">search</span> 的工具，怎么不打架？opencode 的办法是给每个工具名<strong>冠上服务器名做前缀</strong>。名字先经 <span class="mono">sanitize</span> 洗一遍（把非 <span class="mono">[a-zA-Z0-9_-]</span> 的字符替换成 <span class="mono">_</span>），再用 <span class="mono">:</span>（冒号）拼起来：</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">sanitize</div><div class="c-txt"><span class="mono">/[^a-zA-Z0-9_-]/g → "_"</span>：洗掉工具名里不合法的字符</div></div>
-  <div class="cell"><div class="c-tag">命名规则</div><div class="c-txt"><span class="mono">sanitize(服务器名) + "_" + sanitize(工具名)</span></div></div>
-  <div class="cell"><div class="c-tag">例子</div><div class="c-txt">github 服务器的 search → <span class="mono">github_search</span>；jira 的 search → <span class="mono">jira_search</span>，互不冲突</div></div>
+  <div class="cell"><div class="c-tag">命名规则</div><div class="c-txt"><span class="mono">sanitize(服务器名) + ":" + sanitize(工具名)</span></div></div>
+  <div class="cell"><div class="c-tag">例子</div><div class="c-txt">github 服务器的 search → <span class="mono">github:search</span>；jira 的 search → <span class="mono">jira:search</span>，互不冲突</div></div>
 </div>
-<p>这个带前缀的名字，就是 MCP 工具的「作用域」——它既避免了重名冲突，又让模型一眼看出某工具来自哪台服务器。而这串名字最妙的去处在 <span class="mono">session/tools.ts</span>：MCP 工具被并入会话工具集时，那道权限闸门写的是 <span class="mono">ctx.ask({ permission: key, ... })</span>——<strong>这个 key，正是上面那个带服务器前缀的作用域名</strong>。也就是说，MCP 工具<strong>和内置工具走的是同一套权限系统</strong>（第 41 课的 Ruleset），你完全可以在配置里写「<span class="mono">github_*</span> 一律放行、<span class="mono">jira_delete_*</span> 必须问」这样的规则，精确管控每台外部服务器、每个外部工具的权限。这就是开头那句「待遇是一等公民」的落地：<strong>外来工具一旦进门，就和原生工具共享注册表、权限、插件钩子，没有半点二等待遇。</strong></p>
+<p>这个带前缀的名字，就是 MCP 工具的「作用域」——它既避免了重名冲突，又让模型一眼看出某工具来自哪台服务器。而这串名字最妙的去处在 <span class="mono">session/tools.ts</span>：MCP 工具被并入会话工具集时，那道权限闸门写的是 <span class="mono">ctx.ask({ permission: key, ... })</span>——<strong>这个 key，正是上面那个带服务器前缀的作用域名</strong>。也就是说，MCP 工具<strong>和内置工具走的是同一套权限系统</strong>（第 41 课的 Ruleset），你完全可以在配置里写「<span class="mono">github:*</span> 一律放行、<span class="mono">jira:delete_*</span> 必须问」这样的规则，精确管控每台外部服务器、每个外部工具的权限。这就是开头那句「待遇是一等公民」的落地：<strong>外来工具一旦进门，就和原生工具共享注册表、权限、插件钩子，没有半点二等待遇。</strong></p>
 
 <h2>两种服务器：本地进程 vs 远程 HTTP</h2>
 <p>MCP 服务器从哪来？配置里 <span class="mono">mcp</span> 那一格（<span class="mono">config/mcp.ts</span>）定义了两种，是一个按 <span class="mono">type</span> 区分的标签联合：</p>
@@ -396,7 +396,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <p>这一课讲清了 opencode 如何把<strong>外部工具</strong>动态接进 agent：</p>
   <ul>
     <li><strong>动态工具</strong>：MCP 工具在<strong>运行时</strong>经 <span class="mono">listTools</span> 发现，由 <span class="mono">catalog.ts</span> 的 <span class="mono">convertTool</span> 裹进 AI SDK 的 <span class="mono">dynamicTool</span>（execute 转发给 <span class="mono">client.callTool</span>），与内置工具（L36 静态 <span class="mono">Tool.make</span>）相对。</li>
-    <li><strong>作用域</strong>：工具名 = <span class="mono">sanitize(服务器名) + "_" + sanitize(工具名)</span>，避免多服务器重名冲突。这个作用域名同时是<strong>权限 key</strong>——MCP 工具在 <span class="mono">session/tools.ts</span> 走<strong>和内置工具同一道权限闸门</strong>（L41 Ruleset）、同一批插件钩子。出身二等、待遇一等。</li>
+    <li><strong>作用域</strong>：工具名 = <span class="mono">sanitize(服务器名) + ":" + sanitize(工具名)</span>，避免多服务器重名冲突。这个作用域名同时是<strong>权限 key</strong>——MCP 工具在 <span class="mono">session/tools.ts</span> 走<strong>和内置工具同一道权限闸门</strong>（L41 Ruleset）、同一批插件钩子。出身二等、待遇一等。</li>
     <li><strong>两种服务器</strong>（<span class="mono">config/mcp.ts</span>）：local（<span class="mono">command</span>，StdioClientTransport 拉子进程）vs remote（<span class="mono">url</span>，StreamableHTTP→SSE 回退）。连上后同得一个 MCP <span class="mono">Client</span>，上层用法一致。</li>
     <li><strong>OAuth</strong>：远程服务器需认证时标 <span class="mono">needs_auth</span>，<span class="mono">opencode mcp auth</span> 走「起本地回调服务器→开浏览器授权→截获 code→PKCE 换令牌→存 <span class="mono">mcp-auth.json</span>(0o600)」舞蹈。凭证碎片（tokens/codeVerifier/oauthState/clientInfo）由 <span class="mono">auth.ts</span> 加文件锁持久化。</li>
   </ul>
@@ -412,12 +412,12 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <span class="kw">if</span> (!execute) <span class="kw">continue</span>
   item.execute = (args, opts) =&gt;
     run.<span class="fn">promise</span>(Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
-      <span class="cm">// ← 和内置工具同一道权限闸门，key=「服务器名_工具名」作用域名</span>
+      <span class="cm">// ← 和内置工具同一道权限闸门，key=「服务器名:工具名」作用域名</span>
       <span class="kw">yield*</span> ctx.<span class="fn">ask</span>({ permission: key, patterns: [<span class="st">"*"</span>], always: [<span class="st">"*"</span>] })
       <span class="kw">return</span> <span class="kw">yield*</span> Effect.<span class="fn">promise</span>(() =&gt; <span class="fn">execute</span>(args, opts))
     }))
 }</pre>
-  <p>注意那行 <span class="mono">ctx.ask({ permission: key, ... })</span>——<span class="mono">key</span> 就是 <span class="mono">github_search</span> 这样的作用域名。这意味着 MCP 工具<strong>没有自己的一套权限逻辑</strong>，而是<strong>复用</strong>了第 41 课那套统一的权限系统：同样的 ask（allow/ask/deny 三态）、同样的 Ruleset 匹配。这正是「待遇一等公民」最硬的证据——<strong>系统没有为「外来工具」开任何后门，它必须和原生工具走完全相同的安全检查</strong>。这种「不为扩展点破例」的纪律极其重要：一旦你为某类工具开了「免检」绿色通道，整个权限系统的可信度就崩了。opencode 的做法是反过来的——<strong>越是外来的、越不可控的工具（谁知道某个第三方 MCP 服务器会让你的 agent 干什么），就越要让它老老实实排进同一道闸门。</strong></p>
+  <p>注意那行 <span class="mono">ctx.ask({ permission: key, ... })</span>——<span class="mono">key</span> 就是 <span class="mono">github:search</span> 这样的作用域名。这意味着 MCP 工具<strong>没有自己的一套权限逻辑</strong>，而是<strong>复用</strong>了第 41 课那套统一的权限系统：同样的 ask（allow/ask/deny 三态）、同样的 Ruleset 匹配。这正是「待遇一等公民」最硬的证据——<strong>系统没有为「外来工具」开任何后门，它必须和原生工具走完全相同的安全检查</strong>。这种「不为扩展点破例」的纪律极其重要：一旦你为某类工具开了「免检」绿色通道，整个权限系统的可信度就崩了。opencode 的做法是反过来的——<strong>越是外来的、越不可控的工具（谁知道某个第三方 MCP 服务器会让你的 agent 干什么），就越要让它老老实实排进同一道闸门。</strong></p>
 </div>
 
 <div class="card key">
@@ -425,7 +425,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <ul>
     <li><strong>MCP 让外部工具动态接入</strong>：opencode 内置工具（L36–43）编译期写死、数量固定；MCP 让你接一台<strong>外部工具服务器</strong>，运行时<strong>动态</strong>多出工具。两条主线=动态作用域工具 + OAuth。</li>
     <li><strong>动态工具</strong>：运行时 <span class="mono">listTools</span> 发现，<span class="mono">convertTool</span>（catalog.ts）裹进 AI SDK <span class="mono">dynamicTool</span>，<span class="mono">execute</span> 只是转发给 <span class="mono">client.callTool</span>——相对内置工具的静态 <span class="mono">Tool.make</span>。</li>
-    <li><strong>作用域 = 权限 key</strong>：工具名 = <span class="mono">sanitize(服务器名)+"_"+sanitize(工具名)</span>（如 <span class="mono">github_search</span>），既防重名，又作为 <span class="mono">session/tools.ts</span> 里的权限 key——MCP 工具走<strong>和内置工具同一道权限闸门</strong>（L41）。出身二等，待遇一等。</li>
+    <li><strong>作用域 = 权限 key</strong>：工具名 = <span class="mono">sanitize(服务器名)+":"+sanitize(工具名)</span>（如 <span class="mono">github:search</span>），既防重名，又作为 <span class="mono">session/tools.ts</span> 里的权限 key——MCP 工具走<strong>和内置工具同一道权限闸门</strong>（L41）。出身二等，待遇一等。</li>
     <li><strong>两种服务器</strong>（config/mcp.ts）：local（<span class="mono">command</span> + StdioClientTransport 拉子进程）vs remote（<span class="mono">url</span> + StreamableHTTP→SSE 回退）。连上后同得一个 MCP <span class="mono">Client</span>，上层用法一致。</li>
     <li><strong>OAuth 舞蹈</strong>：needs_auth → <span class="mono">opencode mcp auth</span> → 起 localhost 回调服务器 → 开浏览器授权（PKCE + state）→ 截获 code → 换令牌 → 存 <span class="mono">mcp-auth.json</span>（<span class="mono">0o600</span> + 文件锁）。凭证碎片：tokens/codeVerifier/oauthState/clientInfo。</li>
   </ul>
@@ -448,14 +448,14 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="quiz">
   <div class="qn">2. 多台 MCP 服务器可能各有一个叫 search 的工具，opencode 如何避免冲突、又让工具名能被权限规则精确管控？</div>
   <ol class="opts">
-    <li>工具名 = sanitize(服务器名)+"_"+sanitize(工具名)（如 github_search、jira_search），这个带前缀的作用域名同时就是 session/tools.ts 里的权限 key</li>
+    <li>工具名 = sanitize(服务器名)+":"+sanitize(工具名)（如 github:search、jira:search），这个带前缀的作用域名同时就是 session/tools.ts 里的权限 key</li>
     <li>把所有 search 合并成一个</li>
     <li>随机给工具编号</li>
     <li>谁先连上谁用 search，后连的报错</li>
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。opencode 给每个工具名冠上服务器名前缀：先 sanitize（把非 [a-zA-Z0-9_-] 的字符替换成 _）洗一遍名字，再用 _ 拼成 sanitize(服务器名)+"_"+sanitize(工具名)。于是 github 的 search → github_search、jira 的 search → jira_search，互不冲突。这串带前缀的「作用域名」最妙的去处在 session/tools.ts：MCP 工具并入会话工具集时，权限闸门写 ctx.ask({ permission: key })——这个 key 正是作用域名。所以你能在配置里写「github_* 一律放行、jira_delete_* 必须问」，精确管控每台外部服务器、每个外部工具。命名既解决重名，又直接成为权限系统的抓手。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。opencode 给每个工具名冠上服务器名前缀：先 sanitize（把非 [a-zA-Z0-9_-] 的字符替换成 _）洗一遍名字，再用 : 拼成 sanitize(服务器名)+":"+sanitize(工具名)。于是 github 的 search → github:search、jira 的 search → jira:search，互不冲突。这串带前缀的「作用域名」最妙的去处在 session/tools.ts：MCP 工具并入会话工具集时，权限闸门写 ctx.ask({ permission: key })——这个 key 正是作用域名。所以你能在配置里写「github:* 一律放行、jira:delete_* 必须问」，精确管控每台外部服务器、每个外部工具。命名既解决重名，又直接成为权限系统的抓手。</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -500,13 +500,13 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="f-node">the same tool registry<br><small>shoulder to shoulder with built-ins</small></div>
 </div>
 <p>The key is <span class="mono">convertTool</span> in <span class="mono">catalog.ts</span>: it turns an MCP server's reported tool def into a <span class="mono">dynamicTool</span>—keeping the server-given <span class="mono">inputSchema</span> as the parameter constraint, while <span class="mono">execute</span>'s implementation merely <strong>forwards the args verbatim</strong> to <span class="mono">client.callTool(name, args)</span> and converts the server's result back. "dynamic" is precisely relative to built-ins' "static": a built-in's schema and implementation both live in source, while an MCP tool's schema is asked at runtime and its implementation is just a <strong>forwarding wire to the far end</strong>. There's also a book-wide theme echoed here—"<strong>advertise cheap, fulfill expensively on demand</strong>" (L37's registry stores only definitions, L42's preview/spill, L43's skills report only names): when opencode connects, it only <strong>cheaply pulls a tool list</strong> (name + schema + description); the truly expensive tool execution waits until the model <strong>actually calls a tool by name</strong>, then forwards it via <span class="mono">callTool</span>. Even if an MCP server offers a hundred tools, discovery just runs through the list, never pre-running them all.</p>
-<p>So what does "scoped" mean? Multiple MCP servers might each have a tool named <span class="mono">search</span>—how to avoid collision? opencode's way is to <strong>prefix each tool name with the server name</strong>. The name first runs through <span class="mono">sanitize</span> (replacing non-<span class="mono">[a-zA-Z0-9_-]</span> chars with <span class="mono">_</span>), then joins with <span class="mono">_</span>:</p>
+<p>So what does "scoped" mean? Multiple MCP servers might each have a tool named <span class="mono">search</span>—how to avoid collision? opencode's way is to <strong>prefix each tool name with the server name</strong>. The name first runs through <span class="mono">sanitize</span> (replacing non-<span class="mono">[a-zA-Z0-9_-]</span> chars with <span class="mono">_</span>), then joins them with <span class="mono">:</span> (a colon):</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">sanitize</div><div class="c-txt"><span class="mono">/[^a-zA-Z0-9_-]/g → "_"</span>: wash out illegal chars in a tool name</div></div>
-  <div class="cell"><div class="c-tag">naming rule</div><div class="c-txt"><span class="mono">sanitize(serverName) + "_" + sanitize(toolName)</span></div></div>
-  <div class="cell"><div class="c-tag">example</div><div class="c-txt">github server's search → <span class="mono">github_search</span>; jira's search → <span class="mono">jira_search</span>, no collision</div></div>
+  <div class="cell"><div class="c-tag">naming rule</div><div class="c-txt"><span class="mono">sanitize(serverName) + ":" + sanitize(toolName)</span></div></div>
+  <div class="cell"><div class="c-tag">example</div><div class="c-txt">github server's search → <span class="mono">github:search</span>; jira's search → <span class="mono">jira:search</span>, no collision</div></div>
 </div>
-<p>This prefixed name is the MCP tool's "scope"—it avoids name collisions and lets the model see at a glance which server a tool comes from. And this name's finest destination is in <span class="mono">session/tools.ts</span>: when MCP tools merge into the session's tool set, the permission gate writes <span class="mono">ctx.ask({ permission: key, ... })</span>—<strong>this key is exactly that server-prefixed scoped name</strong>. That is, MCP tools <strong>go through the same permission system as built-in tools</strong> (L41's Ruleset); you can perfectly well write rules in config like "<span class="mono">github_*</span> all allowed, <span class="mono">jira_delete_*</span> must ask," precisely governing each external server's, each external tool's permission. That's the landing of the opening's "first-class treatment": <strong>once a foreign tool is in the door, it shares registry, permissions, plugin hooks with native tools—no second-class treatment whatsoever.</strong></p>
+<p>This prefixed name is the MCP tool's "scope"—it avoids name collisions and lets the model see at a glance which server a tool comes from. And this name's finest destination is in <span class="mono">session/tools.ts</span>: when MCP tools merge into the session's tool set, the permission gate writes <span class="mono">ctx.ask({ permission: key, ... })</span>—<strong>this key is exactly that server-prefixed scoped name</strong>. That is, MCP tools <strong>go through the same permission system as built-in tools</strong> (L41's Ruleset); you can perfectly well write rules in config like "<span class="mono">github:*</span> all allowed, <span class="mono">jira:delete_*</span> must ask," precisely governing each external server's, each external tool's permission. That's the landing of the opening's "first-class treatment": <strong>once a foreign tool is in the door, it shares registry, permissions, plugin hooks with native tools—no second-class treatment whatsoever.</strong></p>
 
 <h2>Two server kinds: local process vs remote HTTP</h2>
 <p>Where do MCP servers come from? The config's <span class="mono">mcp</span> cell (<span class="mono">config/mcp.ts</span>) defines two, a tagged union discriminated by <span class="mono">type</span>:</p>
@@ -547,7 +547,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <p>This lesson clarifies how opencode dynamically connects <strong>external tools</strong> into the agent:</p>
   <ul>
     <li><strong>Dynamic tools</strong>: MCP tools are discovered at <strong>runtime</strong> via <span class="mono">listTools</span>, wrapped by <span class="mono">catalog.ts</span>'s <span class="mono">convertTool</span> into the AI SDK's <span class="mono">dynamicTool</span> (execute forwards to <span class="mono">client.callTool</span>), as against built-in tools (L36's static <span class="mono">Tool.make</span>).</li>
-    <li><strong>Scope</strong>: tool name = <span class="mono">sanitize(serverName) + "_" + sanitize(toolName)</span>, avoiding multi-server name collisions. This scoped name is also the <strong>permission key</strong>—in <span class="mono">session/tools.ts</span> MCP tools go through the <strong>same permission gate as built-ins</strong> (L41 Ruleset), the same plugin hooks. Second-class origin, first-class treatment.</li>
+    <li><strong>Scope</strong>: tool name = <span class="mono">sanitize(serverName) + ":" + sanitize(toolName)</span>, avoiding multi-server name collisions. This scoped name is also the <strong>permission key</strong>—in <span class="mono">session/tools.ts</span> MCP tools go through the <strong>same permission gate as built-ins</strong> (L41 Ruleset), the same plugin hooks. Second-class origin, first-class treatment.</li>
     <li><strong>Two server kinds</strong> (<span class="mono">config/mcp.ts</span>): local (<span class="mono">command</span>, StdioClientTransport spawns a child process) vs remote (<span class="mono">url</span>, StreamableHTTP→SSE fallback). Once connected both yield the same MCP <span class="mono">Client</span>, upper usage identical.</li>
     <li><strong>OAuth</strong>: remote servers needing auth are marked <span class="mono">needs_auth</span>, <span class="mono">opencode mcp auth</span> runs the "start local callback server→open browser authorize→capture code→PKCE exchange tokens→save <span class="mono">mcp-auth.json</span>(0o600)" dance. Credential fragments (tokens/codeVerifier/oauthState/clientInfo) persisted by <span class="mono">auth.ts</span> with a file lock.</li>
   </ul>
@@ -563,12 +563,12 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <span class="kw">if</span> (!execute) <span class="kw">continue</span>
   item.execute = (args, opts) =&gt;
     run.<span class="fn">promise</span>(Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
-      <span class="cm">// ← same permission gate as built-ins, key="serverName_toolName" scoped name</span>
+      <span class="cm">// ← same permission gate as built-ins, key="serverName:toolName" scoped name</span>
       <span class="kw">yield*</span> ctx.<span class="fn">ask</span>({ permission: key, patterns: [<span class="st">"*"</span>], always: [<span class="st">"*"</span>] })
       <span class="kw">return</span> <span class="kw">yield*</span> Effect.<span class="fn">promise</span>(() =&gt; <span class="fn">execute</span>(args, opts))
     }))
 }</pre>
-  <p>Note that <span class="mono">ctx.ask({ permission: key, ... })</span> line—<span class="mono">key</span> is a scoped name like <span class="mono">github_search</span>. This means MCP tools have <strong>no permission logic of their own</strong> but <strong>reuse</strong> lesson 41's unified permission system: the same ask (allow/ask/deny tri-state), the same Ruleset matching. This is the hardest evidence of "first-class treatment"—<strong>the system opens no backdoor for "foreign tools"; they must pass the exact same security check as native tools</strong>. This "no exception for extension points" discipline is crucial: the moment you open a "no-inspection" green channel for some class of tool, the whole permission system's credibility collapses. opencode does the reverse—<strong>the more foreign, the less controllable a tool (who knows what some third-party MCP server will have your agent do), the more it must queue obediently into the same gate.</strong></p>
+  <p>Note that <span class="mono">ctx.ask({ permission: key, ... })</span> line—<span class="mono">key</span> is a scoped name like <span class="mono">github:search</span>. This means MCP tools have <strong>no permission logic of their own</strong> but <strong>reuse</strong> lesson 41's unified permission system: the same ask (allow/ask/deny tri-state), the same Ruleset matching. This is the hardest evidence of "first-class treatment"—<strong>the system opens no backdoor for "foreign tools"; they must pass the exact same security check as native tools</strong>. This "no exception for extension points" discipline is crucial: the moment you open a "no-inspection" green channel for some class of tool, the whole permission system's credibility collapses. opencode does the reverse—<strong>the more foreign, the less controllable a tool (who knows what some third-party MCP server will have your agent do), the more it must queue obediently into the same gate.</strong></p>
 </div>
 
 <div class="card key">
@@ -576,7 +576,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <ul>
     <li><strong>MCP connects external tools dynamically</strong>: opencode's built-in tools (L36–43) are hardcoded at compile time, fixed in number; MCP lets you connect an <strong>external tool server</strong> that <strong>dynamically</strong> adds tools at runtime. Two threads = dynamic scoped tools + OAuth.</li>
     <li><strong>Dynamic tools</strong>: discovered at runtime via <span class="mono">listTools</span>, wrapped by <span class="mono">convertTool</span> (catalog.ts) into the AI SDK's <span class="mono">dynamicTool</span>, <span class="mono">execute</span> just forwards to <span class="mono">client.callTool</span>—against built-ins' static <span class="mono">Tool.make</span>.</li>
-    <li><strong>Scope = permission key</strong>: tool name = <span class="mono">sanitize(serverName)+"_"+sanitize(toolName)</span> (e.g. <span class="mono">github_search</span>), avoiding collisions and serving as the permission key in <span class="mono">session/tools.ts</span>—MCP tools go through the <strong>same permission gate as built-ins</strong> (L41). Second-class origin, first-class treatment.</li>
+    <li><strong>Scope = permission key</strong>: tool name = <span class="mono">sanitize(serverName)+":"+sanitize(toolName)</span> (e.g. <span class="mono">github:search</span>), avoiding collisions and serving as the permission key in <span class="mono">session/tools.ts</span>—MCP tools go through the <strong>same permission gate as built-ins</strong> (L41). Second-class origin, first-class treatment.</li>
     <li><strong>Two server kinds</strong> (config/mcp.ts): local (<span class="mono">command</span> + StdioClientTransport spawns a child process) vs remote (<span class="mono">url</span> + StreamableHTTP→SSE fallback). Once connected both yield the same MCP <span class="mono">Client</span>, upper usage identical.</li>
     <li><strong>OAuth dance</strong>: needs_auth → <span class="mono">opencode mcp auth</span> → start localhost callback server → open browser authorize (PKCE + state) → capture code → exchange tokens → save <span class="mono">mcp-auth.json</span> (<span class="mono">0o600</span> + file lock). Credential fragments: tokens/codeVerifier/oauthState/clientInfo.</li>
   </ul>
@@ -599,14 +599,14 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="quiz">
   <div class="qn">2. Multiple MCP servers might each have a tool named search; how does opencode avoid collision while letting the tool name be precisely governed by permission rules?</div>
   <ol class="opts">
-    <li>tool name = sanitize(serverName)+"_"+sanitize(toolName) (e.g. github_search, jira_search); this prefixed scoped name is also the permission key in session/tools.ts</li>
+    <li>tool name = sanitize(serverName)+":"+sanitize(toolName) (e.g. github:search, jira:search); this prefixed scoped name is also the permission key in session/tools.ts</li>
     <li>Merge all searches into one</li>
     <li>Randomly number the tools</li>
     <li>Whoever connects first gets search, later ones error</li>
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. opencode prefixes each tool name with the server name: first sanitize (replace non-[a-zA-Z0-9_-] chars with _) washes the name, then joins with _ into sanitize(serverName)+"_"+sanitize(toolName). So github's search → github_search, jira's search → jira_search, no collision. This prefixed "scoped name"'s finest destination is session/tools.ts: when MCP tools merge into the session tool set, the permission gate writes ctx.ask({ permission: key }) — this key is exactly the scoped name. So you can write in config "github_* all allowed, jira_delete_* must ask," precisely governing each external server and tool. Naming both solves collisions and directly becomes the permission system's handle.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. opencode prefixes each tool name with the server name: first sanitize (replace non-[a-zA-Z0-9_-] chars with _) washes the name, then joins with : into sanitize(serverName)+":"+sanitize(toolName). So github's search → github:search, jira's search → jira:search, no collision. This prefixed "scoped name"'s finest destination is session/tools.ts: when MCP tools merge into the session tool set, the permission gate writes ctx.ask({ permission: key }) — this key is exactly the scoped name. So you can write in config "github:* all allowed, jira:delete_* must ask," precisely governing each external server and tool. Naming both solves collisions and directly becomes the permission system's handle.</div></div></div>
   </details>
 </div>
 <div class="quiz">

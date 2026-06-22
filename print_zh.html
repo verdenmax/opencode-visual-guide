@@ -1999,7 +1999,8 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
 
 <h2>handler：把契约接到 core</h2>
 <p>契约写好了，谁来兑现？这就是 <span class="mono">handlers/session.ts</span> 的活。它用 <span class="mono">HttpApiBuilder.group(InstanceHttpApi, "session", handlers =&gt; …)</span> 认领「session 这个组」，然后<strong>给组里每个端点名字配上一个实现函数</strong>——<span class="mono">.handle("list", list).handle("get", get)…</span>。名字必须和组里声明的对上，少一个、拼错一个，编译器立刻报错。这就是「契约」二字的分量：<strong>声明和实现被类型死死焊在一起</strong>。</p>
-<p>这里值得点明一处容易混淆的地方：这些路由组与 handler 的<strong>契约表面</strong>，其实住在一个<strong>独立的包 <span class="mono">@opencode-ai/server</span></strong>（<span class="mono">packages/server/src</span>，含 <span class="mono">api/groups/handlers/middleware</span>）里；而第 9 课讲的 <span class="mono">packages/opencode/src/server</span>，则负责把这套契约<strong>装配、启动</strong>成一个能跑的本地服务器（<span class="mono">webHandler</span>、MDNS、WebSocket 那些）。一个定义「API 长什么样」、一个负责「把它跑起来」——读源码时别被「两个 server」绕晕。</p>
+<p>这里值得点明一处容易混淆的地方：你在本课看到的这些组、handler 和那 9 个中间件（<span class="mono">session</span>、<span class="mono">config</span>、<span class="mono">error.ts</span>…），其实就<strong>住在本仓库</strong>的 <span class="mono">packages/opencode/src/server/routes/instance/httpapi/</span> 下（<span class="mono">groups/</span>、<span class="mono">handlers/</span>、<span class="mono">middleware/</span>），由同目录的 <span class="mono">api.ts</span> 装配成 Root / Instance / OpenCode 三层 API。</p>
+<p><strong>另外</strong>还有一个更小的可复用包 <span class="mono">@opencode-ai/server</span>（<span class="mono">packages/server/src</span>），导出它自己的一套基础组（agent、message、model、fs、skill…）；<span class="mono">api.ts</span> 用 <span class="mono">.addHttpApi(Api)</span> 把它也合并进来。所以它是「又一块拼图」，而非「契约的真身」——别被「两个 server」绕晕。</p>
 <pre class="code"><span class="cm">// 简化自 handlers/session.ts</span>
 <span class="kw">export const</span> sessionHandlers = HttpApiBuilder.<span class="fn">group</span>(InstanceHttpApi, <span class="st">"session"</span>, (handlers) =&gt;
   Effect.<span class="fn">gen</span>(<span class="kw">function</span>* () {
@@ -7623,13 +7624,13 @@ plan: {
   <div class="f-node">同一个工具注册表<br><small>和内置工具肩并肩</small></div>
 </div>
 <p>关键在 <span class="mono">catalog.ts</span> 的 <span class="mono">convertTool</span>：它把 MCP 服务器报的工具定义，转成一个 <span class="mono">dynamicTool</span>——保留服务器给的 <span class="mono">inputSchema</span> 作参数约束，而 <span class="mono">execute</span> 的实现，只是<strong>把参数原样转发</strong>给 <span class="mono">client.callTool(name, args)</span>，再把服务器返回的结果转回来。所谓「dynamic（动态）」，正是相对于内置工具的「static（静态）」而言：内置工具的 schema 和实现都写在源码里，而 MCP 工具的 schema 是运行时问来的、实现只是一根<strong>通往远端的转发线</strong>。这里还藏着一个呼应全书的主题——「<strong>便宜地广而告之，按需地昂贵兑现</strong>」（L37 注册表只存定义、L42 预览/溢出、L43 skills 只报名字）：opencode 连上服务器时，只<strong>廉价地拉一份工具清单</strong>（名字 + schema + 描述），真正昂贵的工具执行，要等模型<strong>实际点名调用</strong>那一刻，才通过 <span class="mono">callTool</span> 转发过去。一台 MCP 服务器哪怕提供上百个工具，发现阶段也只是过一遍清单，绝不会预先把它们全跑一遍。</p>
-<p>那「作用域（scoped）」又是什么意思？多台 MCP 服务器可能各有一个叫 <span class="mono">search</span> 的工具，怎么不打架？opencode 的办法是给每个工具名<strong>冠上服务器名做前缀</strong>。名字先经 <span class="mono">sanitize</span> 洗一遍（把非 <span class="mono">[a-zA-Z0-9_-]</span> 的字符替换成 <span class="mono">_</span>），再用 <span class="mono">_</span> 拼起来：</p>
+<p>那「作用域（scoped）」又是什么意思？多台 MCP 服务器可能各有一个叫 <span class="mono">search</span> 的工具，怎么不打架？opencode 的办法是给每个工具名<strong>冠上服务器名做前缀</strong>。名字先经 <span class="mono">sanitize</span> 洗一遍（把非 <span class="mono">[a-zA-Z0-9_-]</span> 的字符替换成 <span class="mono">_</span>），再用 <span class="mono">:</span>（冒号）拼起来：</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">sanitize</div><div class="c-txt"><span class="mono">/[^a-zA-Z0-9_-]/g → "_"</span>：洗掉工具名里不合法的字符</div></div>
-  <div class="cell"><div class="c-tag">命名规则</div><div class="c-txt"><span class="mono">sanitize(服务器名) + "_" + sanitize(工具名)</span></div></div>
-  <div class="cell"><div class="c-tag">例子</div><div class="c-txt">github 服务器的 search → <span class="mono">github_search</span>；jira 的 search → <span class="mono">jira_search</span>，互不冲突</div></div>
+  <div class="cell"><div class="c-tag">命名规则</div><div class="c-txt"><span class="mono">sanitize(服务器名) + ":" + sanitize(工具名)</span></div></div>
+  <div class="cell"><div class="c-tag">例子</div><div class="c-txt">github 服务器的 search → <span class="mono">github:search</span>；jira 的 search → <span class="mono">jira:search</span>，互不冲突</div></div>
 </div>
-<p>这个带前缀的名字，就是 MCP 工具的「作用域」——它既避免了重名冲突，又让模型一眼看出某工具来自哪台服务器。而这串名字最妙的去处在 <span class="mono">session/tools.ts</span>：MCP 工具被并入会话工具集时，那道权限闸门写的是 <span class="mono">ctx.ask({ permission: key, ... })</span>——<strong>这个 key，正是上面那个带服务器前缀的作用域名</strong>。也就是说，MCP 工具<strong>和内置工具走的是同一套权限系统</strong>（第 41 课的 Ruleset），你完全可以在配置里写「<span class="mono">github_*</span> 一律放行、<span class="mono">jira_delete_*</span> 必须问」这样的规则，精确管控每台外部服务器、每个外部工具的权限。这就是开头那句「待遇是一等公民」的落地：<strong>外来工具一旦进门，就和原生工具共享注册表、权限、插件钩子，没有半点二等待遇。</strong></p>
+<p>这个带前缀的名字，就是 MCP 工具的「作用域」——它既避免了重名冲突，又让模型一眼看出某工具来自哪台服务器。而这串名字最妙的去处在 <span class="mono">session/tools.ts</span>：MCP 工具被并入会话工具集时，那道权限闸门写的是 <span class="mono">ctx.ask({ permission: key, ... })</span>——<strong>这个 key，正是上面那个带服务器前缀的作用域名</strong>。也就是说，MCP 工具<strong>和内置工具走的是同一套权限系统</strong>（第 41 课的 Ruleset），你完全可以在配置里写「<span class="mono">github:*</span> 一律放行、<span class="mono">jira:delete_*</span> 必须问」这样的规则，精确管控每台外部服务器、每个外部工具的权限。这就是开头那句「待遇是一等公民」的落地：<strong>外来工具一旦进门，就和原生工具共享注册表、权限、插件钩子，没有半点二等待遇。</strong></p>
 
 <h2>两种服务器：本地进程 vs 远程 HTTP</h2>
 <p>MCP 服务器从哪来？配置里 <span class="mono">mcp</span> 那一格（<span class="mono">config/mcp.ts</span>）定义了两种，是一个按 <span class="mono">type</span> 区分的标签联合：</p>
@@ -7670,7 +7671,7 @@ plan: {
   <p>这一课讲清了 opencode 如何把<strong>外部工具</strong>动态接进 agent：</p>
   <ul>
     <li><strong>动态工具</strong>：MCP 工具在<strong>运行时</strong>经 <span class="mono">listTools</span> 发现，由 <span class="mono">catalog.ts</span> 的 <span class="mono">convertTool</span> 裹进 AI SDK 的 <span class="mono">dynamicTool</span>（execute 转发给 <span class="mono">client.callTool</span>），与内置工具（L36 静态 <span class="mono">Tool.make</span>）相对。</li>
-    <li><strong>作用域</strong>：工具名 = <span class="mono">sanitize(服务器名) + "_" + sanitize(工具名)</span>，避免多服务器重名冲突。这个作用域名同时是<strong>权限 key</strong>——MCP 工具在 <span class="mono">session/tools.ts</span> 走<strong>和内置工具同一道权限闸门</strong>（L41 Ruleset）、同一批插件钩子。出身二等、待遇一等。</li>
+    <li><strong>作用域</strong>：工具名 = <span class="mono">sanitize(服务器名) + ":" + sanitize(工具名)</span>，避免多服务器重名冲突。这个作用域名同时是<strong>权限 key</strong>——MCP 工具在 <span class="mono">session/tools.ts</span> 走<strong>和内置工具同一道权限闸门</strong>（L41 Ruleset）、同一批插件钩子。出身二等、待遇一等。</li>
     <li><strong>两种服务器</strong>（<span class="mono">config/mcp.ts</span>）：local（<span class="mono">command</span>，StdioClientTransport 拉子进程）vs remote（<span class="mono">url</span>，StreamableHTTP→SSE 回退）。连上后同得一个 MCP <span class="mono">Client</span>，上层用法一致。</li>
     <li><strong>OAuth</strong>：远程服务器需认证时标 <span class="mono">needs_auth</span>，<span class="mono">opencode mcp auth</span> 走「起本地回调服务器→开浏览器授权→截获 code→PKCE 换令牌→存 <span class="mono">mcp-auth.json</span>(0o600)」舞蹈。凭证碎片（tokens/codeVerifier/oauthState/clientInfo）由 <span class="mono">auth.ts</span> 加文件锁持久化。</li>
   </ul>
@@ -7686,12 +7687,12 @@ plan: {
   <span class="kw">if</span> (!execute) <span class="kw">continue</span>
   item.execute = (args, opts) =&gt;
     run.<span class="fn">promise</span>(Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
-      <span class="cm">// ← 和内置工具同一道权限闸门，key=「服务器名_工具名」作用域名</span>
+      <span class="cm">// ← 和内置工具同一道权限闸门，key=「服务器名:工具名」作用域名</span>
       <span class="kw">yield*</span> ctx.<span class="fn">ask</span>({ permission: key, patterns: [<span class="st">"*"</span>], always: [<span class="st">"*"</span>] })
       <span class="kw">return</span> <span class="kw">yield*</span> Effect.<span class="fn">promise</span>(() =&gt; <span class="fn">execute</span>(args, opts))
     }))
 }</pre>
-  <p>注意那行 <span class="mono">ctx.ask({ permission: key, ... })</span>——<span class="mono">key</span> 就是 <span class="mono">github_search</span> 这样的作用域名。这意味着 MCP 工具<strong>没有自己的一套权限逻辑</strong>，而是<strong>复用</strong>了第 41 课那套统一的权限系统：同样的 ask（allow/ask/deny 三态）、同样的 Ruleset 匹配。这正是「待遇一等公民」最硬的证据——<strong>系统没有为「外来工具」开任何后门，它必须和原生工具走完全相同的安全检查</strong>。这种「不为扩展点破例」的纪律极其重要：一旦你为某类工具开了「免检」绿色通道，整个权限系统的可信度就崩了。opencode 的做法是反过来的——<strong>越是外来的、越不可控的工具（谁知道某个第三方 MCP 服务器会让你的 agent 干什么），就越要让它老老实实排进同一道闸门。</strong></p>
+  <p>注意那行 <span class="mono">ctx.ask({ permission: key, ... })</span>——<span class="mono">key</span> 就是 <span class="mono">github:search</span> 这样的作用域名。这意味着 MCP 工具<strong>没有自己的一套权限逻辑</strong>，而是<strong>复用</strong>了第 41 课那套统一的权限系统：同样的 ask（allow/ask/deny 三态）、同样的 Ruleset 匹配。这正是「待遇一等公民」最硬的证据——<strong>系统没有为「外来工具」开任何后门，它必须和原生工具走完全相同的安全检查</strong>。这种「不为扩展点破例」的纪律极其重要：一旦你为某类工具开了「免检」绿色通道，整个权限系统的可信度就崩了。opencode 的做法是反过来的——<strong>越是外来的、越不可控的工具（谁知道某个第三方 MCP 服务器会让你的 agent 干什么），就越要让它老老实实排进同一道闸门。</strong></p>
 </div>
 
 <div class="card key">
@@ -7699,7 +7700,7 @@ plan: {
   <ul>
     <li><strong>MCP 让外部工具动态接入</strong>：opencode 内置工具（L36–43）编译期写死、数量固定；MCP 让你接一台<strong>外部工具服务器</strong>，运行时<strong>动态</strong>多出工具。两条主线=动态作用域工具 + OAuth。</li>
     <li><strong>动态工具</strong>：运行时 <span class="mono">listTools</span> 发现，<span class="mono">convertTool</span>（catalog.ts）裹进 AI SDK <span class="mono">dynamicTool</span>，<span class="mono">execute</span> 只是转发给 <span class="mono">client.callTool</span>——相对内置工具的静态 <span class="mono">Tool.make</span>。</li>
-    <li><strong>作用域 = 权限 key</strong>：工具名 = <span class="mono">sanitize(服务器名)+"_"+sanitize(工具名)</span>（如 <span class="mono">github_search</span>），既防重名，又作为 <span class="mono">session/tools.ts</span> 里的权限 key——MCP 工具走<strong>和内置工具同一道权限闸门</strong>（L41）。出身二等，待遇一等。</li>
+    <li><strong>作用域 = 权限 key</strong>：工具名 = <span class="mono">sanitize(服务器名)+":"+sanitize(工具名)</span>（如 <span class="mono">github:search</span>），既防重名，又作为 <span class="mono">session/tools.ts</span> 里的权限 key——MCP 工具走<strong>和内置工具同一道权限闸门</strong>（L41）。出身二等，待遇一等。</li>
     <li><strong>两种服务器</strong>（config/mcp.ts）：local（<span class="mono">command</span> + StdioClientTransport 拉子进程）vs remote（<span class="mono">url</span> + StreamableHTTP→SSE 回退）。连上后同得一个 MCP <span class="mono">Client</span>，上层用法一致。</li>
     <li><strong>OAuth 舞蹈</strong>：needs_auth → <span class="mono">opencode mcp auth</span> → 起 localhost 回调服务器 → 开浏览器授权（PKCE + state）→ 截获 code → 换令牌 → 存 <span class="mono">mcp-auth.json</span>（<span class="mono">0o600</span> + 文件锁）。凭证碎片：tokens/codeVerifier/oauthState/clientInfo。</li>
   </ul>
@@ -7723,14 +7724,14 @@ plan: {
 <div class="quiz">
   <div class="qn">2. 多台 MCP 服务器可能各有一个叫 search 的工具，opencode 如何避免冲突、又让工具名能被权限规则精确管控？</div>
   <ol class="opts">
-    <li>工具名 = sanitize(服务器名)+"_"+sanitize(工具名)（如 github_search、jira_search），这个带前缀的作用域名同时就是 session/tools.ts 里的权限 key</li>
+    <li>工具名 = sanitize(服务器名)+":"+sanitize(工具名)（如 github:search、jira:search），这个带前缀的作用域名同时就是 session/tools.ts 里的权限 key</li>
     <li>把所有 search 合并成一个</li>
     <li>随机给工具编号</li>
     <li>谁先连上谁用 search，后连的报错</li>
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。opencode 给每个工具名冠上服务器名前缀：先 sanitize（把非 [a-zA-Z0-9_-] 的字符替换成 _）洗一遍名字，再用 _ 拼成 sanitize(服务器名)+"_"+sanitize(工具名)。于是 github 的 search → github_search、jira 的 search → jira_search，互不冲突。这串带前缀的「作用域名」最妙的去处在 session/tools.ts：MCP 工具并入会话工具集时，权限闸门写 ctx.ask({ permission: key })——这个 key 正是作用域名。所以你能在配置里写「github_* 一律放行、jira_delete_* 必须问」，精确管控每台外部服务器、每个外部工具。命名既解决重名，又直接成为权限系统的抓手。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。opencode 给每个工具名冠上服务器名前缀：先 sanitize（把非 [a-zA-Z0-9_-] 的字符替换成 _）洗一遍名字，再用 : 拼成 sanitize(服务器名)+":"+sanitize(工具名)。于是 github 的 search → github:search、jira 的 search → jira:search，互不冲突。这串带前缀的「作用域名」最妙的去处在 session/tools.ts：MCP 工具并入会话工具集时，权限闸门写 ctx.ask({ permission: key })——这个 key 正是作用域名。所以你能在配置里写「github:* 一律放行、jira:delete_* 必须问」，精确管控每台外部服务器、每个外部工具。命名既解决重名，又直接成为权限系统的抓手。</div></div></div>
   </details>
 </div>
 <div class="quiz">
