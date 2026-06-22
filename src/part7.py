@@ -1045,6 +1045,12 @@ Ruleset = Rule[]</pre>
   <div class="col"><h4>后匹配者胜（findLast）</h4><p>规则按顺序排，<strong>越靠后越优先</strong>。可以先写一条宽泛规则、再用一条具体规则去覆盖它——和防火墙规则表一个套路。</p></div>
   <div class="col"><h4>默认即「问」</h4><p>没有任何规则提到的动作，<strong>不默认放行、也不默认拒绝，而是问人</strong>。这是「安全默认」：未知 = 交给人判断。</p></div>
 </div>
+<div class="trace">
+  <div class="t-row"><span class="t-num">规则集</span><span class="t-txt">[① <span class="mono">allow bash *</span>，② <span class="mono">deny bash rm*</span>]（按书写顺序排）</span></div>
+  <div class="t-row"><span class="t-num">来访</span><span class="t-txt">bash 要跑 <span class="mono">rm -rf build</span> → action=bash、resource=<span class="mono">rm -rf build</span></span></div>
+  <div class="t-row"><span class="t-num">findLast</span><span class="t-txt">① 与 ② 都通配匹配，但 ② 更靠后 → <strong>取 ②</strong>（① 的 allow 被覆盖）</span></div>
+  <div class="t-row"><span class="t-num">结果</span><span class="t-txt">effect = <strong>deny</strong> → 抛 <span class="mono">DeniedError</span>，命令不执行</span></div>
+</div>
 <p>「默认问」这一条，看似平常，实则是整套设计的<strong>定盘星</strong>。它意味着：agent <strong>无法靠「钻规则的空子」悄悄做成一件没人批准的事</strong>——凡是规则册没明说放行的敏感操作，都会触发一次对用户的询问。新工具、新场景、边界情况……一切「未被预先考虑」的，统统落到「问一下」这个安全网里。<strong>把「未知」默认归到「问人」，而不是「放行」，是这套权限系统最重要的一个选择。</strong>反过来想就明白它的分量：如果默认是「放行」，那每出现一个设计者没预料到的新动作，agent 就可能<strong>悄无声息地做了一件你本想拦下的事</strong>；而默认「问」，把这种「漏网」的风险<strong>从根上堵死</strong>——代价不过是初期多问几句。在「安全」与「省事」之间，这套系统毫不犹豫地选了前者，再用 always 把「省事」一点点挣回来。</p>
 
 <h2>评估流：assert 的一次完整裁决</h2>
@@ -1143,6 +1149,12 @@ Ruleset = Rule[]</pre>
 <div class="cols">
   <div class="col"><h4>Last match wins (findLast)</h4><p>Rules in order, <strong>later takes precedence</strong>. You can write a broad rule then override with a specific one—same approach as a firewall ruleset.</p></div>
   <div class="col"><h4>Default is "ask"</h4><p>An action no rule mentions <strong>defaults to neither allow nor deny, but ask the human</strong>. This is "secure by default": unknown = leave it to a person.</p></div>
+</div>
+<div class="trace">
+  <div class="t-row"><span class="t-num">ruleset</span><span class="t-txt">[① <span class="mono">allow bash *</span>, ② <span class="mono">deny bash rm*</span>] (in written order)</span></div>
+  <div class="t-row"><span class="t-num">request</span><span class="t-txt">bash wants to run <span class="mono">rm -rf build</span> → action=bash, resource=<span class="mono">rm -rf build</span></span></div>
+  <div class="t-row"><span class="t-num">findLast</span><span class="t-txt">both ① and ② wildcard-match, but ② is later → <strong>take ②</strong> (①'s allow is overridden)</span></div>
+  <div class="t-row"><span class="t-num">result</span><span class="t-txt">effect = <strong>deny</strong> → throw <span class="mono">DeniedError</span>, command not run</span></div>
 </div>
 <p>This "default-ask," seemingly ordinary, is actually the design's <strong>keystone</strong>. It means: the agent <strong>can't quietly accomplish something unapproved by "gaming the rules"</strong>—any sensitive operation the rulebook didn't explicitly permit triggers a user prompt. New tools, new scenarios, edge cases… everything "not pre-considered" falls into the "ask" safety net. <strong>Defaulting "unknown" to "ask a human" rather than "allow" is this permission system's single most important choice.</strong> Reverse it to see the weight: if the default were "allow," then every new action the designers didn't foresee could let the agent <strong>silently do something you'd have wanted to block</strong>; defaulting to "ask" <strong>plugs this "slip-through" risk at the root</strong>—at the mere cost of a few extra prompts early on. Between "safety" and "convenience," this system unhesitatingly picks the former, then earns "convenience" back bit by bit via always.</p>
 
@@ -1258,6 +1270,13 @@ LESSON_42 = {
   <div class="f-arrow">+ 标记 +</div>
   <div class="f-node">尾 1000 行<br><small>tailLines=⌊max/2⌋</small></div>
 </div>
+<div class="flow">
+  <div class="f-node">字节超界<br><small>比如 200 KB</small></div>
+  <div class="f-arrow">preview →</div>
+  <div class="f-node">头 headBytes<br><small>takePrefix ⌈maxBytes/2⌉</small></div>
+  <div class="f-arrow">+ 标记 +</div>
+  <div class="f-node">尾 tailBytes<br><small>takeSuffix ⌊maxBytes/2⌋</small></div>
+</div>
 <p>为什么是<strong>头 + 尾</strong>，而不是「头 N 行」这种最直觉的做法？因为对工具输出的<strong>信息分布</strong>有洞察：一段日志、一次测试运行、一个文件转储，最有价值的信息几乎总是落在<strong>两端</strong>——<strong>开头</strong>告诉你「在跑什么、什么配置」，<strong>结尾</strong>告诉你「结果如何、有没有报错、最终汇总」；中间往往是大段重复的进度行、数据行，信息密度最低。若天真地「只留前 1000 行」，恰恰会<strong>把最关键的『最终结果 / 报错』那一截砍掉</strong>——模型看了半天进度，却不知道到底成没成。<span class="mono">preview</span> 保留头一半、尾一半，中间夹一个 marker（如「…已截断…」），正是<strong>用同样的预算，留住信息密度最高的两端</strong>。字节超界时同理——头 <span class="mono">headBytes</span>、尾 <span class="mono">tailBytes</span> 各取一半。<strong>一个看似不起眼的「头尾都留」，背后是对『工具输出长什么样』的真实理解。</strong>不妨想想你自己看一份很长的测试日志：是不是也总先扫一眼开头「跑了哪些用例」，再直接跳到结尾看「几个通过几个失败、错在哪」？中间那几千行逐条进度，多半一眼带过。<span class="mono">preview</span> 的「掐头去尾」，做的正是这件最符合人直觉的事——它没有把截断当成一道无脑的「砍到 N 行」的机械操作，而是当成一个「<strong>在有限预算里，尽量多留有用信息</strong>」的优化问题来解。</p>
 
 <h2>外溢与回取：全文不丢，按需可读</h2>
@@ -1350,6 +1369,13 @@ LESSON_42 = {
   <div class="f-node">first 1000 lines<br><small>headLines=⌈max/2⌉</small></div>
   <div class="f-arrow">+ marker +</div>
   <div class="f-node">last 1000 lines<br><small>tailLines=⌊max/2⌋</small></div>
+</div>
+<div class="flow">
+  <div class="f-node">bytes exceed<br><small>e.g. 200 KB</small></div>
+  <div class="f-arrow">preview →</div>
+  <div class="f-node">head headBytes<br><small>takePrefix ⌈maxBytes/2⌉</small></div>
+  <div class="f-arrow">+ marker +</div>
+  <div class="f-node">tail tailBytes<br><small>takeSuffix ⌊maxBytes/2⌋</small></div>
 </div>
 <p>Why <strong>head + tail</strong>, not the most intuitive "first N lines"? Because of insight into tool output's <strong>information distribution</strong>: a log, a test run, a file dump—the most valuable info almost always sits at the <strong>two ends</strong>—the <strong>start</strong> tells you "what's running, what config," the <strong>end</strong> tells you "the result, any error, the final summary"; the middle is often a long repetitive run of progress/data lines, lowest in info density. Naively "keep only the first 1000 lines" would precisely <strong>chop off the all-important 'final result / error'</strong>—the model reads progress forever yet doesn't know whether it succeeded. <span class="mono">preview</span> keeps the first half, last half, with a marker between (like "…truncated…"), exactly <strong>using the same budget to keep the highest-info-density two ends</strong>. Same when bytes exceed—head <span class="mono">headBytes</span>, tail <span class="mono">tailBytes</span>, half each. <strong>A seemingly trivial "keep both ends" rests on a real understanding of "what tool output looks like."</strong> Think of how you read a very long test log: don't you also first glance at the start "which cases ran," then jump straight to the end "how many passed/failed, where the error is"? The thousands of progress lines in between, mostly skimmed past. <span class="mono">preview</span>'s "cut head and tail" does exactly this most-human-intuitive thing—it treats truncation not as a brainless "chop to N lines" mechanical op, but as an optimization problem of "<strong>keep as much useful info as possible within a limited budget</strong>."</p>
 
