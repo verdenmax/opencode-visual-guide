@@ -1,7 +1,7 @@
 # opencode 图解学习指南 / opencode Visual Guide
 
 A visual, bilingual (English + 中文) guide to the **internals** of
-[opencode](https://github.com/anomalyco/opencode) — **64 lessons** that take you
+[opencode](https://github.com/anomalyco/opencode) — **69 lessons** that take you
 from "what is opencode" all the way to "how it's built and how to contribute".
 
 > **Disclaimer:** This is **third-party, unofficial** educational material *about*
@@ -16,7 +16,7 @@ and a short self-test quiz.
 
 ## What it covers
 
-The guide is organized into **12 parts**, built up bottom-up:
+The guide is organized into **13 parts**, built up bottom-up:
 
 | Part | Topic | Lessons |
 | --- | --- | --- |
@@ -32,6 +32,7 @@ The guide is organized into **12 parts**, built up bottom-up:
 | 10 | The TUI — opentui, app structure, events→store, prompt, dialogs | L52–56 |
 | 11 | Extensibility — plugins, hooks, LSP, PTY, ACP & the Location model | L57–61 |
 | 12 | Practice & Reference — build/debug, test/contribute, glossary | L62–64 |
+| 13 | Advanced Topics — event sourcing/sync, slash commands, http-recorder, device-code OAuth, ecosystem tour | L65–69 |
 
 ## How to view
 
@@ -107,7 +108,7 @@ Dual-licensed:
 ## 中文说明
 
 这是一份 [opencode](https://github.com/anomalyco/opencode) **内部源码原理**的**图解、双语**
-学习指南，共 **64 课**，自底向上从"opencode 是什么"一路讲到"它如何构建、怎么贡献"。
+学习指南，共 **69 课**，自底向上从"opencode 是什么"一路讲到"它如何构建、怎么贡献"。
 
 > **声明：** 本项目是**第三方、非官方**的学习材料，**不包含 opencode 源码**，只通过引用
 > 少量、标注来源的代码片段来讲解。opencode 本身由其作者按其许可发布。
@@ -115,10 +116,10 @@ Dual-licensed:
 每一课都自成一体、内嵌中英双语（页内可切换），用手绘风格图、worked-example 追踪图、
 真实（标注来源的）TypeScript/Effect 代码片段，以及一段自测题来讲清一个概念。
 
-**12 个部分**（自底向上，层层递进）：① 宏观全景（L01–04）② Effect 地基（L05–08）
+**13 个部分**（自底向上，层层递进）：① 宏观全景（L01–04）② Effect 地基（L05–08）
 ③ 客户端/服务器（L09–13）④ Session 与 agent 循环（L14–20）⑤ Context Epoch 系统（L21–27）
 ⑥ LLM 协议层（L28–35）⑦ 工具系统（L36–43）⑧ 配置·Agents·Provider（L44–47）
-⑨ 持久化（L48–51）⑩ TUI（L52–56）⑪ 扩展与集成（L57–61）⑫ 实战与速查（L62–64）。
+⑨ 持久化（L48–51）⑩ TUI（L52–56）⑪ 扩展与集成（L57–61）⑫ 实战与速查（L62–64）⑬ 深入专题（L65–69）。
 
 **怎么看：** 本地零依赖，`cd src && python3 build.py` 后用浏览器打开 `index.html`；
 在线版见 GitHub Pages。

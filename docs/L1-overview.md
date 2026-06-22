@@ -54,9 +54,10 @@ LLM 层 ④ 贯穿全局的 Effect 模式。
 | 10 | TUI | L52–56 | 3 |
 | 11 | 扩展与集成 | L57–61 | 7,8 |
 | 12 | 实战与速查 | L62–64 | 全部 |
+| 13 | 深入专题（进阶附录） | L65–69 | 全部 |
 
 ## 文档进度
 
 - L1：本文件（M0 建立框架，M12 收口）。
-- L2–L4：见 `docs/L2-parts/`、`docs/L3-details/`、`docs/L4-api/`，**12 个部分（part-1 ~ part-12）已全部填充完成**。
-- 全书 64 课已全部完成；`check_html.py` 全站 0 error/0 warning、`check_links.py` 全部解析。
+- L2–L4：见 `docs/L2-parts/`、`docs/L3-details/`、`docs/L4-api/`，**13 个部分（part-1 ~ part-13）已全部填充完成**。
+- 全书 69 课已全部完成（核心 12 部分 64 课 + 第 13 部分进阶专题 L65–69）；`check_html.py` 全站 0 error/0 warning、`check_links.py` 全部解析。

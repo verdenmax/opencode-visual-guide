@@ -385,6 +385,11 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <tr><td><b>LSP（客户端）</b></td><td>opencode 当 LSP 客户端，借来整个 IDE 语言服务器生态</td><td><a href="59-lsp.html">L59</a></td></tr>
   <tr><td><b>PTY</b></td><td>给交互式程序一个真终端；环境「可定制在中间、不可妥协在最后」</td><td><a href="60-pty-shell.html">L60</a></td></tr>
   <tr><td><b>ACP / Location</b></td><td>opencode 当 ACP 服务器（LSP 的镜像）；Location 解耦「会话」与「在哪儿跑」</td><td><a href="61-acp-location.html">L61</a></td></tr>
+  <tr><td><b>EventV2 / 单写入 sync</b></td><td>持久事件溯源 + 单写入者 + 单调 seq；多端从游标重放追平</td><td><a href="65-event-sourcing-sync.html">L65</a></td></tr>
+  <tr><td><b>斜杠命令</b></td><td>参数化 prompt 模板；命令/MCP/skill 三源塑成同一个 Info</td><td><a href="66-slash-commands.html">L66</a></td></tr>
+  <tr><td><b>http-recorder</b></td><td>把真实 LLM 往返录成磁带、回放，让非确定循环可测（含脱敏）</td><td><a href="67-http-recorder.html">L67</a></td></tr>
+  <tr><td><b>设备码 OAuth / 凭据库</b></td><td>CLI 无回调的设备码登录；OAuth\|Key 统一进凭据库</td><td><a href="68-account-auth.html">L68</a></td></tr>
+  <tr><td><b>生态 / Durable Object</b></td><td>一个 server、多副面孔；分享经 Cloudflare Durable Object 云同步</td><td><a href="69-ecosystem-tour.html">L69</a></td></tr>
 </table>
 
 <h2>读完之后：opencode 教给你的「可迁移智慧」</h2>
@@ -398,7 +403,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <tr><td><b>注意力是稀缺资源</b></td><td>无论模型还是维护者，注意力都有限——只留高信号，挡住噪声</td><td><a href="42-bounded-output.html">L42</a> · <a href="63-test-contribute.html">L63</a></td></tr>
   <tr><td><b>统一模子刻同形</b></td><td>一个谁都顺手用的模子（Tool.make/createSimpleContext/Plugin），让正确成为最省力</td><td><a href="36-tool-definition.html">L36</a> · <a href="53-tui-structure.html">L53</a></td></tr>
 </table>
-<p>如果你只带走一句话，那就让它是这个：<strong>opencode 之所以能在「AI agent」这个快速演化、充满不确定的领域里保持清晰，靠的不是更聪明的技巧，而是反复地「找准接缝、复用成熟、让正确省力、为未知留门」</strong>。这些智慧不属于 opencode，它们属于一切想把复杂系统做扎实的工程师——也包括正在读这本书的你。至此，全书 64 课圆满收尾。愿你带着这张地图，去读源码、去改它、去贡献，或者，去建造你自己的东西。</p>
+<p>如果你只带走一句话，那就让它是这个：<strong>opencode 之所以能在「AI agent」这个快速演化、充满不确定的领域里保持清晰，靠的不是更聪明的技巧，而是反复地「找准接缝、复用成熟、让正确省力、为未知留门」</strong>。这些智慧不属于 opencode，它们属于一切想把复杂系统做扎实的工程师——也包括正在读这本书的你。至此，全书核心 12 部分 64 课、连同进阶专题（第 13 部分 · L65–69）共 <strong>69 课</strong>圆满收尾。愿你带着这张地图，去读源码、去改它、去贡献，或者，去建造你自己的东西。</p>
 </div>
   <div class="lang-en"><p class="lead">Congratulations on reaching the final lesson. Over the previous 63 lessons, we took apart everything from "what opencode is" all the way to "how to contribute code to it"—the foundation (Effect), the skeleton (client/server), the main loop (Session and the agent loop), memory (the Context Epoch system), the mouth (the LLM protocol), the hands (tools), config, persistence, the interface (TUI), extensions, and practice. This lesson introduces no new mechanism; it does two closing things: <strong>one "concept map" threading the whole book's concepts together</strong>, and <strong>one "glossary cheat sheet" that jumps back to every lesson</strong>. It's both review and index—when you later read opencode source and forget what some term means, come back here, look it up, and click the link to jump back to that lesson.</p>
 <p>And this lesson itself hides an <strong>insight worth taking away</strong>: <strong>a precise, shared vocabulary is itself an engineering tool</strong>. opencode's root <span class="mono">CONTEXT.md</span> has a dedicated <span class="mono">Language</span> section that, like a dictionary, defines each core concept, even spelling out "<strong>what NOT to call it</strong>"—e.g. "System Context" annotated "_Avoid_: System prompt," "Session History" annotated "_Avoid_: Session Context." Why would a code project be so fussy about wording? Because <strong>when a team (now including AI collaborators) shares one precise, unambiguous vocabulary, communication loss, misunderstanding bugs, and back-and-forth clarification all drop sharply</strong>. Giving a concept a good name and insisting on only that name is the first step to explaining a complex system clearly—and what this visual guide does is, in essence, the same thing. So this glossary isn't merely an "appendix"; it's a continuation of opencode's "wording is design" philosophy.</p>
@@ -457,6 +462,11 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <tr><td><b>LSP (client)</b></td><td>opencode acts as an LSP client, borrowing the whole IDE language-server ecosystem</td><td><a href="59-lsp.html">L59</a></td></tr>
   <tr><td><b>PTY</b></td><td>Gives interactive programs a real terminal; env "customizable in the middle, non-negotiable last"</td><td><a href="60-pty-shell.html">L60</a></td></tr>
   <tr><td><b>ACP / Location</b></td><td>opencode as an ACP server (mirror of LSP); Location decouples "the session" from "where it runs"</td><td><a href="61-acp-location.html">L61</a></td></tr>
+  <tr><td><b>EventV2 / single-writer sync</b></td><td>persistent event sourcing + single writer + monotonic seq; devices replay from a cursor to catch up</td><td><a href="65-event-sourcing-sync.html">L65</a></td></tr>
+  <tr><td><b>Slash commands</b></td><td>parameterized prompt templates; command/MCP/skill sources shaped into one Info</td><td><a href="66-slash-commands.html">L66</a></td></tr>
+  <tr><td><b>http-recorder</b></td><td>record a real LLM round-trip to a cassette, replay to test a non-deterministic loop (with redaction)</td><td><a href="67-http-recorder.html">L67</a></td></tr>
+  <tr><td><b>device-code OAuth / credential store</b></td><td>CLI callback-less device-code login; OAuth\|Key unified into a credential store</td><td><a href="68-account-auth.html">L68</a></td></tr>
+  <tr><td><b>ecosystem / Durable Object</b></td><td>one server, many faces; sharing syncs via a Cloudflare Durable Object</td><td><a href="69-ecosystem-tour.html">L69</a></td></tr>
 </table>
 
 <h2>After finishing: the "transferable wisdom" opencode teaches you</h2>
@@ -470,7 +480,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <tr><td><b>Attention is scarce</b></td><td>Whether model or maintainer, attention is finite—keep only high signal, hold back the noise</td><td><a href="42-bounded-output.html">L42</a> · <a href="63-test-contribute.html">L63</a></td></tr>
   <tr><td><b>One mold stamps the same shape</b></td><td>A mold anyone uses comfortably (Tool.make/createSimpleContext/Plugin) makes the right thing the easiest thing</td><td><a href="36-tool-definition.html">L36</a> · <a href="53-tui-structure.html">L53</a></td></tr>
 </table>
-<p>If you take away only one sentence, let it be this: <strong>opencode stays clear in the fast-evolving, uncertainty-filled field of "AI agents" not through cleverer tricks, but by repeatedly "finding the seam, reusing the mature, making the right thing effortless, and leaving a door open for the unknown"</strong>. This wisdom doesn't belong to opencode; it belongs to every engineer who wants to build a complex system solidly—including you, reading this book. With that, all 64 lessons come to a close. May you take this map and go read the source, change it, contribute—or go build something of your own.</p>
+<p>If you take away only one sentence, let it be this: <strong>opencode stays clear in the fast-evolving, uncertainty-filled field of "AI agents" not through cleverer tricks, but by repeatedly "finding the seam, reusing the mature, making the right thing effortless, and leaving a door open for the unknown"</strong>. This wisdom doesn't belong to opencode; it belongs to every engineer who wants to build a complex system solidly—including you, reading this book. With that, the book's core 12 parts (64 lessons) plus the advanced topics (Part 13 · L65–69)—<strong>69 lessons</strong> in all—come to a close. May you take this map and go read the source, change it, contribute—or go build something of your own.</p>
 </div>
   <div class="footnav"><a class="prev" href="63-test-contribute.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">测试与贡献</span><span class="lang-en">Test &amp; contribute</span></div></a><a class="next" href="65-event-sourcing-sync.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">EventV2 持久事件溯源与单写入同步</span><span class="lang-en">Event sourcing &amp; single-writer sync</span></div></a></div>
 </div>
