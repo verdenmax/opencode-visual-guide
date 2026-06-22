@@ -42,7 +42,7 @@ LESSON_21 = {
 <h2>代数：让不同类型的源统一组合</h2>
 <p>难点在于：<span class="mono">core/date</span> 的值是个日期，<span class="mono">core/environment</span> 的值是个目录结构——<strong>类型各不相同</strong>。怎么把这些「值类型各异」的源装进同一个容器、统一处理？答案是 <span class="mono">make&lt;A&gt;(source)</span>：它<strong>把具体的值类型 <span class="mono">A</span> 藏起来（closes over A）</strong>，产出一个<strong>不透明的 <span class="mono">SystemContext</span></strong>——从外面看，所有源都长一个样，无论它内部装的是日期还是目录。于是 <span class="mono">combine([...])</span> 就能把一堆类型迥异的源<strong>均匀地拼成一个</strong>。</p>
 <div class="flow">
-  <div class="node">Source&lt;Date&gt;<span class="sub">core/date</span></div>
+  <div class="node">Source&lt;string&gt;<span class="sub">core/date</span></div>
   <div class="arrow">make →</div>
   <div class="node">SystemContext<span class="sub">藏起类型·不透明</span></div>
   <div class="arrow">combine →</div>
@@ -139,7 +139,7 @@ load: Effect.Effect&lt;A | Unavailable&gt;</pre>
 <h2>The algebra: composing sources of different types uniformly</h2>
 <p>The difficulty: <span class="mono">core/date</span>'s value is a date, <span class="mono">core/environment</span>'s is a directory structure — <strong>different types</strong>. How to put these "differently-typed-value" sources in one container and handle them uniformly? The answer is <span class="mono">make&lt;A&gt;(source)</span>: it <strong>hides the concrete value type <span class="mono">A</span> (closes over A)</strong>, producing an <strong>opaque <span class="mono">SystemContext</span></strong> — from outside, all sources look the same, whether inside is a date or a directory. So <span class="mono">combine([...])</span> can <strong>uniformly stitch</strong> a pile of wildly-different sources into one.</p>
 <div class="flow">
-  <div class="node">Source&lt;Date&gt;<span class="sub">core/date</span></div>
+  <div class="node">Source&lt;string&gt;<span class="sub">core/date</span></div>
   <div class="arrow">make →</div>
   <div class="node">SystemContext<span class="sub">type hidden · opaque</span></div>
   <div class="arrow">combine →</div>
@@ -1052,10 +1052,10 @@ LESSON_26 = {
 <pre class="code"><span class="cm">// 简化自 system-context/builtins.ts</span>
 <span class="kw">const</span> environment = [
   <span class="st">"&lt;env&gt;"</span>,
-  <span class="st">`  Working directory: ${'$'}{location.directory}`</span>,        <span class="cm">// 工作目录</span>
-  <span class="st">`  Workspace root folder: ${'$'}{location.project.directory}`</span>, <span class="cm">// 项目根</span>
-  <span class="st">`  Is directory a git repo: ${'$'}{...}`</span>,                  <span class="cm">// 是不是 git 仓库</span>
-  <span class="st">`  Platform: ${'$'}{process.platform}`</span>,                    <span class="cm">// 操作系统平台</span>
+  <span class="st">`  Working directory: ${location.directory}`</span>,        <span class="cm">// 工作目录</span>
+  <span class="st">`  Workspace root folder: ${location.project.directory}`</span>, <span class="cm">// 项目根</span>
+  <span class="st">`  Is directory a git repo: ${...}`</span>,                  <span class="cm">// 是不是 git 仓库</span>
+  <span class="st">`  Platform: ${process.platform}`</span>,                    <span class="cm">// 操作系统平台</span>
   <span class="st">"&lt;/env&gt;"</span>,
 ].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
 <p>留意那对 <span class="mono">&lt;env&gt;...&lt;/env&gt;</span> 标签——这是给大模型喂结构化信息的一个常用小技巧：用类 XML 的标签把一块信息<strong>圈出清晰的边界</strong>，模型一眼就能认出「这是环境块」，不会和正文混淆。里面四项也都挑得很实在：<strong>工作目录</strong>（我在哪干活）、<strong>项目根</strong>（这个项目的边界在哪）、<strong>是否 git 仓库</strong>（能不能用 git 命令）、<strong>平台</strong>（是 Linux 还是 Mac，影响命令写法）。这四样，正是一个要帮你写代码、跑命令的 agent <strong>最起码得知道的「我在哪」</strong>。</p>
@@ -1074,8 +1074,8 @@ SystemContext.<span class="fn">make</span>({
   key: SystemContext.Key.<span class="fn">make</span>(<span class="st">"core/date"</span>),
   codec: Schema.<span class="fn">toCodecJson</span>(Schema.String),
   load: DateTime.nowAsDate.<span class="fn">pipe</span>(Effect.<span class="fn">map</span>((d) =&gt; d.<span class="fn">toDateString</span>())),
-  baseline: (date) =&gt; <span class="st">`Today's date: ${'$'}{date}`</span>,            <span class="cm">// 首次</span>
-  update: (_prev, date) =&gt; <span class="st">`Today's date is now: ${'$'}{date}`</span>,  <span class="cm">// 跨天后</span>
+  baseline: (date) =&gt; <span class="st">`Today's date: ${date}`</span>,            <span class="cm">// 首次</span>
+  update: (_prev, date) =&gt; <span class="st">`Today's date is now: ${date}`</span>,  <span class="cm">// 跨天后</span>
 })</pre>
 <p>答案是：<strong>因为日期会变</strong>。一个会话可能从晚上聊到第二天凌晨——<strong>跨过了午夜</strong>。如果日期是开场写死的，那么过了午夜，模型脑子里的「今天」就<strong>错了</strong>，它可能把昨天当今天、把 deadline 算错一天。把日期做成源，下一轮 <span class="mono">prepare</span> 一对表，<span class="mono">reconcile</span> 就会发现「日期变了」，自动 publish 一条更新——模型于是读到「Today's date is now: ...」，时钟无缝拨正。<strong>连「日期」这种看似一成不变的东西，在一个可能长跑的会话里，都是「活」的</strong>——这正是前五课那套增量机制存在的意义：它不挑大小，任何「可能会变」的环境信息，都能用同一套源框架，优雅地保持新鲜。</p>
 <div class="timeline">
@@ -1122,8 +1122,8 @@ SystemContext.<span class="fn">make</span>({
   key: SystemContext.Key.<span class="fn">make</span>(<span class="st">"core/environment"</span>),     <span class="cm">// 唯一标识</span>
   codec: Schema.<span class="fn">toCodecJson</span>(Schema.String),               <span class="cm">// 值是字符串</span>
   load: Effect.<span class="fn">succeed</span>(environment),                      <span class="cm">// 怎么观察</span>
-  baseline: (env) =&gt; <span class="st">`Here is ...:\n${'$'}{env}`</span>,            <span class="cm">// 首次全文</span>
-  update: (_prev, env) =&gt; <span class="st">`The environment ...is now:\n${'$'}{env}`</span>, <span class="cm">// 变化文本</span>
+  baseline: (env) =&gt; <span class="st">`Here is ...:\n${env}`</span>,            <span class="cm">// 首次全文</span>
+  update: (_prev, env) =&gt; <span class="st">`The environment ...is now:\n${env}`</span>, <span class="cm">// 变化文本</span>
 })</pre>
   <p>就这么五行。<strong>没有</strong>一行在写「怎么序列化」（<span class="mono">codec</span> 一指，第 22 课的 encode/decode/equivalent 自动就位）；<strong>没有</strong>一行在写「怎么注册、怎么排序、怎么并发」（交给第 23 课的注册表）；<strong>没有</strong>一行在写「怎么持久化、怎么钉序号、怎么投影成 System 消息」（交给第 24、25 课）。一个源的作者，只需回答五个最本质的问题：<strong>叫什么、值长啥样、怎么观察、首次怎么说、变了怎么说</strong>。其余一切，前五课那套机制全替他答了。<strong>这五行的清爽，是前面所有复杂换来的——复杂被收进了框架，简单留给了使用者。</strong></p>
   <div class="cols">
@@ -1163,10 +1163,10 @@ SystemContext.<span class="fn">make</span>({
 <pre class="code"><span class="cm">// simplified from system-context/builtins.ts</span>
 <span class="kw">const</span> environment = [
   <span class="st">"&lt;env&gt;"</span>,
-  <span class="st">`  Working directory: ${'$'}{location.directory}`</span>,        <span class="cm">// working directory</span>
-  <span class="st">`  Workspace root folder: ${'$'}{location.project.directory}`</span>, <span class="cm">// project root</span>
-  <span class="st">`  Is directory a git repo: ${'$'}{...}`</span>,                  <span class="cm">// is it a git repo</span>
-  <span class="st">`  Platform: ${'$'}{process.platform}`</span>,                    <span class="cm">// OS platform</span>
+  <span class="st">`  Working directory: ${location.directory}`</span>,        <span class="cm">// working directory</span>
+  <span class="st">`  Workspace root folder: ${location.project.directory}`</span>, <span class="cm">// project root</span>
+  <span class="st">`  Is directory a git repo: ${...}`</span>,                  <span class="cm">// is it a git repo</span>
+  <span class="st">`  Platform: ${process.platform}`</span>,                    <span class="cm">// OS platform</span>
   <span class="st">"&lt;/env&gt;"</span>,
 ].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
 <p>Note the <span class="mono">&lt;env&gt;...&lt;/env&gt;</span> tags — a common trick for feeding structured info to an LLM: XML-like tags <strong>draw clear boundaries</strong> around a block of info, so the model recognizes "this is the environment block" at a glance, not confusing it with the body. The four items inside are also chosen practically: <strong>working directory</strong> (where I work), <strong>project root</strong> (where this project's boundary is), <strong>is-git-repo</strong> (whether git commands are usable), <strong>platform</strong> (Linux or Mac, affecting command syntax). These four are exactly the bare minimum an agent meant to write code and run commands for you <strong>must know about "where am I."</strong></p>
@@ -1185,8 +1185,8 @@ SystemContext.<span class="fn">make</span>({
   key: SystemContext.Key.<span class="fn">make</span>(<span class="st">"core/date"</span>),
   codec: Schema.<span class="fn">toCodecJson</span>(Schema.String),
   load: DateTime.nowAsDate.<span class="fn">pipe</span>(Effect.<span class="fn">map</span>((d) =&gt; d.<span class="fn">toDateString</span>())),
-  baseline: (date) =&gt; <span class="st">`Today's date: ${'$'}{date}`</span>,            <span class="cm">// first time</span>
-  update: (_prev, date) =&gt; <span class="st">`Today's date is now: ${'$'}{date}`</span>,  <span class="cm">// after crossing a day</span>
+  baseline: (date) =&gt; <span class="st">`Today's date: ${date}`</span>,            <span class="cm">// first time</span>
+  update: (_prev, date) =&gt; <span class="st">`Today's date is now: ${date}`</span>,  <span class="cm">// after crossing a day</span>
 })</pre>
 <p>The answer: <strong>because the date changes</strong>. A session may chat from evening into the next morning — <strong>crossing midnight</strong>. If the date is hard-coded at the start, then past midnight the model's "today" is <strong>wrong</strong>, possibly mistaking yesterday for today, miscounting a deadline by a day. Make the date a source, and the next round's <span class="mono">prepare</span> reconcile finds "the date changed," auto-publishing an update — so the model reads "Today's date is now: ...," the clock seamlessly corrected. <strong>Even "the date," seemingly unchanging, is "alive" in a possibly-long session</strong> — exactly the meaning of the past five lessons' incremental mechanism: it doesn't care about size, any "possibly-changing" environment info can be kept fresh elegantly by the same source framework.</p>
 <div class="timeline">
@@ -1233,8 +1233,8 @@ SystemContext.<span class="fn">make</span>({
   key: SystemContext.Key.<span class="fn">make</span>(<span class="st">"core/environment"</span>),     <span class="cm">// unique identity</span>
   codec: Schema.<span class="fn">toCodecJson</span>(Schema.String),               <span class="cm">// value is a string</span>
   load: Effect.<span class="fn">succeed</span>(environment),                      <span class="cm">// how to observe</span>
-  baseline: (env) =&gt; <span class="st">`Here is ...:\n${'$'}{env}`</span>,            <span class="cm">// first-time full text</span>
-  update: (_prev, env) =&gt; <span class="st">`The environment ...is now:\n${'$'}{env}`</span>, <span class="cm">// change text</span>
+  baseline: (env) =&gt; <span class="st">`Here is ...:\n${env}`</span>,            <span class="cm">// first-time full text</span>
+  update: (_prev, env) =&gt; <span class="st">`The environment ...is now:\n${env}`</span>, <span class="cm">// change text</span>
 })</pre>
   <p>Just these five lines. <strong>Not</strong> a line writing "how to serialize" (one point to a <span class="mono">codec</span>, and Lesson 22's encode/decode/equivalent fall into place automatically); <strong>not</strong> a line writing "how to register, sort, parallelize" (handed to Lesson 23's registry); <strong>not</strong> a line writing "how to persist, pin a sequence, project into a System message" (handed to Lessons 24, 25). A source author need only answer five most-essential questions: <strong>what it's called, what the value looks like, how to observe, how to say it first time, how to say it on change</strong>. Everything else, the past five lessons' machinery answers for them. <strong>The crispness of these five lines is bought by all the prior complexity — complexity absorbed into the framework, simplicity left for the user.</strong></p>
   <div class="cols">

@@ -411,9 +411,9 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <span class="kw">if</span> (errors.length === <span class="nu">0</span>) <span class="kw">return</span> <span class="st">""</span>                  <span class="cm">// 没错误就什么都不说</span>
   <span class="kw">const</span> limited = errors.<span class="fn">slice</span>(<span class="nu">0</span>, MAX_PER_FILE)         <span class="cm">// ← 每文件最多 20 条</span>
   <span class="kw">const</span> more = errors.length - MAX_PER_FILE
-  <span class="kw">return</span> <span class="st">`&lt;diagnostics file="${'$'}{file}"&gt;\n`</span> +
+  <span class="kw">return</span> <span class="st">`&lt;diagnostics file="${file}"&gt;\n`</span> +
     limited.<span class="fn">map</span>(pretty).<span class="fn">join</span>(<span class="st">"\n"</span>) +                  <span class="cm">// pretty: ERROR [行:列] 消息</span>
-    (more &gt; <span class="nu">0</span> ? <span class="st">`\n... and ${'$'}{more} more`</span> : <span class="st">""</span>) + <span class="st">`\n&lt;/diagnostics&gt;`</span>
+    (more &gt; <span class="nu">0</span> ? <span class="st">`\n... and ${more} more`</span> : <span class="st">""</span>) + <span class="st">`\n&lt;/diagnostics&gt;`</span>
 }</pre>
   <p>这二十来行代码里，藏着一个常被新手忽略、却对 agent 体验至关重要的判断：<strong>什么该说、什么不该说。</strong>一个朴素的实现可能会把语言服务器吐出的<strong>所有</strong>诊断（错误、警告、提示、风格建议）一股脑塞给模型——结果是灾难：模型的上下文被几百条「这里少个分号」「建议用 const」的噪音淹没，真正会导致编译失败的那三条 ERROR 反而被埋了。<span class="mono">report</span> 做了三层克制：<strong>只报 ERROR</strong>（agent 当下最该管的是「能不能编译过」，warning 多是风格偏好，可以稍后再说）、<strong>每文件封顶 20 条</strong>（一个文件错到 20 条以上，再多列也没意义，先修这些）、<strong>没错误就返回空字符串</strong>（一个字都不浪费）。这背后是一个深刻的产品直觉：<strong>给 agent 的反馈，不是越多越好，而是越「准」越好。</strong>信息过载和信息缺失一样有害——前者淹没重点、烧光上下文，后者让 agent 盲目。<span class="mono">report</span> 这二十行的全部用心，就是在这两者之间，为「agent 此刻最需要知道什么」找到那个恰到好处的量。这和 L42 有界工具输出是同一种对「模型注意力稀缺」的敬畏，只不过这次稀缺的对象，是那几条<strong>真正要命</strong>的编译错误。</p>
 </div>
@@ -560,9 +560,9 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <span class="kw">if</span> (errors.length === <span class="nu">0</span>) <span class="kw">return</span> <span class="st">""</span>                  <span class="cm">// no errors, say nothing</span>
   <span class="kw">const</span> limited = errors.<span class="fn">slice</span>(<span class="nu">0</span>, MAX_PER_FILE)         <span class="cm">// ← at most 20 per file</span>
   <span class="kw">const</span> more = errors.length - MAX_PER_FILE
-  <span class="kw">return</span> <span class="st">`&lt;diagnostics file="${'$'}{file}"&gt;\n`</span> +
+  <span class="kw">return</span> <span class="st">`&lt;diagnostics file="${file}"&gt;\n`</span> +
     limited.<span class="fn">map</span>(pretty).<span class="fn">join</span>(<span class="st">"\n"</span>) +                  <span class="cm">// pretty: ERROR [line:col] message</span>
-    (more &gt; <span class="nu">0</span> ? <span class="st">`\n... and ${'$'}{more} more`</span> : <span class="st">""</span>) + <span class="st">`\n&lt;/diagnostics&gt;`</span>
+    (more &gt; <span class="nu">0</span> ? <span class="st">`\n... and ${more} more`</span> : <span class="st">""</span>) + <span class="st">`\n&lt;/diagnostics&gt;`</span>
 }</pre>
   <p>In these twenty-odd lines hides a judgment often overlooked by beginners yet crucial to the agent experience: <strong>what to say and what not to.</strong> A naive implementation might stuff <strong>all</strong> the diagnostics the language server spits (errors, warnings, hints, style suggestions) into the model—a disaster: the model's context is drowned in hundreds of "missing semicolon here," "suggest const" noise, while the three ERRORs truly causing compile failure get buried. <span class="mono">report</span> does three layers of restraint: <strong>report only ERROR</strong> (what the agent should care about now is "does it compile," warnings are mostly style preferences, can wait), <strong>cap at 20 per file</strong> (a file erroring over 20 times, listing more is pointless, fix these first), <strong>return an empty string if no errors</strong> (don't waste a single word). Behind this is a profound product intuition: <strong>feedback to the agent isn't better the more, but better the more "precise."</strong> Information overload is as harmful as information absence—the former drowns the focus and burns context, the latter leaves the agent blind. The whole care of <span class="mono">report</span>'s twenty lines is finding, between these two, the just-right amount for "what the agent most needs to know right now." This is the same reverence for "the model's scarce attention" as L42's bounded tool output, only this time the scarce object is the few <strong>truly fatal</strong> compile errors.</p>
 </div>

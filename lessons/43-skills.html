@@ -405,12 +405,12 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="tag">🔬 源码细节</div>
   <p><span class="mono">skill</span> 工具注入正文的 <span class="mono">toModelOutput</span>，把「说明书 + 文件夹」交得很清楚（简化自 tool/skill.ts）：</p>
   <pre class="code"><span class="cm">// 注入给模型的技能正文：指令 + 基准目录 + 文件清单</span>
-[ <span class="st">`&lt;skill_content name="${'$'}{skill.name}"&gt;`</span>,
-  <span class="st">`# Skill: ${'$'}{skill.name}`</span>,
+[ <span class="st">`&lt;skill_content name="${skill.name}"&gt;`</span>,
+  <span class="st">`# Skill: ${skill.name}`</span>,
   skill.content.<span class="fn">trim</span>(),                          <span class="cm">// 完整指令正文</span>
-  <span class="st">`Base directory for this skill: ${'$'}{dirURL}`</span>,   <span class="cm">// 配套文件在哪</span>
+  <span class="st">`Base directory for this skill: ${dirURL}`</span>,   <span class="cm">// 配套文件在哪</span>
   <span class="st">"Relative paths (e.g., scripts/) are relative to this base directory."</span>,
-  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${'$'}{f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
+  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
 ].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
   <p>这段注入有两处用心。其一，它给的是<strong>基准目录的 URL + 一份文件清单</strong>，而非把那些脚本文件的<strong>内容</strong>也一并塞进来——又是「渐进式披露」：先告诉模型「<strong>有哪些文件、在哪</strong>」，至于某个脚本<strong>具体写了啥</strong>，等模型真要用时，再用 read 工具去读。一层套一层的懒加载：技能正文懒加载、技能里的文件再懒加载。其二，注释里那句「<span class="mono">file list is sampled</span>（文件清单是抽样的）」很诚实——当一个技能附带成百上千个文件时，清单本身也会被<strong>有界</strong>（呼应第 42 课），不让「列文件」这件事反过来撑爆上下文。<strong>从技能正文到文件清单，处处是『按需、有界』——这套贯穿 M7 的纪律，到收官这一课依然一以贯之。</strong></p>
 </div>
@@ -551,12 +551,12 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="tag">🔬 Source Detail</div>
   <p>The <span class="mono">skill</span> tool's <span class="mono">toModelOutput</span>, injecting the body, hands over "manual + folder" clearly (simplified from tool/skill.ts):</p>
   <pre class="code"><span class="cm">// the skill body injected to the model: instructions + base dir + file list</span>
-[ <span class="st">`&lt;skill_content name="${'$'}{skill.name}"&gt;`</span>,
-  <span class="st">`# Skill: ${'$'}{skill.name}`</span>,
+[ <span class="st">`&lt;skill_content name="${skill.name}"&gt;`</span>,
+  <span class="st">`# Skill: ${skill.name}`</span>,
   skill.content.<span class="fn">trim</span>(),                          <span class="cm">// the full instruction body</span>
-  <span class="st">`Base directory for this skill: ${'$'}{dirURL}`</span>,   <span class="cm">// where the supporting files are</span>
+  <span class="st">`Base directory for this skill: ${dirURL}`</span>,   <span class="cm">// where the supporting files are</span>
   <span class="st">"Relative paths (e.g., scripts/) are relative to this base directory."</span>,
-  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${'$'}{f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
+  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
 ].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
   <p>Two careful touches in this injection. One, it gives the <strong>base directory URL + a file list</strong>, not stuffing those script files' <strong>contents</strong> in too—again "progressive disclosure": first tell the model "<strong>which files exist, where</strong>," and as for what a script <strong>specifically says</strong>, when the model really needs it, it reads it with the read tool. Lazy loading nested in lazy loading: the skill body lazy-loaded, the files within the skill lazy-loaded again. Two, the comment's "<span class="mono">file list is sampled</span>" is honest—when a skill comes with hundreds or thousands of files, the list itself is <strong>bounded</strong> (echoing lesson 42), not letting "listing files" itself blow the context. <strong>From the skill body to the file list, "on demand, bounded" is everywhere—this discipline running through M7 holds firm even in this closing lesson.</strong></p>
 </div>

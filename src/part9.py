@@ -99,7 +99,7 @@ LESSON_48 = {
       <span class="kw">yield*</span> schema.<span class="fn">up</span>(tx)                       <span class="cm">// schema.gen 完整快照</span>
       <span class="kw">yield*</span> tx.<span class="fn">run</span>(sql<span class="st">`CREATE TABLE migration (id TEXT PRIMARY KEY, ...)`</span>)
       <span class="kw">yield*</span> Effect.<span class="fn">forEach</span>(migrations, (m) =&gt;        <span class="cm">// 全标记已完成</span>
-        tx.<span class="fn">run</span>(sql<span class="st">`INSERT INTO migration (id, time_completed) VALUES (${'$'}{m.id}, ...)`</span>))
+        tx.<span class="fn">run</span>(sql<span class="st">`INSERT INTO migration (id, time_completed) VALUES (${m.id}, ...)`</span>))
     }))
   }))
 }</pre>
@@ -214,7 +214,7 @@ LESSON_48 = {
       <span class="kw">yield*</span> schema.<span class="fn">up</span>(tx)                       <span class="cm">// schema.gen full snapshot</span>
       <span class="kw">yield*</span> tx.<span class="fn">run</span>(sql<span class="st">`CREATE TABLE migration (id TEXT PRIMARY KEY, ...)`</span>)
       <span class="kw">yield*</span> Effect.<span class="fn">forEach</span>(migrations, (m) =&gt;        <span class="cm">// mark all completed</span>
-        tx.<span class="fn">run</span>(sql<span class="st">`INSERT INTO migration (id, time_completed) VALUES (${'$'}{m.id}, ...)`</span>))
+        tx.<span class="fn">run</span>(sql<span class="st">`INSERT INTO migration (id, time_completed) VALUES (${m.id}, ...)`</span>))
     }))
   }))
 }</pre>

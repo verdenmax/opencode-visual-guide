@@ -362,7 +362,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   source: [
     <span class="st">`import { createOpencodeClient } from "@opencode-ai/sdk"`</span>,
     <span class="st">`const client = createOpencodeClient()`</span>,
-    <span class="st">`await client.${'$'}{operation.operationId}({ ... })`</span>,
+    <span class="st">`await client.${operation.operationId}({ ... })`</span>,
   ].<span class="fn">join</span>(<span class="st">"\n"</span>),
 }]</pre>
 <p>于是生成出来的 API 文档里，每个端点旁边都自带一段「这样调用我」的复制即用代码——文档不再是干巴巴的字段表，而是<strong>能直接照抄的活例子</strong>。其二，整份 JSON <strong>过一遍 prettier 格式化</strong>，确保无论谁在什么机器上跑，产出的文件都<strong>逐字节一致</strong>。这个「可复现」的执念很关键：因为生成物是<strong>要提交进仓库</strong>的，只有逐字节稳定，代码评审里才不会冒出一堆无意义的格式 diff。</p>
@@ -418,7 +418,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   <div class="tag">🔬 源码细节</div>
   <p>整条流水线的「装订机」配置，浓缩在 build.ts 这几行里：</p>
   <pre class="code"><span class="cm">// packages/sdk/js/script/build.ts</span>
-<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${'$'}{dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// 先 dump 规范</span>
+<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// 先 dump 规范</span>
 
 <span class="kw">await</span> <span class="fn">createClient</span>({
   input: <span class="st">"./openapi.json"</span>,
@@ -525,7 +525,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   source: [
     <span class="st">`import { createOpencodeClient } from "@opencode-ai/sdk"`</span>,
     <span class="st">`const client = createOpencodeClient()`</span>,
-    <span class="st">`await client.${'$'}{operation.operationId}({ ... })`</span>,
+    <span class="st">`await client.${operation.operationId}({ ... })`</span>,
   ].<span class="fn">join</span>(<span class="st">"\n"</span>),
 }]</pre>
 <p>So in the generated API docs, each endpoint comes with a copy-and-run snippet of "call me like this" — the docs are no longer a dry field table but <strong>a live example you can copy verbatim</strong>. Second, the whole JSON <strong>passes through prettier formatting</strong>, ensuring that whoever runs it on whatever machine, the output file is <strong>byte-identical</strong>. This "reproducibility" obsession matters: because the artifact is <strong>committed into the repo</strong>, only byte-stability keeps code review free of meaningless formatting diffs.</p>
@@ -581,7 +581,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   <div class="tag">🔬 Source detail</div>
   <p>The whole line's "binder" config is condensed in these lines of build.ts:</p>
   <pre class="code"><span class="cm">// packages/sdk/js/script/build.ts</span>
-<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${'$'}{dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// dump the spec first</span>
+<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// dump the spec first</span>
 
 <span class="kw">await</span> <span class="fn">createClient</span>({
   input: <span class="st">"./openapi.json"</span>,
@@ -617,7 +617,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. The core is one line, OpenApi.fromApi(PublicApi): read the structured API types into a standard OpenAPI spec; generate seasons+formats; @hey-api prints types/sdk/client from the spec. None hand-written.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. The core is one line, OpenApi.fromApi(PublicApi): read the structured API types into a standard OpenAPI spec; the `generate` command adds extras and formats it; @hey-api prints types/sdk/client from the spec. None hand-written.</div></div></div>
   </details>
 </div>
 <div class="quiz">

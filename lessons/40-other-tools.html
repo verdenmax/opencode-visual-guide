@@ -401,7 +401,7 @@ format: Schema.<span class="fn">Literals</span>([<span class="st">"text"</span>,
   .pipe(Schema.<span class="fn">withDecodingDefault</span>(() =&gt; <span class="st">"markdown"</span>))
 
 <span class="cm">// websearch：把当前年份写进给模型的 description</span>
-description = <span class="st">`...The current year is ${'$'}{new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
+description = <span class="st">`...The current year is ${new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
   <p>两处都体现了「<strong>把对模型的体贴写进定义里</strong>」。<span class="mono">withDecodingDefault</span> 让模型<strong>可以不传 format</strong>——不传就当 markdown，省去模型每次都要想「我要什么格式」的负担，默认就给它最好消化的那种。而 websearch 把 <span class="mono">new Date().getFullYear()</span> 拼进 description，是在<strong>每次构建工具定义时</strong>动态算出真实年份注进去——模型的训练知识有「时间盲区」，它不知道「现在是哪年」，这一句注入就把这个盲区补上了。<strong>这些细节都不改变工具「能做什么」，却显著改善模型「用得好不好」</strong>——好的工具，不只给模型能力，还替模型把「怎么用好」想在前面。这正是「工具的用户是个模型」这一前提，催生出的一整套体贴。</p>
 </div>
 
@@ -537,7 +537,7 @@ format: Schema.<span class="fn">Literals</span>([<span class="st">"text"</span>,
   .pipe(Schema.<span class="fn">withDecodingDefault</span>(() =&gt; <span class="st">"markdown"</span>))
 
 <span class="cm">// websearch: write the current year into the model-facing description</span>
-description = <span class="st">`...The current year is ${'$'}{new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
+description = <span class="st">`...The current year is ${new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
   <p>Both embody "<strong>write the care for the model into the definition</strong>." <span class="mono">withDecodingDefault</span> lets the model <strong>omit format</strong>—omit it and it's markdown, sparing the model the burden of thinking "which format do I want" each time, defaulting to the most digestible. And websearch splicing <span class="mono">new Date().getFullYear()</span> into the description dynamically computes the real year <strong>each time the tool definition is built</strong>—the model's training knowledge has a "time blind spot," it doesn't know "what year it is now," and this one injection fills that blind spot. <strong>These details change nothing about "what the tool can do," yet markedly improve "how well the model uses it"</strong>—a good tool gives the model not just capability but also thinks ahead about "how to use it well" for the model. This is the whole set of thoughtfulness born from the premise "the tool's user is a model."</p>
 </div>
 

@@ -1339,7 +1339,6 @@ Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
   <div class="node"><div class="nt">one more in R</div><div class="nd">"I need Agent"</div></div>
 </div>
 <p>When you write <span class="mono">const agent = yield* AgentV2.Service</span>, you get that Interface and can call its methods directly. The cost: this computation's type <span class="mono">Effect&lt;A, E, R&gt;</span> <strong>auto-records one more "I need Agent" in R</strong>. That "debt" stays on the type <strong>until some Layer repays it</strong>. In other words, <span class="mono">yield*</span> a Service = owe a dependency in R; provide the matching Layer = repay it. The compiler watches the ledger throughout — short one repayment and it won't let you run.</p>
-<p>This "owe–repay" ledger gives a comfortable property: <strong>what a piece of code needs is written in its type, visible at a glance.</strong> You needn't comb the function body for which globals it secretly imported or which singletons it touched — its R is an honest dependency list. Reading <span class="mono">packages/core</span> this is especially easy: look at an <span class="mono">Effect.fn</span>'s signature and you know which services it draws on; to reuse it, just have those Layers ready. <strong>Making dependencies explicit</strong> turns the old "what does this logic actually involve" headache, in a big codebase, into something you read straight off the type.</p>
 
 <h2>Compose: build the whole app with Layers</h2>
 <p>opencode's entire runtime is essentially <strong>assembling a pile of Layers</strong> until everyone's deps are satisfied and R is fully repaid.</p>
@@ -1358,6 +1357,7 @@ Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
   <div class="step"><b>⑤ R repaid → runnable</b>　all deps satisfied, only then can the Effect run</div>
 </div>
 <p>The step to remember is ④. Imagine <span class="mono">Agent</span>, <span class="mono">Session</span>, <span class="mono">Tool</span> all depend on <span class="mono">Database</span> — if each new'd one, you'd get three DB connections with possibly mismatched state. memoMap guarantees <strong>one Database across the whole dep tree</strong>, the same one for everyone. You never hand-manage this "singleton sharing"; just declare deps as usual and the framework gets the graph right and aligns the instances. This "declare and it's correct" ease is DI's fundamental edge over hand-written <span class="mono">new</span>.</p>
+<p>This "owe–repay" ledger gives a comfortable property: <strong>what a piece of code needs is written in its type, visible at a glance.</strong> You needn't comb the function body for which globals it secretly imported or which singletons it touched — its R is an honest dependency list. Reading <span class="mono">packages/core</span> this is especially easy: look at an <span class="mono">Effect.fn</span>'s signature and you know which services it draws on; to reuse it, just have those Layers ready. <strong>Making dependencies explicit</strong> turns the old "what does this logic actually involve" headache, in a big codebase, into something you read straight off the type.</p>
 
 <h2>Swap a layer, swap the whole world</h2>
 <p>This machinery's most tangible payoff shows in testing. Because business code knows only the Service <strong>slot</strong>, not the concrete impl behind it, to test it you just <strong>provide a different set of Layers</strong>:</p>
@@ -1661,20 +1661,20 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
 <p>Don't underrate "built once." If every dependent built its own Database, you'd have several DB connections and caches whose states <strong>could quietly diverge</strong> — the hardest class of bug in distributed systems. memoMap kills this at the root with a process-level memo: <strong>however many dependency paths touch a service, it has exactly one instance in memory</strong>. One line of code buys instance consistency across the whole dependency graph.</p>
 
 <h2>KeyedMutex: queue by the same key</h2>
-<p>Some operations "<strong>can't have two at once on the same object</strong>" — e.g. one session can't have two paths writing into it concurrently, scrambling state. But <strong>different</strong> sessions can run fully in parallel. A plain lock either locks too hard (one global lock, all concurrency gone) or, hand-rolling many per-key locks, is easy to get wrong. <span class="mono">KeyedMutex</span> exists for this:</p>
+<p>Some operations "<strong>can't have two at once on the same object</strong>" — e.g. the same file can't have two paths writing into it concurrently, scrambling its content. But <strong>different</strong> files can run fully in parallel. A plain lock either locks too hard (one global lock, all concurrency gone) or, hand-rolling many per-key locks, is easy to get wrong. <span class="mono">KeyedMutex</span> exists for this:</p>
 <div class="cellgroup">
   <div class="cg-cap"><b>KeyedMutex&lt;Key&gt;</b>: a lock that queues per "key"</div>
   <div class="cells"><span class="cell scale">same Key</span><span class="lab">serial — one finishes before the next enters</span></div>
   <div class="cells"><span class="cell q">different Key</span><span class="lab">parallel — unrelated, each runs its own</span></div>
 </div>
-<p>Its interface (<span class="mono">effect/keyed-mutex.ts</span>) is "<strong>give me a key and I guarantee operations under that key go one after another</strong>." In opencode the natural key is the session ID: one session's processing is serialized and won't clash, while different sessions still run at full concurrency. This "<strong>down to each key</strong>" precise queuing keeps correctness without sacrificing concurrency — hard to do at once by hand.</p>
+<p>Its interface (<span class="mono">effect/keyed-mutex.ts</span>) is "<strong>give me a key and I guarantee operations under that key go one after another</strong>." In opencode one natural key is the <strong>file path</strong>: concurrent edits to the same file are serialized and won't clash (see <span class="mono">file-mutation.ts</span>, locking by canonical path), while different files still run at full concurrency. This "<strong>down to each key</strong>" precise queuing keeps correctness without sacrificing concurrency — hard to do at once by hand.</p>
 <div class="vflow">
-  <div class="step"><b>session A · op①</b>　takes key A, enters and runs</div>
-  <div class="step"><b>session A · op②</b>　same key, <strong>queues</strong> until ① finishes</div>
-  <div class="step"><b>session B · op</b>　different key, <strong>parallel at once</strong>, never waits for A</div>
+  <div class="step"><b>file A · edit①</b>　takes key A, enters and runs</div>
+  <div class="step"><b>file A · edit②</b>　same key, <strong>queues</strong> until ① finishes</div>
+  <div class="step"><b>file B · edit</b>　different key, <strong>parallel at once</strong>, never waits for A</div>
 </div>
-<p>This is one hidden prerequisite for Lesson 3's "agent loop" to run safely: one session's processing is strung into a line by KeyedMutex, with no "two drains writing one session" chaos; yet open ten sessions and they still run in parallel at full speed. A <strong>lock as fine as each key</strong> lets "safety" and "concurrency" — often thought opposed — hold at once in opencode. Part 4's <span class="mono">run-coordinator</span> revisits this "queue per session" idea.</p>
-<p>Incidentally, "queue by key" is a broadly applicable pattern, far beyond sessions. Any scenario where "operations on the same entity must be serial, but different entities may be parallel" — writes to one file, state changes on one account, a background task on one project — fits this lock. opencode abstracts it into a generic <span class="mono">KeyedMutex&lt;Key&gt;</span>, foreseeing this pattern recurring repo-wide; rather than hand-write (and mis-write) it each place, make one shared, always-correct tool. A good tool's mark is solving not one special case but <strong>a whole class</strong> — swap the Key and it serves a brand-new scenario.</p>
+<p>It has two real landing spots in opencode: <strong>file mutations</strong> (<span class="mono">file-mutation.ts</span>, locked by file path) and <strong>plugin invocations</strong> (<span class="mono">plugin.ts</span>, locked by plugin id). Watch out for a common misconception: <strong>"one session has at most one drain at a time" is NOT done by KeyedMutex, but guaranteed by Part 4's <span class="mono">run-coordinator</span></strong> — though it uses the <strong>same</strong> "queue by key" idea (queuing per session). In other words, <strong>a lock as fine as each key</strong> is a paradigm running throughout: files, plugins, and sessions each queue by their own key, letting "safety" and "concurrency" — often thought opposed — hold at once everywhere in opencode.</p>
+<p>Incidentally, "queue by key" is a broadly applicable pattern, far beyond files. Any scenario where "operations on the same entity must be serial, but different entities may be parallel" — writes to one file, invocations of one plugin, runs of one session — fits this lock. opencode abstracts it into a generic <span class="mono">KeyedMutex&lt;Key&gt;</span>, foreseeing this pattern recurring repo-wide; rather than hand-write (and mis-write) it each place, make one shared, always-correct tool. A good tool's mark is solving not one special case but <strong>a whole class</strong> — swap the Key and it serves a brand-new scenario.</p>
 
 <h2>serviceUse: write less boilerplate</h2>
 <p>Remember using a Service needs <span class="mono">yield* Service</span> then call a method? When a service is called often, this boilerplate recurs. <span class="mono">effect/service-use.ts</span>'s <span class="mono">serviceUse(tag)</span> thins it by a layer:</p>
@@ -1696,7 +1696,7 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
 
 <div class="card macro">
   <div class="tag">🌍 Big picture</div>
-  <span class="mono">packages/core/src/effect/</span> is the <strong>small toolbox</strong> opencode built on Effect, crystallizing high-frequency patterns into handy parts: <strong>Effect.fn</strong> names each effect (277 spots, built-in observability); <strong>memoMap</strong> builds a service once per process; <strong>KeyedMutex</strong> queues precisely by key (e.g. session ID) — same key serial, different keys parallel; <strong>serviceUse</strong> drops the boilerplate of calling a service. They don't change how Effect works, only grind the "should-be-correct high-frequency actions" smooth. Know these few and reading core sheds half the "house convention" barrier. Ultimately, grasping this drawer gains not just a few APIs but a <strong>lens</strong>: reading any large codebase, first spot "what handy parts it built for itself" and you often grasp the team's engineering taste and frequent pains. With this lens, reading the server and the session core next comes faster.
+  <span class="mono">packages/core/src/effect/</span> is the <strong>small toolbox</strong> opencode built on Effect, crystallizing high-frequency patterns into handy parts: <strong>Effect.fn</strong> names each effect (277 spots, built-in observability); <strong>memoMap</strong> builds a service once per process; <strong>KeyedMutex</strong> queues precisely by key (e.g. file path) — same key serial, different keys parallel; <strong>serviceUse</strong> drops the boilerplate of calling a service. They don't change how Effect works, only grind the "should-be-correct high-frequency actions" smooth. Know these few and reading core sheds half the "house convention" barrier. Ultimately, grasping this drawer gains not just a few APIs but a <strong>lens</strong>: reading any large codebase, first spot "what handy parts it built for itself" and you often grasp the team's engineering taste and frequent pains. With this lens, reading the server and the session core next comes faster.
 </div>
 
 <div class="card detail">
@@ -1720,7 +1720,7 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
     <li><span class="mono">effect/</span> is opencode's <strong>toolbox</strong> on top of Effect, crystallizing high-frequency patterns.</li>
     <li><strong>Effect.fn("Domain.method")</strong>: name effects (277 spots), built-in observability; internal use <span class="mono">fnUntraced</span>.</li>
     <li><strong>memoMap</strong> (one line): a Layer built once per process.</li>
-    <li><strong>KeyedMutex</strong>: queue by key — same key serial, different keys parallel (fits session ID).</li>
+    <li><strong>KeyedMutex</strong>: queue by key — same key serial, different keys parallel (e.g. concurrent edits to one file).</li>
     <li><strong>serviceUse</strong>: drops service-call boilerplate. Together they make core terse to read, hard to mis-write.</li>
   </ul>
 </div>
@@ -1763,7 +1763,7 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. Precise per-key queuing: with session ID as key, one session's processing is serialized and won't clash, while different sessions run at full concurrency — correctness without sacrificing parallelism.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. Precise per-key queuing: e.g. with the file path as key (file-mutation.ts), concurrent edits to one file are serialized and won't clash, while different files run at full concurrency — correctness without sacrificing parallelism. (Note: per-session «one drain at a time» is done by run-coordinator, not KeyedMutex, though both use the same «queue by key» idea.)</div></div></div>
   </details>
 </div>
 <div class="card spark">
@@ -2020,7 +2020,7 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
 </div>
 <p>The <strong>error middleware</strong> (<span class="mono">middleware/error.ts</span>) especially shows opencode's restraint. It does <strong>not</strong> crudely catch every exception and turn it into a 500 — quite the opposite, it deliberately lets through those <strong>typed failures already declared in the contract</strong> (like 404, BadRequest), letting them return normally along their own declared error path. It minds only one thing: <strong>catching the unforeseen "bare crashes" (defects)</strong>, wrapping them into a 500 with a <span class="mono">ref</span> id, and writing the real stack into the server log.</p>
 <pre class="code"><span class="cm">// simplified from middleware/error.ts — only catches "unforeseen" crashes</span>
-<span class="kw">const</span> ref = <span class="st">`err_${'$'}{crypto.randomUUID().slice(0, 8)}`</span>
+<span class="kw">const</span> ref = <span class="st">`err_${crypto.randomUUID().slice(0, 8)}`</span>
 <span class="kw">yield</span>* Effect.<span class="fn">logError</span>(<span class="st">"failed"</span>, { ref, error })  <span class="cm">// truth into the log</span>
 <span class="kw">return</span> HttpServerResponse.<span class="fn">jsonUnsafe</span>(
   { message: <span class="st">"Unexpected server error. Check server logs."</span>, ref },
@@ -2318,7 +2318,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   source: [
     <span class="st">`import { createOpencodeClient } from "@opencode-ai/sdk"`</span>,
     <span class="st">`const client = createOpencodeClient()`</span>,
-    <span class="st">`await client.${'$'}{operation.operationId}({ ... })`</span>,
+    <span class="st">`await client.${operation.operationId}({ ... })`</span>,
   ].<span class="fn">join</span>(<span class="st">"\n"</span>),
 }]</pre>
 <p>So in the generated API docs, each endpoint comes with a copy-and-run snippet of "call me like this" — the docs are no longer a dry field table but <strong>a live example you can copy verbatim</strong>. Second, the whole JSON <strong>passes through prettier formatting</strong>, ensuring that whoever runs it on whatever machine, the output file is <strong>byte-identical</strong>. This "reproducibility" obsession matters: because the artifact is <strong>committed into the repo</strong>, only byte-stability keeps code review free of meaningless formatting diffs.</p>
@@ -2374,7 +2374,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   <div class="tag">🔬 Source detail</div>
   <p>The whole line's "binder" config is condensed in these lines of build.ts:</p>
   <pre class="code"><span class="cm">// packages/sdk/js/script/build.ts</span>
-<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${'$'}{dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// dump the spec first</span>
+<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// dump the spec first</span>
 
 <span class="kw">await</span> <span class="fn">createClient</span>({
   input: <span class="st">"./openapi.json"</span>,
@@ -2411,7 +2411,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. The core is one line, OpenApi.fromApi(PublicApi): read the structured API types into a standard OpenAPI spec; generate seasons+formats; @hey-api prints types/sdk/client from the spec. None hand-written.</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. The core is one line, OpenApi.fromApi(PublicApi): read the structured API types into a standard OpenAPI spec; the `generate` command adds extras and formats it; @hey-api prints types/sdk/client from the spec. None hand-written.</div></div></div>
   </details>
 </div>
 <div class="quiz">
@@ -3455,7 +3455,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 </div>
 
 <h2>One truth, two shapes</h2>
-<p>The core of the whole design is splitting one truth into <strong>two ends, each taking what it needs</strong>. The <strong>write end</strong> is the event log: Lesson 15's <span class="mono">admit</span>, every fragment the model emits, every tool-state flip… all <strong>append</strong> an immutable record to the event stream. The <strong>read end</strong> is the projected message/part tables (<span class="mono">MessageTable</span> / <span class="mono">PartTable</span>): a <strong>transcribed, directly readable</strong> conversation. The two ends are linked by the <strong>projector</strong> in the middle (<span class="mono">SessionProjector</span>) — it consumes events and "applies" them as rows in the message tables.</p>
+<p>The core of the whole design is splitting one truth into <strong>two ends, each taking what it needs</strong>. The <strong>write end</strong> is the event log: Lesson 15's <span class="mono">admit</span>, every fragment the model emits, every tool-state flip… all <strong>append</strong> an immutable record to the event stream. The <strong>read end</strong> is the projected message table (<span class="mono">SessionMessageTable</span>; in V2 each message's part array is <strong>embedded directly in that row's JSON <span class="mono">data</span> column</strong> — there is no separate part table): a <strong>transcribed, directly readable</strong> conversation. The two ends are linked by the <strong>projector</strong> in the middle (<span class="mono">SessionProjector</span>) — it consumes events and "applies" them as rows in the message table.</p>
 <div class="cols">
   <div class="col"><h4>write end · events (ledger)</h4><p>append-only, immutable, ordered. For <strong>stability</strong>: crash-safe, replayable, accountable. But to read it directly, you'd replay everything.</p></div>
   <div class="col"><h4>read end · projected messages (statement)</h4><p>transcribed, current, ready-made. For <strong>speed</strong>: the model reads it as-is, no replay. It's the ledger's "projection," rebuildable from the ledger anytime.</p></div>
@@ -3464,13 +3464,13 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 <div class="flow">
   <div class="node">event log<span class="sub">append-only · ledger (Lesson 15)</span></div>
   <div class="arrow">projector →</div>
-  <div class="node">message/part tables<span class="sub">transcribed read model</span></div>
+  <div class="node">SessionMessage table<span class="sub">transcribed read model</span></div>
   <div class="arrow">history.load →</div>
   <div class="node">agent loop<span class="sub">reread each round (Lesson 17)</span></div>
 </div>
 
 <h2>The projector: transcribing events into messages</h2>
-<p><span class="mono">SessionProjector</span> (<span class="mono">projector.ts</span>) is that back-office transcribing clerk. It consumes events one by one, <strong>inserting or updating</strong> the matching rows in <span class="mono">MessageTable</span>/<span class="mono">PartTable</span> — an <span class="mono">Admitted</span> event projects into a User message, a stream of fragments projects into the gradually-growing part array of an Assistant message, a tool-state change updates that tool part's state… A comment in the source shows its care well: "<strong>a newer turn supersedes stale incomplete rows; never resume an older assistant projection</strong>." In other words, projection isn't mindless appending; it <strong>knows a new turn should override stale, half-finished leftovers</strong>, keeping the transcribed statement always self-consistent.</p>
+<p><span class="mono">SessionProjector</span> (<span class="mono">projector.ts</span>) is that back-office transcribing clerk. It consumes events one by one, <strong>inserting or updating</strong> the matching rows in <span class="mono">SessionMessageTable</span> — an <span class="mono">Admitted</span> event projects into a User message, a stream of fragments projects into the gradually-growing part array of an Assistant message (embedded in that row's JSON), a tool-state change updates that tool part's state… A comment in the source shows its care well: "<strong>a newer turn supersedes stale incomplete rows; never resume an older assistant projection</strong>." In other words, projection isn't mindless appending; it <strong>knows a new turn should override stale, half-finished leftovers</strong>, keeping the transcribed statement always self-consistent.</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">1</span><span class="t-txt">a PromptLifecycle.Admitted arrives → project into a User message row</span></div>
   <div class="t-row"><span class="t-num">2</span><span class="t-txt">streaming text/reasoning/tool-call fragments → grow into an Assistant message's part array</span></div>
@@ -3506,7 +3506,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   <div class="tag">🗺️ The big picture</div>
   <p>This lesson supplies the missing puzzle piece between Lessons 15 and 17, and builds a bridge to Parts 4 and 5:</p>
   <ul>
-    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability), the read end is projected message/part tables (statement, for speed) — CQRS / event-sourcing read model.</li>
+    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability), the read end is the projected message table (<span class="mono">SessionMessageTable</span>, parts embedded in the row's JSON) (statement, for speed) — CQRS / event-sourcing read model.</li>
     <li><strong>The projector</strong> (SessionProjector): consumes events, transcribes them into message rows; knows a new turn overrides stale leftovers, keeping the read model self-consistent. It's the "form-filler" of Lesson 14's structured data.</li>
     <li><strong>history.load</strong>: the underside of Lesson 17's "reread projected history"; reads a <strong>bounded</strong> window, edge-trimmed by latest compaction + context epoch baseline.</li>
     <li><strong>Authority never changes, the statement rebuilds</strong>: lose the projection and it re-projects from events, only rewriting events truly distorts — set the priority right and reliability and readability stop fighting.</li>
@@ -3532,7 +3532,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 <div class="card key">
   <div class="tag">🎯 Key points</div>
   <ul>
-    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability: crash-safe/replayable/accountable), the read end is projected message/part tables (statement, for speed: read as-is). I.e. CQRS / event-sourcing read model.</li>
+    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability: crash-safe/replayable/accountable), the read end is the projected message table (<span class="mono">SessionMessageTable</span>, parts embedded in the row's JSON) (statement, for speed: read as-is). I.e. CQRS / event-sourcing read model.</li>
     <li><strong>The projector</strong> (SessionProjector) consumes events and transcribes them into message rows — the "form-filler" of Lesson 14's structured data; it knows to let a new turn override stale leftovers, keeping the read model consistent.</li>
     <li><strong>history.load</strong> is the underside of Lesson 17's "reread projected history": it reads <strong>projected</strong> messages, and only a <strong>bounded</strong> window.</li>
     <li>The window's edges are trimmed by <strong>latest compaction</strong> (Lesson 51) + <strong>context epoch baseline</strong> (Lesson 24) — "reading history" is "reading the slice you should see now," not all of it.</li>
@@ -3548,7 +3548,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
     <li>One before compression, one after</li>
     <li>One copy in a database, one in a file, identical content</li>
     <li>One Chinese copy, one English copy</li>
-    <li>Write end uses append-only events (ledger); read end uses projected message/part tables (statement)</li>
+    <li>Write end uses append-only events (ledger); read end uses the projected SessionMessageTable (statement)</li>
   </ol>
   <details class="accordion" open>
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
@@ -3614,7 +3614,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   { sessionID: SessionSchema.ID, limit: Schema.Int },  <span class="cm">// ← who, hit what cap</span>
 ) {}</pre>
 <p>Why insist on a hard cap? Because the model <strong>doesn't always know to stop</strong>. It can fall into a "check one more file, fix one more spot, verify once more" rabbit hole, thinking it's diligently advancing while actually spinning in place, burning your money. A <span class="mono">while(true)</span>-style "let it iterate freely until satisfied" is an unacceptable gamble for a loop that spends real money and may touch your files. The ring of 25 is a <strong>non-negotiable brake</strong> opencode presses for you: iterate, yes, but this far. And making "this far" a <strong>typed error with fields</strong> rather than a silent return means the upper layer can <strong>know definitively "this stopped because it hit the cap,"</strong> and react appropriately (e.g. prompt the user "task too long, break it into steps?") instead of facing a vague "it just ended."</p>
-<p>There's an easily-missed sense of proportion here: the cap is 25, not 5, not 250. Too small, and complex tasks are cut off before they unfold, making the agent seem "useless"; too large, and the cost of running wild (money, time, churn on your files) becomes too frightening. 25 is an <strong>empirically-calibrated compromise</strong> — long enough self-driving room to finish most real tasks, with a hard line to cut losses when it strays. The art of a guardrail is often not in "whether" but "at what value": too loose is as good as none, too tight gets in the way. Nailing this number as an <strong>explicit constant</strong> (<span class="mono">MAX_STEPS</span>) rather than a magic number scattered in code also keeps it reviewable and adjustable later — again this codebase's habit of "putting key decisions out in the open."</p>
+<p>There's an easily-missed sense of proportion here: the cap is 25, not 5, not 250. Too small, and complex tasks are cut off before they unfold, making the agent seem "useless"; too large, and the cost of running wild (money, time, churn on your files) becomes too frightening. But honestly — <strong>the source itself isn't sure about the exact number 25</strong>: right above the constant sits a comment, "<span class="mono">QUESTION: Did this exist previously, or did we add this limit? Does it make sense?</span>" So rather than a precisely-tuned optimum, it's better seen as a <strong>"pick a number so it can't run wild" hard cap</strong> — long enough self-driving room to finish most real tasks, with a hard line to cut losses when it strays. The art of a guardrail is often not in "whether" but "at what value": too loose is as good as none, too tight gets in the way — and this value is <strong>explicitly open to recalibration later</strong>. Precisely for that reason, nailing this number as an <strong>explicit constant</strong> (<span class="mono">MAX_STEPS</span>) rather than a magic number scattered in code matters all the more — it keeps it reviewable and adjustable, again this codebase's habit of "putting key decisions (and their uncertainty) out in the open."</p>
 <div class="cols">
   <div class="col"><h4>❌ while(true) free iteration</h4><p>Let the model run till satisfied. But it often rabbit-holes in place, burning money, touching files, with no one to halt it.</p></div>
   <div class="col"><h4>✅ for(step&lt;25) + typed error</h4><p>Hard cap of 25 cycles; exceed it and throw StepLimitExceededError (with sessionID/limit). The upper layer knows exactly "why it stopped."</p></div>
@@ -3629,6 +3629,8 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   <div class="cell"><div class="k">SessionRunnerModel.Error</div><div class="v">model resolution failed</div></div>
   <div class="cell"><div class="k">AgentReplacementBlocked</div><div class="v">a mid-way agent switch was blocked (Lesson 27)</div></div>
   <div class="cell"><div class="k">ToolOutputStore.Error</div><div class="v">tool-output disk write failed</div></div>
+  <div class="cell"><div class="k">ContextSnapshotDecodeError</div><div class="v">context snapshot won't decode (L24)</div></div>
+  <div class="cell"><div class="k">SystemContext.InitializationBlocked</div><div class="v">system context init blocked (L21)</div></div>
 </div>
 <p>This is Lessons 5 and 8's worldview of "<strong>errors are values, written into the signature</strong>" cashed out at the whole runner. <span class="mono">run</span>'s return type is <span class="mono">Effect&lt;void, RunError&gt;</span> — that <span class="mono">RunError</span> hangs plainly in the signature, meaning <strong>anyone calling this loop is forced by the compiler to face "it can fail this way."</strong> No landmine hidden in some <span class="mono">throw</span>, discovered only when it blows up at runtime; every failure is a <strong>visible, unavoidable</strong> branch in the type. For a system inherently full of uncertainty (models glitch, networks drop, tools blow up), lifting that uncertainty <strong>from "a runtime fright" to "a compile-time checklist"</strong> is what gives opencode the confidence to let this loop run free.</p>
 <p>Better still, this "failure checklist" is itself <strong>excellent documentation</strong>. A newcomer wanting to know "how exactly can this loop break" needn't comb the implementation or ask a veteran — just look at the <span class="mono">RunError</span> union; its <strong>eight</strong> members are eight bad things that can happen, the names self-explanatory (<span class="mono">StepLimitExceededError</span>, <span class="mono">MessageDecodeError</span>…). <strong>Typed errors not only have the compiler guard for you but make the code state for itself "the ways I can fail."</strong> Compared to vague <span class="mono">throw new Error("something went wrong")</span> scattered everywhere, a tidy error union is the mark of treating "failure" as a first-class citizen.</p>
@@ -3678,7 +3680,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">"interrupted"</span>)  <span class="cm">// mark unsettled as failed</span>
 }
 <span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> && !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// a tool really blew up</span>
-  <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${'$'}{message}`</span>)
+  <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${message}`</span>)
 }
 <span class="kw">if</span> (stream._tag === <span class="st">"Failure"</span>) <span class="kw">return</span> <span class="kw">yield</span>* Effect.<span class="fn">failCause</span>(stream.cause)  <span class="cm">// rethrow the error faithfully</span></pre>
   <p>Read it and you'll find it dissects "failure" finely: interrupted, or a tool really blew up, or a model error — each has its own wind-down wording, but <strong>all converge on one thing — <span class="mono">failUnsettledTools</span></strong>: whichever way it falls, settle the unsettled tools first. The final <span class="mono">Effect.failCause(stream.cause)</span> matters too: the error isn't swallowed but <strong>faithfully rethrown up Effect's error channel</strong>, ultimately joining the <span class="mono">RunError</span> in the signature. <strong>Clean up your own mess first, then hand the error over honestly</strong> — that's the dignity a robust loop owes when facing failure.</p>
@@ -3739,7 +3741,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 <div class="card spark">
   <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
   <ul>
-    <li>The lesson says a guardrail's art is "not whether but at what value" — too-small MAX_STEPS cuts off complex tasks, too-large makes runaway costs frightening, 25 an empirical compromise. If you set this cap for an agent that touches user files, what factors would you weigh?</li>
+    <li>The lesson says a guardrail's art is "not whether but at what value" — too-small MAX_STEPS cuts off complex tasks, too-large makes runaway costs frightening, and the source comment itself question-marks the exact 25 ("Does it make sense?"). If you set this cap for an agent that touches user files, what factors would you weigh, and how would you validate the choice?</li>
     <li>The source's error handling dissects "failure" finely (interrupted/tool-blew-up/model-error each with its wind-down) but all converge on failUnsettledTools, only then faithfully failCause-rethrowing. "Clean up your own mess first, then hand the error over honestly" — why does this order matter?</li>
   </ul>
 </div>
@@ -3787,7 +3789,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 <h2>The algebra: composing sources of different types uniformly</h2>
 <p>The difficulty: <span class="mono">core/date</span>'s value is a date, <span class="mono">core/environment</span>'s is a directory structure — <strong>different types</strong>. How to put these "differently-typed-value" sources in one container and handle them uniformly? The answer is <span class="mono">make&lt;A&gt;(source)</span>: it <strong>hides the concrete value type <span class="mono">A</span> (closes over A)</strong>, producing an <strong>opaque <span class="mono">SystemContext</span></strong> — from outside, all sources look the same, whether inside is a date or a directory. So <span class="mono">combine([...])</span> can <strong>uniformly stitch</strong> a pile of wildly-different sources into one.</p>
 <div class="flow">
-  <div class="node">Source&lt;Date&gt;<span class="sub">core/date</span></div>
+  <div class="node">Source&lt;string&gt;<span class="sub">core/date</span></div>
   <div class="arrow">make →</div>
   <div class="node">SystemContext<span class="sub">type hidden · opaque</span></div>
   <div class="arrow">combine →</div>
@@ -4534,10 +4536,10 @@ text: SessionEvent.ContextUpdated.data.fields.text
 <pre class="code"><span class="cm">// simplified from system-context/builtins.ts</span>
 <span class="kw">const</span> environment = [
   <span class="st">"&lt;env&gt;"</span>,
-  <span class="st">`  Working directory: ${'$'}{location.directory}`</span>,        <span class="cm">// working directory</span>
-  <span class="st">`  Workspace root folder: ${'$'}{location.project.directory}`</span>, <span class="cm">// project root</span>
-  <span class="st">`  Is directory a git repo: ${'$'}{...}`</span>,                  <span class="cm">// is it a git repo</span>
-  <span class="st">`  Platform: ${'$'}{process.platform}`</span>,                    <span class="cm">// OS platform</span>
+  <span class="st">`  Working directory: ${location.directory}`</span>,        <span class="cm">// working directory</span>
+  <span class="st">`  Workspace root folder: ${location.project.directory}`</span>, <span class="cm">// project root</span>
+  <span class="st">`  Is directory a git repo: ${...}`</span>,                  <span class="cm">// is it a git repo</span>
+  <span class="st">`  Platform: ${process.platform}`</span>,                    <span class="cm">// OS platform</span>
   <span class="st">"&lt;/env&gt;"</span>,
 ].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
 <p>Note the <span class="mono">&lt;env&gt;...&lt;/env&gt;</span> tags — a common trick for feeding structured info to an LLM: XML-like tags <strong>draw clear boundaries</strong> around a block of info, so the model recognizes "this is the environment block" at a glance, not confusing it with the body. The four items inside are also chosen practically: <strong>working directory</strong> (where I work), <strong>project root</strong> (where this project's boundary is), <strong>is-git-repo</strong> (whether git commands are usable), <strong>platform</strong> (Linux or Mac, affecting command syntax). These four are exactly the bare minimum an agent meant to write code and run commands for you <strong>must know about "where am I."</strong></p>
@@ -4556,8 +4558,8 @@ SystemContext.<span class="fn">make</span>({
   key: SystemContext.Key.<span class="fn">make</span>(<span class="st">"core/date"</span>),
   codec: Schema.<span class="fn">toCodecJson</span>(Schema.String),
   load: DateTime.nowAsDate.<span class="fn">pipe</span>(Effect.<span class="fn">map</span>((d) =&gt; d.<span class="fn">toDateString</span>())),
-  baseline: (date) =&gt; <span class="st">`Today's date: ${'$'}{date}`</span>,            <span class="cm">// first time</span>
-  update: (_prev, date) =&gt; <span class="st">`Today's date is now: ${'$'}{date}`</span>,  <span class="cm">// after crossing a day</span>
+  baseline: (date) =&gt; <span class="st">`Today's date: ${date}`</span>,            <span class="cm">// first time</span>
+  update: (_prev, date) =&gt; <span class="st">`Today's date is now: ${date}`</span>,  <span class="cm">// after crossing a day</span>
 })</pre>
 <p>The answer: <strong>because the date changes</strong>. A session may chat from evening into the next morning — <strong>crossing midnight</strong>. If the date is hard-coded at the start, then past midnight the model's "today" is <strong>wrong</strong>, possibly mistaking yesterday for today, miscounting a deadline by a day. Make the date a source, and the next round's <span class="mono">prepare</span> reconcile finds "the date changed," auto-publishing an update — so the model reads "Today's date is now: ...," the clock seamlessly corrected. <strong>Even "the date," seemingly unchanging, is "alive" in a possibly-long session</strong> — exactly the meaning of the past five lessons' incremental mechanism: it doesn't care about size, any "possibly-changing" environment info can be kept fresh elegantly by the same source framework.</p>
 <div class="timeline">
@@ -4604,8 +4606,8 @@ SystemContext.<span class="fn">make</span>({
   key: SystemContext.Key.<span class="fn">make</span>(<span class="st">"core/environment"</span>),     <span class="cm">// unique identity</span>
   codec: Schema.<span class="fn">toCodecJson</span>(Schema.String),               <span class="cm">// value is a string</span>
   load: Effect.<span class="fn">succeed</span>(environment),                      <span class="cm">// how to observe</span>
-  baseline: (env) =&gt; <span class="st">`Here is ...:\n${'$'}{env}`</span>,            <span class="cm">// first-time full text</span>
-  update: (_prev, env) =&gt; <span class="st">`The environment ...is now:\n${'$'}{env}`</span>, <span class="cm">// change text</span>
+  baseline: (env) =&gt; <span class="st">`Here is ...:\n${env}`</span>,            <span class="cm">// first-time full text</span>
+  update: (_prev, env) =&gt; <span class="st">`The environment ...is now:\n${env}`</span>, <span class="cm">// change text</span>
 })</pre>
   <p>Just these five lines. <strong>Not</strong> a line writing "how to serialize" (one point to a <span class="mono">codec</span>, and Lesson 22's encode/decode/equivalent fall into place automatically); <strong>not</strong> a line writing "how to register, sort, parallelize" (handed to Lesson 23's registry); <strong>not</strong> a line writing "how to persist, pin a sequence, project into a System message" (handed to Lessons 24, 25). A source author need only answer five most-essential questions: <strong>what it's called, what the value looks like, how to observe, how to say it first time, how to say it on change</strong>. Everything else, the past five lessons' machinery answers for them. <strong>The crispness of these five lines is bought by all the prior complexity — complexity absorbed into the framework, simplicity left for the user.</strong></p>
   <div class="cols">
@@ -5820,7 +5822,7 @@ Route.<span class="fn">make</span>({
 <span class="cm">// Math: Anthropic 5-min cache, write = 1.25x base, read = 0.1x.</span>
 <span class="cm">// A single reuse within 5 minutes already wins (1.25 + 0.1 &lt; 2).</span>
 <span class="cm">// And a tool turn reuses many times → sure win. So on by default.</span></pre>
-  <p>A cache write costs slightly more than no cache (1.25x), but a read is nearly free (0.1x). <strong>As long as the prefix is reused even once within 5 minutes, the deal pays off</strong>; and a tool turn easily has a dozen-plus round-trips, reusing far more than once—so opencode sets caching <strong>on by default</strong>, matching the consensus of production agent frameworks like LangChain's caching middleware and kern-ai. One more engineering detail worth noting: <span class="mono">markMessageAt</span> deliberately avoids <span class="mono">.map()</span> and uses <span class="mono">slice + index assignment</span>, the comment frank about it—long conversations run it on every request, and <span class="mono">.map()</span>'s closure dispatch and whole-array copies "show up in profiling." <strong>Even such tiny hot-path overhead is watched</strong>—the hallmark of production code, and the confidence behind this cache logic daring to be "on by default."</p>
+  <p>A cache write costs slightly more than no cache (1.25x), but a read is nearly free (0.1x). <strong>As long as the prefix is reused even once within 5 minutes, the deal pays off</strong>; and a tool turn easily has a dozen-plus round-trips, reusing far more than once—so opencode sets caching <strong>on by default</strong> (the source <span class="mono">cache-policy.ts</span> gives only this cost math, citing no external framework). One more engineering detail worth noting: <span class="mono">markMessageAt</span> deliberately avoids <span class="mono">.map()</span> and uses <span class="mono">slice + index assignment</span>, the comment frank about it—long conversations run it on every request, and <span class="mono">.map()</span>'s closure dispatch and whole-array copies "show up in profiling." <strong>Even such tiny hot-path overhead is watched</strong>—the hallmark of production code, and the confidence behind this cache logic daring to be "on by default."</p>
 </div>
 
 <h2>Different vendors, different cache mechanisms: a restrained "skip"</h2>
@@ -6773,7 +6775,7 @@ format: Schema.<span class="fn">Literals</span>([<span class="st">"text"</span>,
   .pipe(Schema.<span class="fn">withDecodingDefault</span>(() =&gt; <span class="st">"markdown"</span>))
 
 <span class="cm">// websearch: write the current year into the model-facing description</span>
-description = <span class="st">`...The current year is ${'$'}{new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
+description = <span class="st">`...The current year is ${new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
   <p>Both embody "<strong>write the care for the model into the definition</strong>." <span class="mono">withDecodingDefault</span> lets the model <strong>omit format</strong>—omit it and it's markdown, sparing the model the burden of thinking "which format do I want" each time, defaulting to the most digestible. And websearch splicing <span class="mono">new Date().getFullYear()</span> into the description dynamically computes the real year <strong>each time the tool definition is built</strong>—the model's training knowledge has a "time blind spot," it doesn't know "what year it is now," and this one injection fills that blind spot. <strong>These details change nothing about "what the tool can do," yet markedly improve "how well the model uses it"</strong>—a good tool gives the model not just capability but also thinks ahead about "how to use it well" for the model. This is the whole set of thoughtfulness born from the premise "the tool's user is a model."</p>
 </div>
 
@@ -7213,12 +7215,12 @@ Ruleset = Rule[]</pre>
   <div class="tag">🔬 Source Detail</div>
   <p>The <span class="mono">skill</span> tool's <span class="mono">toModelOutput</span>, injecting the body, hands over "manual + folder" clearly (simplified from tool/skill.ts):</p>
   <pre class="code"><span class="cm">// the skill body injected to the model: instructions + base dir + file list</span>
-[ <span class="st">`&lt;skill_content name="${'$'}{skill.name}"&gt;`</span>,
-  <span class="st">`# Skill: ${'$'}{skill.name}`</span>,
+[ <span class="st">`&lt;skill_content name="${skill.name}"&gt;`</span>,
+  <span class="st">`# Skill: ${skill.name}`</span>,
   skill.content.<span class="fn">trim</span>(),                          <span class="cm">// the full instruction body</span>
-  <span class="st">`Base directory for this skill: ${'$'}{dirURL}`</span>,   <span class="cm">// where the supporting files are</span>
+  <span class="st">`Base directory for this skill: ${dirURL}`</span>,   <span class="cm">// where the supporting files are</span>
   <span class="st">"Relative paths (e.g., scripts/) are relative to this base directory."</span>,
-  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${'$'}{f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
+  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
 ].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
   <p>Two careful touches in this injection. One, it gives the <strong>base directory URL + a file list</strong>, not stuffing those script files' <strong>contents</strong> in too—again "progressive disclosure": first tell the model "<strong>which files exist, where</strong>," and as for what a script <strong>specifically says</strong>, when the model really needs it, it reads it with the read tool. Lazy loading nested in lazy loading: the skill body lazy-loaded, the files within the skill lazy-loaded again. Two, the comment's "<span class="mono">file list is sampled</span>" is honest—when a skill comes with hundreds or thousands of files, the list itself is <strong>bounded</strong> (echoing lesson 42), not letting "listing files" itself blow the context. <strong>From the skill body to the file list, "on demand, bounded" is everywhere—this discipline running through M7 holds firm even in this closing lesson.</strong></p>
 </div>
@@ -8011,7 +8013,7 @@ sdks.<span class="fn">set</span>(sdkKey, sdk)               <span class="cm">// 
       <span class="kw">yield*</span> schema.<span class="fn">up</span>(tx)                       <span class="cm">// schema.gen full snapshot</span>
       <span class="kw">yield*</span> tx.<span class="fn">run</span>(sql<span class="st">`CREATE TABLE migration (id TEXT PRIMARY KEY, ...)`</span>)
       <span class="kw">yield*</span> Effect.<span class="fn">forEach</span>(migrations, (m) =&gt;        <span class="cm">// mark all completed</span>
-        tx.<span class="fn">run</span>(sql<span class="st">`INSERT INTO migration (id, time_completed) VALUES (${'$'}{m.id}, ...)`</span>))
+        tx.<span class="fn">run</span>(sql<span class="st">`INSERT INTO migration (id, time_completed) VALUES (${m.id}, ...)`</span>))
     }))
   }))
 }</pre>
@@ -8828,7 +8830,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
     },
     <span class="fn">use</span>() {
       <span class="kw">const</span> value = <span class="fn">useContext</span>(ctx)
-      <span class="kw">if</span> (!value) <span class="kw">throw new</span> <span class="fn">Error</span>(<span class="st">`${'$'}{input.name} context must be used within a context provider`</span>)  <span class="cm">// ← fail fast</span>
+      <span class="kw">if</span> (!value) <span class="kw">throw new</span> <span class="fn">Error</span>(<span class="st">`${input.name} context must be used within a context provider`</span>)  <span class="cm">// ← fail fast</span>
       <span class="kw">return</span> value
     },
   }
@@ -9398,7 +9400,7 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
       mytool: <span class="fn">tool</span>({
         description: <span class="st">"This is a custom tool"</span>,
         args: { foo: tool.schema.<span class="fn">string</span>() },
-        <span class="kw">async</span> <span class="fn">execute</span>(args) { <span class="kw">return</span> <span class="st">`Hello ${'$'}{args.foo}!`</span> },
+        <span class="kw">async</span> <span class="fn">execute</span>(args) { <span class="kw">return</span> <span class="st">`Hello ${args.foo}!`</span> },
       }),
     },
   }
@@ -9791,9 +9793,9 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
   <span class="kw">if</span> (errors.length === <span class="nu">0</span>) <span class="kw">return</span> <span class="st">""</span>                  <span class="cm">// no errors, say nothing</span>
   <span class="kw">const</span> limited = errors.<span class="fn">slice</span>(<span class="nu">0</span>, MAX_PER_FILE)         <span class="cm">// ← at most 20 per file</span>
   <span class="kw">const</span> more = errors.length - MAX_PER_FILE
-  <span class="kw">return</span> <span class="st">`&lt;diagnostics file="${'$'}{file}"&gt;\n`</span> +
+  <span class="kw">return</span> <span class="st">`&lt;diagnostics file="${file}"&gt;\n`</span> +
     limited.<span class="fn">map</span>(pretty).<span class="fn">join</span>(<span class="st">"\n"</span>) +                  <span class="cm">// pretty: ERROR [line:col] message</span>
-    (more &gt; <span class="nu">0</span> ? <span class="st">`\n... and ${'$'}{more} more`</span> : <span class="st">""</span>) + <span class="st">`\n&lt;/diagnostics&gt;`</span>
+    (more &gt; <span class="nu">0</span> ? <span class="st">`\n... and ${more} more`</span> : <span class="st">""</span>) + <span class="st">`\n&lt;/diagnostics&gt;`</span>
 }</pre>
   <p>In these twenty-odd lines hides a judgment often overlooked by beginners yet crucial to the agent experience: <strong>what to say and what not to.</strong> A naive implementation might stuff <strong>all</strong> the diagnostics the language server spits (errors, warnings, hints, style suggestions) into the model—a disaster: the model's context is drowned in hundreds of "missing semicolon here," "suggest const" noise, while the three ERRORs truly causing compile failure get buried. <span class="mono">report</span> does three layers of restraint: <strong>report only ERROR</strong> (what the agent should care about now is "does it compile," warnings are mostly style preferences, can wait), <strong>cap at 20 per file</strong> (a file erroring over 20 times, listing more is pointless, fix these first), <strong>return an empty string if no errors</strong> (don't waste a single word). Behind this is a profound product intuition: <strong>feedback to the agent isn't better the more, but better the more "precise."</strong> Information overload is as harmful as information absence—the former drowns the focus and burns context, the latter leaves the agent blind. The whole care of <span class="mono">report</span>'s twenty lines is finding, between these two, the just-right amount for "what the agent most needs to know right now." This is the same reverence for "the model's scarce attention" as L42's bounded tool output, only this time the scarce object is the few <strong>truly fatal</strong> compile errors.</p>
 </div>

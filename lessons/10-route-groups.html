@@ -407,7 +407,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 </div>
 <p>其中<strong>错误中间件</strong>（<span class="mono">middleware/error.ts</span>）的设计很能体现 opencode 的克制。它<strong>不</strong>粗暴地把所有异常都拦下来变成 500——恰恰相反，它特意放行那些<strong>已经声明在契约里的、有类型的失败</strong>（比如 404、BadRequest），让它们沿着自己声明过的错误路径正常返回。它只管一件事：<strong>兜住那些没人预料到的「裸崩溃」（defect）</strong>，把它们包成一个带 <span class="mono">ref</span> 编号的 500，并把真实堆栈写进服务器日志。</p>
 <pre class="code"><span class="cm">// 简化自 middleware/error.ts —— 只兜底「意料之外」的崩溃</span>
-<span class="kw">const</span> ref = <span class="st">`err_${'$'}{crypto.randomUUID().slice(0, 8)}`</span>
+<span class="kw">const</span> ref = <span class="st">`err_${crypto.randomUUID().slice(0, 8)}`</span>
 <span class="kw">yield</span>* Effect.<span class="fn">logError</span>(<span class="st">"failed"</span>, { ref, error })  <span class="cm">// 真相进日志</span>
 <span class="kw">return</span> HttpServerResponse.<span class="fn">jsonUnsafe</span>(
   { message: <span class="st">"Unexpected server error. Check server logs."</span>, ref },
@@ -580,7 +580,7 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
 </div>
 <p>The <strong>error middleware</strong> (<span class="mono">middleware/error.ts</span>) especially shows opencode's restraint. It does <strong>not</strong> crudely catch every exception and turn it into a 500 — quite the opposite, it deliberately lets through those <strong>typed failures already declared in the contract</strong> (like 404, BadRequest), letting them return normally along their own declared error path. It minds only one thing: <strong>catching the unforeseen "bare crashes" (defects)</strong>, wrapping them into a 500 with a <span class="mono">ref</span> id, and writing the real stack into the server log.</p>
 <pre class="code"><span class="cm">// simplified from middleware/error.ts — only catches "unforeseen" crashes</span>
-<span class="kw">const</span> ref = <span class="st">`err_${'$'}{crypto.randomUUID().slice(0, 8)}`</span>
+<span class="kw">const</span> ref = <span class="st">`err_${crypto.randomUUID().slice(0, 8)}`</span>
 <span class="kw">yield</span>* Effect.<span class="fn">logError</span>(<span class="st">"failed"</span>, { ref, error })  <span class="cm">// truth into the log</span>
 <span class="kw">return</span> HttpServerResponse.<span class="fn">jsonUnsafe</span>(
   { message: <span class="st">"Unexpected server error. Check server logs."</span>, ref },

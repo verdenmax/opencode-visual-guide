@@ -395,7 +395,6 @@ LESSON_06 = {
   <div class="node"><div class="nt">one more in R</div><div class="nd">"I need Agent"</div></div>
 </div>
 <p>When you write <span class="mono">const agent = yield* AgentV2.Service</span>, you get that Interface and can call its methods directly. The cost: this computation's type <span class="mono">Effect&lt;A, E, R&gt;</span> <strong>auto-records one more "I need Agent" in R</strong>. That "debt" stays on the type <strong>until some Layer repays it</strong>. In other words, <span class="mono">yield*</span> a Service = owe a dependency in R; provide the matching Layer = repay it. The compiler watches the ledger throughout — short one repayment and it won't let you run.</p>
-<p>This "owe–repay" ledger gives a comfortable property: <strong>what a piece of code needs is written in its type, visible at a glance.</strong> You needn't comb the function body for which globals it secretly imported or which singletons it touched — its R is an honest dependency list. Reading <span class="mono">packages/core</span> this is especially easy: look at an <span class="mono">Effect.fn</span>'s signature and you know which services it draws on; to reuse it, just have those Layers ready. <strong>Making dependencies explicit</strong> turns the old "what does this logic actually involve" headache, in a big codebase, into something you read straight off the type.</p>
 
 <h2>Compose: build the whole app with Layers</h2>
 <p>opencode's entire runtime is essentially <strong>assembling a pile of Layers</strong> until everyone's deps are satisfied and R is fully repaid.</p>
@@ -414,6 +413,7 @@ LESSON_06 = {
   <div class="step"><b>⑤ R repaid → runnable</b>　all deps satisfied, only then can the Effect run</div>
 </div>
 <p>The step to remember is ④. Imagine <span class="mono">Agent</span>, <span class="mono">Session</span>, <span class="mono">Tool</span> all depend on <span class="mono">Database</span> — if each new'd one, you'd get three DB connections with possibly mismatched state. memoMap guarantees <strong>one Database across the whole dep tree</strong>, the same one for everyone. You never hand-manage this "singleton sharing"; just declare deps as usual and the framework gets the graph right and aligns the instances. This "declare and it's correct" ease is DI's fundamental edge over hand-written <span class="mono">new</span>.</p>
+<p>This "owe–repay" ledger gives a comfortable property: <strong>what a piece of code needs is written in its type, visible at a glance.</strong> You needn't comb the function body for which globals it secretly imported or which singletons it touched — its R is an honest dependency list. Reading <span class="mono">packages/core</span> this is especially easy: look at an <span class="mono">Effect.fn</span>'s signature and you know which services it draws on; to reuse it, just have those Layers ready. <strong>Making dependencies explicit</strong> turns the old "what does this logic actually involve" headache, in a big codebase, into something you read straight off the type.</p>
 
 <h2>Swap a layer, swap the whole world</h2>
 <p>This machinery's most tangible payoff shows in testing. Because business code knows only the Service <strong>slot</strong>, not the concrete impl behind it, to test it you just <strong>provide a different set of Layers</strong>:</p>
@@ -730,20 +730,20 @@ LESSON_08 = {
 <p>别小看这"只造一份"。如果每个依赖方各造一个 Database，你就会有好几条数据库连接、好几份缓存，它们之间的状态<strong>可能悄悄对不上</strong>——这是分布式里最难查的那类 bug。memoMap 用一个进程级的备忘录把这种隐患从根上掐掉：<strong>无论一个服务被多少条依赖路径牵涉到，它在内存里永远只有一份</strong>。一行代码，换来整个依赖图的实例一致性。</p>
 
 <h2>KeyedMutex：给同一把钥匙排队</h2>
-<p>有些操作"<strong>同一个对象上不能同时来两个</strong>"——比如同一个 session，不能让两路逻辑同时往里写、把状态搅乱。但<strong>不同</strong> session 之间又完全可以并行。普通的锁要么锁太狠（全局一把锁、并发全没了），要么自己手写一堆 per-key 的锁很容易错。<span class="mono">KeyedMutex</span> 就是为此而生：</p>
+<p>有些操作"<strong>同一个对象上不能同时来两个</strong>"——比如同一个文件，不能让两处逻辑同时往里写、把内容搅乱。但<strong>不同</strong>文件之间又完全可以并行。普通的锁要么锁太狠（全局一把锁、并发全没了），要么自己手写一堆 per-key 的锁很容易错。<span class="mono">KeyedMutex</span> 就是为此而生：</p>
 <div class="cellgroup">
   <div class="cg-cap"><b>KeyedMutex&lt;Key&gt;</b>：按"钥匙"分别排队的锁</div>
   <div class="cells"><span class="cell scale">同一个 Key</span><span class="lab">串行——一个做完下一个才进</span></div>
   <div class="cells"><span class="cell q">不同 Key</span><span class="lab">并行——互不相干，各跑各的</span></div>
 </div>
-<p>它的接口（<span class="mono">effect/keyed-mutex.ts</span>）就是"<strong>给我一把钥匙，我保证同一把钥匙下的操作一个接一个</strong>"。落到 opencode，最自然的钥匙就是 session ID：同一个会话的处理被串起来、不打架，不同会话照样满速并发。这种"<strong>细到每把钥匙</strong>"的精确排队，既保住了正确性，又没牺牲并发——是手写锁很难同时做到的。</p>
+<p>它的接口（<span class="mono">effect/keyed-mutex.ts</span>）就是"<strong>给我一把钥匙，我保证同一把钥匙下的操作一个接一个</strong>"。落到 opencode，一把最自然的钥匙就是<strong>文件路径</strong>：对同一个文件的并发改动被串起来、不打架（见 <span class="mono">file-mutation.ts</span>，按文件规范路径加锁），不同文件照样满速并发。这种"<strong>细到每把钥匙</strong>"的精确排队，既保住了正确性，又没牺牲并发——是手写锁很难同时做到的。</p>
 <div class="vflow">
-  <div class="step"><b>session A · 操作①</b>　拿到 A 这把钥匙，进入执行</div>
-  <div class="step"><b>session A · 操作②</b>　同一把钥匙，<strong>排队</strong>等①做完才进</div>
-  <div class="step"><b>session B · 操作</b>　不同钥匙，<strong>立刻并行</strong>，完全不等 A</div>
+  <div class="step"><b>文件 A · 改动①</b>　拿到 A 这把钥匙，进入执行</div>
+  <div class="step"><b>文件 A · 改动②</b>　同一把钥匙，<strong>排队</strong>等①做完才进</div>
+  <div class="step"><b>文件 B · 改动</b>　不同钥匙，<strong>立刻并行</strong>，完全不等 A</div>
 </div>
-<p>这正是第 3 课"agent 循环"能安全跑的隐形前提之一：同一个会话的处理被 KeyedMutex 串成一条线，不会出现"两路 drain 同时往一个 session 写"的混乱；而你开十个会话，它们之间照样满速并行。<strong>"细到每把钥匙"的锁</strong>，让"安全"和"并发"这对常被认为对立的目标，在 opencode 里同时成立。后面第四部分讲 <span class="mono">run-coordinator</span> 时，你会再见到这种"按 session 排队"的思路。</p>
-<p>顺带一提，"按 key 排队"是个适用面极广的模式，远不止 session。任何"同一个实体上的操作必须串行、不同实体之间却可以并行"的场景——同一个文件的写入、同一个账号的状态变更、同一个项目的某项后台任务——都能套上这把锁。opencode 把它抽成一个泛型的 <span class="mono">KeyedMutex&lt;Key&gt;</span>，正是看准了这个模式会在仓库各处反复出现，与其每处手写一遍、错一遍，不如做成一件公用的、一定正确的小工具。一件好工具的标志，就是它解决的不是某一个特例，而是<strong>一整类问题</strong>——你换个 Key，它就服务于一个全新的场景。</p>
+<p>它在 opencode 里有两处真实落点：<strong>文件改动</strong>（<span class="mono">file-mutation.ts</span>，按文件路径加锁）与<strong>插件调用</strong>（<span class="mono">plugin.ts</span>，按插件 id 加锁）。要注意区分一个常见误解：<strong>"同一个会话同一时刻只有一路在 drain"并不是靠 KeyedMutex，而是由第四部分的 <span class="mono">run-coordinator</span> 专门保证</strong>的——不过它用的正是<strong>同一个</strong>"按 key 排队"的思路（按 session 排队）。换句话说，<strong>"细到每把钥匙"的锁</strong>是一种贯穿全局的范式：文件、插件、会话各按自己的 key 排队，让"安全"和"并发"这对常被认为对立的目标，在 opencode 里处处同时成立。</p>
+<p>顺带一提，"按 key 排队"是个适用面极广的模式，远不止文件。任何"同一个实体上的操作必须串行、不同实体之间却可以并行"的场景——同一个文件的写入、同一个插件的调用、同一个会话的运行——都能套上这把锁。opencode 把它抽成一个泛型的 <span class="mono">KeyedMutex&lt;Key&gt;</span>，正是看准了这个模式会在仓库各处反复出现，与其每处手写一遍、错一遍，不如做成一件公用的、一定正确的小工具。一件好工具的标志，就是它解决的不是某一个特例，而是<strong>一整类问题</strong>——你换个 Key，它就服务于一个全新的场景。</p>
 
 <h2>serviceUse：少写点样板</h2>
 <p>还记得用一个 Service 要 <span class="mono">yield* Service</span> 再调方法吗？当某个服务被频繁调用，这套样板会反复出现。<span class="mono">effect/service-use.ts</span> 的 <span class="mono">serviceUse(tag)</span> 把它包薄了一层：</p>
@@ -765,7 +765,7 @@ LESSON_08 = {
 
 <div class="card macro">
   <div class="tag">🌍 宏观理解</div>
-  <span class="mono">packages/core/src/effect/</span> 是 opencode 在 Effect 之上自建的<strong>小工具箱</strong>，把高频模式固化成趁手件：<strong>Effect.fn</strong> 给每段 effect 命名（277 处，自带可观测性）；<strong>memoMap</strong> 让同一服务全进程只造一份；<strong>KeyedMutex</strong> 按钥匙（如 session ID）精确排队——同 key 串行、异 key 并行；<strong>serviceUse</strong> 省掉调用服务的样板。它们不改 Effect 的玩法，只把"该做对的高频动作"磨顺。认得这几件，读 core 就少了一半"自家约定"的门槛。说到底，读懂这一抽屉小工具，收获的不只是几个 API，更是一种<strong>眼光</strong>：看任何大型代码库时，先认出它"为自己造了哪些趁手件"，往往就抓住了这个团队的工程品味与高频痛点。带着这种眼光，你接下来读 server、读 session core，都会更快摸到门道。
+  <span class="mono">packages/core/src/effect/</span> 是 opencode 在 Effect 之上自建的<strong>小工具箱</strong>，把高频模式固化成趁手件：<strong>Effect.fn</strong> 给每段 effect 命名（277 处，自带可观测性）；<strong>memoMap</strong> 让同一服务全进程只造一份；<strong>KeyedMutex</strong> 按钥匙（如文件路径）精确排队——同 key 串行、异 key 并行；<strong>serviceUse</strong> 省掉调用服务的样板。它们不改 Effect 的玩法，只把"该做对的高频动作"磨顺。认得这几件，读 core 就少了一半"自家约定"的门槛。说到底，读懂这一抽屉小工具，收获的不只是几个 API，更是一种<strong>眼光</strong>：看任何大型代码库时，先认出它"为自己造了哪些趁手件"，往往就抓住了这个团队的工程品味与高频痛点。带着这种眼光，你接下来读 server、读 session core，都会更快摸到门道。
 </div>
 
 <div class="card detail">
@@ -789,7 +789,7 @@ LESSON_08 = {
     <li><span class="mono">effect/</span> 是 opencode 在 Effect 之上自建的<strong>工具箱</strong>，固化高频模式。</li>
     <li><strong>Effect.fn("Domain.method")</strong>：给 effect 命名（277 处），自带可观测性；内部用 <span class="mono">fnUntraced</span>。</li>
     <li><strong>memoMap</strong>（一行）：同一个 Layer 全进程只造一份。</li>
-    <li><strong>KeyedMutex</strong>：按钥匙排队——同 key 串行、异 key 并行（天然适配 session ID）。</li>
+    <li><strong>KeyedMutex</strong>：按钥匙排队——同 key 串行、异 key 并行（如同一文件的并发改动）。</li>
     <li><strong>serviceUse</strong>：省掉调用服务的样板。它们让 core 读起来顺、写起来不易错。</li>
   </ul>
 </div>
@@ -841,20 +841,20 @@ LESSON_08 = {
 <p>Don't underrate "built once." If every dependent built its own Database, you'd have several DB connections and caches whose states <strong>could quietly diverge</strong> — the hardest class of bug in distributed systems. memoMap kills this at the root with a process-level memo: <strong>however many dependency paths touch a service, it has exactly one instance in memory</strong>. One line of code buys instance consistency across the whole dependency graph.</p>
 
 <h2>KeyedMutex: queue by the same key</h2>
-<p>Some operations "<strong>can't have two at once on the same object</strong>" — e.g. one session can't have two paths writing into it concurrently, scrambling state. But <strong>different</strong> sessions can run fully in parallel. A plain lock either locks too hard (one global lock, all concurrency gone) or, hand-rolling many per-key locks, is easy to get wrong. <span class="mono">KeyedMutex</span> exists for this:</p>
+<p>Some operations "<strong>can't have two at once on the same object</strong>" — e.g. the same file can't have two paths writing into it concurrently, scrambling its content. But <strong>different</strong> files can run fully in parallel. A plain lock either locks too hard (one global lock, all concurrency gone) or, hand-rolling many per-key locks, is easy to get wrong. <span class="mono">KeyedMutex</span> exists for this:</p>
 <div class="cellgroup">
   <div class="cg-cap"><b>KeyedMutex&lt;Key&gt;</b>: a lock that queues per "key"</div>
   <div class="cells"><span class="cell scale">same Key</span><span class="lab">serial — one finishes before the next enters</span></div>
   <div class="cells"><span class="cell q">different Key</span><span class="lab">parallel — unrelated, each runs its own</span></div>
 </div>
-<p>Its interface (<span class="mono">effect/keyed-mutex.ts</span>) is "<strong>give me a key and I guarantee operations under that key go one after another</strong>." In opencode the natural key is the session ID: one session's processing is serialized and won't clash, while different sessions still run at full concurrency. This "<strong>down to each key</strong>" precise queuing keeps correctness without sacrificing concurrency — hard to do at once by hand.</p>
+<p>Its interface (<span class="mono">effect/keyed-mutex.ts</span>) is "<strong>give me a key and I guarantee operations under that key go one after another</strong>." In opencode one natural key is the <strong>file path</strong>: concurrent edits to the same file are serialized and won't clash (see <span class="mono">file-mutation.ts</span>, locking by canonical path), while different files still run at full concurrency. This "<strong>down to each key</strong>" precise queuing keeps correctness without sacrificing concurrency — hard to do at once by hand.</p>
 <div class="vflow">
-  <div class="step"><b>session A · op①</b>　takes key A, enters and runs</div>
-  <div class="step"><b>session A · op②</b>　same key, <strong>queues</strong> until ① finishes</div>
-  <div class="step"><b>session B · op</b>　different key, <strong>parallel at once</strong>, never waits for A</div>
+  <div class="step"><b>file A · edit①</b>　takes key A, enters and runs</div>
+  <div class="step"><b>file A · edit②</b>　same key, <strong>queues</strong> until ① finishes</div>
+  <div class="step"><b>file B · edit</b>　different key, <strong>parallel at once</strong>, never waits for A</div>
 </div>
-<p>This is one hidden prerequisite for Lesson 3's "agent loop" to run safely: one session's processing is strung into a line by KeyedMutex, with no "two drains writing one session" chaos; yet open ten sessions and they still run in parallel at full speed. A <strong>lock as fine as each key</strong> lets "safety" and "concurrency" — often thought opposed — hold at once in opencode. Part 4's <span class="mono">run-coordinator</span> revisits this "queue per session" idea.</p>
-<p>Incidentally, "queue by key" is a broadly applicable pattern, far beyond sessions. Any scenario where "operations on the same entity must be serial, but different entities may be parallel" — writes to one file, state changes on one account, a background task on one project — fits this lock. opencode abstracts it into a generic <span class="mono">KeyedMutex&lt;Key&gt;</span>, foreseeing this pattern recurring repo-wide; rather than hand-write (and mis-write) it each place, make one shared, always-correct tool. A good tool's mark is solving not one special case but <strong>a whole class</strong> — swap the Key and it serves a brand-new scenario.</p>
+<p>It has two real landing spots in opencode: <strong>file mutations</strong> (<span class="mono">file-mutation.ts</span>, locked by file path) and <strong>plugin invocations</strong> (<span class="mono">plugin.ts</span>, locked by plugin id). Watch out for a common misconception: <strong>"one session has at most one drain at a time" is NOT done by KeyedMutex, but guaranteed by Part 4's <span class="mono">run-coordinator</span></strong> — though it uses the <strong>same</strong> "queue by key" idea (queuing per session). In other words, <strong>a lock as fine as each key</strong> is a paradigm running throughout: files, plugins, and sessions each queue by their own key, letting "safety" and "concurrency" — often thought opposed — hold at once everywhere in opencode.</p>
+<p>Incidentally, "queue by key" is a broadly applicable pattern, far beyond files. Any scenario where "operations on the same entity must be serial, but different entities may be parallel" — writes to one file, invocations of one plugin, runs of one session — fits this lock. opencode abstracts it into a generic <span class="mono">KeyedMutex&lt;Key&gt;</span>, foreseeing this pattern recurring repo-wide; rather than hand-write (and mis-write) it each place, make one shared, always-correct tool. A good tool's mark is solving not one special case but <strong>a whole class</strong> — swap the Key and it serves a brand-new scenario.</p>
 
 <h2>serviceUse: write less boilerplate</h2>
 <p>Remember using a Service needs <span class="mono">yield* Service</span> then call a method? When a service is called often, this boilerplate recurs. <span class="mono">effect/service-use.ts</span>'s <span class="mono">serviceUse(tag)</span> thins it by a layer:</p>
@@ -876,7 +876,7 @@ LESSON_08 = {
 
 <div class="card macro">
   <div class="tag">🌍 Big picture</div>
-  <span class="mono">packages/core/src/effect/</span> is the <strong>small toolbox</strong> opencode built on Effect, crystallizing high-frequency patterns into handy parts: <strong>Effect.fn</strong> names each effect (277 spots, built-in observability); <strong>memoMap</strong> builds a service once per process; <strong>KeyedMutex</strong> queues precisely by key (e.g. session ID) — same key serial, different keys parallel; <strong>serviceUse</strong> drops the boilerplate of calling a service. They don't change how Effect works, only grind the "should-be-correct high-frequency actions" smooth. Know these few and reading core sheds half the "house convention" barrier. Ultimately, grasping this drawer gains not just a few APIs but a <strong>lens</strong>: reading any large codebase, first spot "what handy parts it built for itself" and you often grasp the team's engineering taste and frequent pains. With this lens, reading the server and the session core next comes faster.
+  <span class="mono">packages/core/src/effect/</span> is the <strong>small toolbox</strong> opencode built on Effect, crystallizing high-frequency patterns into handy parts: <strong>Effect.fn</strong> names each effect (277 spots, built-in observability); <strong>memoMap</strong> builds a service once per process; <strong>KeyedMutex</strong> queues precisely by key (e.g. file path) — same key serial, different keys parallel; <strong>serviceUse</strong> drops the boilerplate of calling a service. They don't change how Effect works, only grind the "should-be-correct high-frequency actions" smooth. Know these few and reading core sheds half the "house convention" barrier. Ultimately, grasping this drawer gains not just a few APIs but a <strong>lens</strong>: reading any large codebase, first spot "what handy parts it built for itself" and you often grasp the team's engineering taste and frequent pains. With this lens, reading the server and the session core next comes faster.
 </div>
 
 <div class="card detail">
@@ -900,7 +900,7 @@ LESSON_08 = {
     <li><span class="mono">effect/</span> is opencode's <strong>toolbox</strong> on top of Effect, crystallizing high-frequency patterns.</li>
     <li><strong>Effect.fn("Domain.method")</strong>: name effects (277 spots), built-in observability; internal use <span class="mono">fnUntraced</span>.</li>
     <li><strong>memoMap</strong> (one line): a Layer built once per process.</li>
-    <li><strong>KeyedMutex</strong>: queue by key — same key serial, different keys parallel (fits session ID).</li>
+    <li><strong>KeyedMutex</strong>: queue by key — same key serial, different keys parallel (e.g. concurrent edits to one file).</li>
     <li><strong>serviceUse</strong>: drops service-call boilerplate. Together they make core terse to read, hard to mis-write.</li>
   </ul>
 </div>

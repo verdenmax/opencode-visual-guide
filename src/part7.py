@@ -915,7 +915,7 @@ format: Schema.<span class="fn">Literals</span>([<span class="st">"text"</span>,
   .pipe(Schema.<span class="fn">withDecodingDefault</span>(() =&gt; <span class="st">"markdown"</span>))
 
 <span class="cm">// websearch：把当前年份写进给模型的 description</span>
-description = <span class="st">`...The current year is ${'$'}{new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
+description = <span class="st">`...The current year is ${new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
   <p>两处都体现了「<strong>把对模型的体贴写进定义里</strong>」。<span class="mono">withDecodingDefault</span> 让模型<strong>可以不传 format</strong>——不传就当 markdown，省去模型每次都要想「我要什么格式」的负担，默认就给它最好消化的那种。而 websearch 把 <span class="mono">new Date().getFullYear()</span> 拼进 description，是在<strong>每次构建工具定义时</strong>动态算出真实年份注进去——模型的训练知识有「时间盲区」，它不知道「现在是哪年」，这一句注入就把这个盲区补上了。<strong>这些细节都不改变工具「能做什么」，却显著改善模型「用得好不好」</strong>——好的工具，不只给模型能力，还替模型把「怎么用好」想在前面。这正是「工具的用户是个模型」这一前提，催生出的一整套体贴。</p>
 </div>
 
@@ -1003,7 +1003,7 @@ format: Schema.<span class="fn">Literals</span>([<span class="st">"text"</span>,
   .pipe(Schema.<span class="fn">withDecodingDefault</span>(() =&gt; <span class="st">"markdown"</span>))
 
 <span class="cm">// websearch: write the current year into the model-facing description</span>
-description = <span class="st">`...The current year is ${'$'}{new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
+description = <span class="st">`...The current year is ${new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
   <p>Both embody "<strong>write the care for the model into the definition</strong>." <span class="mono">withDecodingDefault</span> lets the model <strong>omit format</strong>—omit it and it's markdown, sparing the model the burden of thinking "which format do I want" each time, defaulting to the most digestible. And websearch splicing <span class="mono">new Date().getFullYear()</span> into the description dynamically computes the real year <strong>each time the tool definition is built</strong>—the model's training knowledge has a "time blind spot," it doesn't know "what year it is now," and this one injection fills that blind spot. <strong>These details change nothing about "what the tool can do," yet markedly improve "how well the model uses it"</strong>—a good tool gives the model not just capability but also thinks ahead about "how to use it well" for the model. This is the whole set of thoughtfulness born from the premise "the tool's user is a model."</p>
 </div>
 
@@ -1485,12 +1485,12 @@ LESSON_43 = {
   <div class="tag">🔬 源码细节</div>
   <p><span class="mono">skill</span> 工具注入正文的 <span class="mono">toModelOutput</span>，把「说明书 + 文件夹」交得很清楚（简化自 tool/skill.ts）：</p>
   <pre class="code"><span class="cm">// 注入给模型的技能正文：指令 + 基准目录 + 文件清单</span>
-[ <span class="st">`&lt;skill_content name="${'$'}{skill.name}"&gt;`</span>,
-  <span class="st">`# Skill: ${'$'}{skill.name}`</span>,
+[ <span class="st">`&lt;skill_content name="${skill.name}"&gt;`</span>,
+  <span class="st">`# Skill: ${skill.name}`</span>,
   skill.content.<span class="fn">trim</span>(),                          <span class="cm">// 完整指令正文</span>
-  <span class="st">`Base directory for this skill: ${'$'}{dirURL}`</span>,   <span class="cm">// 配套文件在哪</span>
+  <span class="st">`Base directory for this skill: ${dirURL}`</span>,   <span class="cm">// 配套文件在哪</span>
   <span class="st">"Relative paths (e.g., scripts/) are relative to this base directory."</span>,
-  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${'$'}{f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
+  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
 ].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
   <p>这段注入有两处用心。其一，它给的是<strong>基准目录的 URL + 一份文件清单</strong>，而非把那些脚本文件的<strong>内容</strong>也一并塞进来——又是「渐进式披露」：先告诉模型「<strong>有哪些文件、在哪</strong>」，至于某个脚本<strong>具体写了啥</strong>，等模型真要用时，再用 read 工具去读。一层套一层的懒加载：技能正文懒加载、技能里的文件再懒加载。其二，注释里那句「<span class="mono">file list is sampled</span>（文件清单是抽样的）」很诚实——当一个技能附带成百上千个文件时，清单本身也会被<strong>有界</strong>（呼应第 42 课），不让「列文件」这件事反过来撑爆上下文。<strong>从技能正文到文件清单，处处是『按需、有界』——这套贯穿 M7 的纪律，到收官这一课依然一以贯之。</strong></p>
 </div>
@@ -1583,12 +1583,12 @@ LESSON_43 = {
   <div class="tag">🔬 Source Detail</div>
   <p>The <span class="mono">skill</span> tool's <span class="mono">toModelOutput</span>, injecting the body, hands over "manual + folder" clearly (simplified from tool/skill.ts):</p>
   <pre class="code"><span class="cm">// the skill body injected to the model: instructions + base dir + file list</span>
-[ <span class="st">`&lt;skill_content name="${'$'}{skill.name}"&gt;`</span>,
-  <span class="st">`# Skill: ${'$'}{skill.name}`</span>,
+[ <span class="st">`&lt;skill_content name="${skill.name}"&gt;`</span>,
+  <span class="st">`# Skill: ${skill.name}`</span>,
   skill.content.<span class="fn">trim</span>(),                          <span class="cm">// the full instruction body</span>
-  <span class="st">`Base directory for this skill: ${'$'}{dirURL}`</span>,   <span class="cm">// where the supporting files are</span>
+  <span class="st">`Base directory for this skill: ${dirURL}`</span>,   <span class="cm">// where the supporting files are</span>
   <span class="st">"Relative paths (e.g., scripts/) are relative to this base directory."</span>,
-  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${'$'}{f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
+  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
 ].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
   <p>Two careful touches in this injection. One, it gives the <strong>base directory URL + a file list</strong>, not stuffing those script files' <strong>contents</strong> in too—again "progressive disclosure": first tell the model "<strong>which files exist, where</strong>," and as for what a script <strong>specifically says</strong>, when the model really needs it, it reads it with the read tool. Lazy loading nested in lazy loading: the skill body lazy-loaded, the files within the skill lazy-loaded again. Two, the comment's "<span class="mono">file list is sampled</span>" is honest—when a skill comes with hundreds or thousands of files, the list itself is <strong>bounded</strong> (echoing lesson 42), not letting "listing files" itself blow the context. <strong>From the skill body to the file list, "on demand, bounded" is everywhere—this discipline running through M7 holds firm even in this closing lesson.</strong></p>
 </div>

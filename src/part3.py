@@ -311,7 +311,7 @@ LESSON_10 = {
 </div>
 <p>其中<strong>错误中间件</strong>（<span class="mono">middleware/error.ts</span>）的设计很能体现 opencode 的克制。它<strong>不</strong>粗暴地把所有异常都拦下来变成 500——恰恰相反，它特意放行那些<strong>已经声明在契约里的、有类型的失败</strong>（比如 404、BadRequest），让它们沿着自己声明过的错误路径正常返回。它只管一件事：<strong>兜住那些没人预料到的「裸崩溃」（defect）</strong>，把它们包成一个带 <span class="mono">ref</span> 编号的 500，并把真实堆栈写进服务器日志。</p>
 <pre class="code"><span class="cm">// 简化自 middleware/error.ts —— 只兜底「意料之外」的崩溃</span>
-<span class="kw">const</span> ref = <span class="st">`err_${'$'}{crypto.randomUUID().slice(0, 8)}`</span>
+<span class="kw">const</span> ref = <span class="st">`err_${crypto.randomUUID().slice(0, 8)}`</span>
 <span class="kw">yield</span>* Effect.<span class="fn">logError</span>(<span class="st">"failed"</span>, { ref, error })  <span class="cm">// 真相进日志</span>
 <span class="kw">return</span> HttpServerResponse.<span class="fn">jsonUnsafe</span>(
   { message: <span class="st">"Unexpected server error. Check server logs."</span>, ref },
@@ -436,7 +436,7 @@ handlers.<span class="fn">handle</span>(<span class="st">"get"</span>, get)
 </div>
 <p>The <strong>error middleware</strong> (<span class="mono">middleware/error.ts</span>) especially shows opencode's restraint. It does <strong>not</strong> crudely catch every exception and turn it into a 500 — quite the opposite, it deliberately lets through those <strong>typed failures already declared in the contract</strong> (like 404, BadRequest), letting them return normally along their own declared error path. It minds only one thing: <strong>catching the unforeseen "bare crashes" (defects)</strong>, wrapping them into a 500 with a <span class="mono">ref</span> id, and writing the real stack into the server log.</p>
 <pre class="code"><span class="cm">// simplified from middleware/error.ts — only catches "unforeseen" crashes</span>
-<span class="kw">const</span> ref = <span class="st">`err_${'$'}{crypto.randomUUID().slice(0, 8)}`</span>
+<span class="kw">const</span> ref = <span class="st">`err_${crypto.randomUUID().slice(0, 8)}`</span>
 <span class="kw">yield</span>* Effect.<span class="fn">logError</span>(<span class="st">"failed"</span>, { ref, error })  <span class="cm">// truth into the log</span>
 <span class="kw">return</span> HttpServerResponse.<span class="fn">jsonUnsafe</span>(
   { message: <span class="st">"Unexpected server error. Check server logs."</span>, ref },
@@ -748,7 +748,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   source: [
     <span class="st">`import { createOpencodeClient } from "@opencode-ai/sdk"`</span>,
     <span class="st">`const client = createOpencodeClient()`</span>,
-    <span class="st">`await client.${'$'}{operation.operationId}({ ... })`</span>,
+    <span class="st">`await client.${operation.operationId}({ ... })`</span>,
   ].<span class="fn">join</span>(<span class="st">"\n"</span>),
 }]</pre>
 <p>于是生成出来的 API 文档里，每个端点旁边都自带一段「这样调用我」的复制即用代码——文档不再是干巴巴的字段表，而是<strong>能直接照抄的活例子</strong>。其二，整份 JSON <strong>过一遍 prettier 格式化</strong>，确保无论谁在什么机器上跑，产出的文件都<strong>逐字节一致</strong>。这个「可复现」的执念很关键：因为生成物是<strong>要提交进仓库</strong>的，只有逐字节稳定，代码评审里才不会冒出一堆无意义的格式 diff。</p>
@@ -804,7 +804,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   <div class="tag">🔬 源码细节</div>
   <p>整条流水线的「装订机」配置，浓缩在 build.ts 这几行里：</p>
   <pre class="code"><span class="cm">// packages/sdk/js/script/build.ts</span>
-<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${'$'}{dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// 先 dump 规范</span>
+<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// 先 dump 规范</span>
 
 <span class="kw">await</span> <span class="fn">createClient</span>({
   input: <span class="st">"./openapi.json"</span>,
@@ -863,7 +863,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   source: [
     <span class="st">`import { createOpencodeClient } from "@opencode-ai/sdk"`</span>,
     <span class="st">`const client = createOpencodeClient()`</span>,
-    <span class="st">`await client.${'$'}{operation.operationId}({ ... })`</span>,
+    <span class="st">`await client.${operation.operationId}({ ... })`</span>,
   ].<span class="fn">join</span>(<span class="st">"\n"</span>),
 }]</pre>
 <p>So in the generated API docs, each endpoint comes with a copy-and-run snippet of "call me like this" — the docs are no longer a dry field table but <strong>a live example you can copy verbatim</strong>. Second, the whole JSON <strong>passes through prettier formatting</strong>, ensuring that whoever runs it on whatever machine, the output file is <strong>byte-identical</strong>. This "reproducibility" obsession matters: because the artifact is <strong>committed into the repo</strong>, only byte-stability keeps code review free of meaningless formatting diffs.</p>
@@ -919,7 +919,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   <div class="tag">🔬 Source detail</div>
   <p>The whole line's "binder" config is condensed in these lines of build.ts:</p>
   <pre class="code"><span class="cm">// packages/sdk/js/script/build.ts</span>
-<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${'$'}{dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// dump the spec first</span>
+<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// dump the spec first</span>
 
 <span class="kw">await</span> <span class="fn">createClient</span>({
   input: <span class="st">"./openapi.json"</span>,

@@ -338,7 +338,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 </div>
 
 <h2>一份真相，两种形状</h2>
-<p>整套设计的核心，是把同一份真相<strong>分成两端、各取所需</strong>。<strong>写端</strong>是事件日志：第 15 课的 <span class="mono">admit</span>、模型每吐一个片段、每个工具状态翻牌……全是往事件流里<strong>追加</strong>一条不可变记录。<strong>读端</strong>是投影出来的消息/部件表（<span class="mono">MessageTable</span> / <span class="mono">PartTable</span>）：一份<strong>誊写好的、可直接读的</strong>对话。两端由中间的<strong>投影器</strong>（<span class="mono">SessionProjector</span>）连起来——它消费事件，把它们「应用」成消息表里的行。</p>
+<p>整套设计的核心，是把同一份真相<strong>分成两端、各取所需</strong>。<strong>写端</strong>是事件日志：第 15 课的 <span class="mono">admit</span>、模型每吐一个片段、每个工具状态翻牌……全是往事件流里<strong>追加</strong>一条不可变记录。<strong>读端</strong>是投影出来的消息表（<span class="mono">SessionMessageTable</span>，V2 里每条消息的 part 数组<strong>直接嵌在该行的 JSON <span class="mono">data</span> 列</strong>里，并无独立的 part 表）：一份<strong>誊写好的、可直接读的</strong>对话。两端由中间的<strong>投影器</strong>（<span class="mono">SessionProjector</span>）连起来——它消费事件，把它们「应用」成消息表里的行。</p>
 <div class="cols">
   <div class="col"><h4>写端 · 事件（底账）</h4><p>append-only、不可变、有序。求<strong>稳</strong>：崩不丢、可重放、可定责。但直接读它，得自己重放一切。</p></div>
   <div class="col"><h4>读端 · 投影消息（报表）</h4><p>誊写好、当下、现成。求<strong>快</strong>：模型一读即用，不必重放。它是底账的「投影」，可随时据底账重建。</p></div>
@@ -347,13 +347,13 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="flow">
   <div class="node">事件日志<span class="sub">append-only·底账（第 15 课）</span></div>
   <div class="arrow">投影器 →</div>
-  <div class="node">消息/部件表<span class="sub">誊写好的读模型</span></div>
+  <div class="node">SessionMessage 表<span class="sub">誊写好的读模型</span></div>
   <div class="arrow">history.load →</div>
   <div class="node">agent 循环<span class="sub">每轮重读（第 17 课）</span></div>
 </div>
 
 <h2>投影器：把事件誊成消息</h2>
-<p><span class="mono">SessionProjector</span>（<span class="mono">projector.ts</span>）就是那个后台誊账的clerk。它消费一个个事件，往 <span class="mono">MessageTable</span>/<span class="mono">PartTable</span> 里<strong>插入或更新</strong>对应的行——一个 <span class="mono">Admitted</span> 事件投影成一条 User 消息，一串流式片段投影成 Assistant 消息里逐渐长出的 part 数组，一个工具状态变更更新对应 tool part 的 state……源码里有一行注释很能说明它的谨慎：「<strong>更新的回合会取代过时的残行；绝不接着投影一条更老的 assistant 记录</strong>」。换句话说，投影不是无脑追加，它<strong>懂得新回合该盖过旧的、半截的残留</strong>，保证誊出来的对账单始终自洽。</p>
+<p><span class="mono">SessionProjector</span>（<span class="mono">projector.ts</span>）就是那个后台誊账的clerk。它消费一个个事件，往 <span class="mono">SessionMessageTable</span> 里<strong>插入或更新</strong>对应的行——一个 <span class="mono">Admitted</span> 事件投影成一条 User 消息，一串流式片段投影成 Assistant 消息里逐渐长出的 part 数组（嵌在该行 JSON 里），一个工具状态变更更新对应 tool part 的 state……源码里有一行注释很能说明它的谨慎：「<strong>更新的回合会取代过时的残行；绝不接着投影一条更老的 assistant 记录</strong>」。换句话说，投影不是无脑追加，它<strong>懂得新回合该盖过旧的、半截的残留</strong>，保证誊出来的对账单始终自洽。</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">1</span><span class="t-txt">事件流来一个 PromptLifecycle.Admitted → 投影成一条 User 消息行</span></div>
   <div class="t-row"><span class="t-num">2</span><span class="t-txt">模型流式 text/reasoning/tool-call 片段 → 长进 Assistant 消息的 part 数组</span></div>
@@ -389,7 +389,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="tag">🗺️ 宏观图景</div>
   <p>这一课把第 15、17 课之间缺的那块拼图补上了，也为第四、第五部分搭了座桥：</p>
   <ul>
-    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳），读端是投影出的消息/部件表（报表，求快）——CQRS / 事件溯源读模型。</li>
+    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳），读端是投影出的消息表（<span class="mono">SessionMessageTable</span>，part 嵌在行内 JSON）（报表，求快）——CQRS / 事件溯源读模型。</li>
     <li><strong>投影器</strong>（SessionProjector）：消费事件、誊成消息行；懂得新回合盖过过时残留，保证读模型自洽。它正是第 14 课结构化数据的「填表人」。</li>
     <li><strong>history.load</strong>：第 17 课「重读投影历史」的底层；读的是一段<strong>有界</strong>窗口，由最近压缩 + 上下文纪元基线裁边。</li>
     <li><strong>权威永不变、报表可重建</strong>：投影丢了能照事件重投，事件改了才真失真——主次摆正，可靠与好读就不再打架。</li>
@@ -415,7 +415,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="card key">
   <div class="tag">🎯 本课要点</div>
   <ul>
-    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳：崩不丢/可重放/可定责），读端是投影出的消息/部件表（报表，求快：一读即用）。即 CQRS / 事件溯源读模型。</li>
+    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳：崩不丢/可重放/可定责），读端是投影出的消息表（<span class="mono">SessionMessageTable</span>，part 嵌在行内 JSON）（报表，求快：一读即用）。即 CQRS / 事件溯源读模型。</li>
     <li><strong>投影器</strong>（SessionProjector）消费事件、誊成消息行，是第 14 课结构化数据的「填表人」；它懂得让新回合盖过过时残留，保证读模型自洽。</li>
     <li><strong>history.load</strong> 是第 17 课「重读投影历史」的底层：它读的是<strong>投影好的</strong>消息，且只读一段<strong>有界</strong>窗口。</li>
     <li>窗口的边界由<strong>最近一次压缩</strong>（第 51 课）+ <strong>上下文纪元基线</strong>（第 24 课）裁定——「读历史」是「读当前该看的那一段」，不是读全部。</li>
@@ -430,7 +430,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <li>压缩前一份、压缩后一份</li>
     <li>一份存数据库、一份存文件，内容相同</li>
     <li>中文一份、英文一份</li>
-    <li>写端用 append-only 事件（底账），读端用投影出的消息/部件表（报表）</li>
+    <li>写端用 append-only 事件（底账），读端用投影出的消息表 SessionMessageTable（报表）</li>
   </ol>
   <details class="accordion">
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
@@ -481,7 +481,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 </div>
 
 <h2>One truth, two shapes</h2>
-<p>The core of the whole design is splitting one truth into <strong>two ends, each taking what it needs</strong>. The <strong>write end</strong> is the event log: Lesson 15's <span class="mono">admit</span>, every fragment the model emits, every tool-state flip… all <strong>append</strong> an immutable record to the event stream. The <strong>read end</strong> is the projected message/part tables (<span class="mono">MessageTable</span> / <span class="mono">PartTable</span>): a <strong>transcribed, directly readable</strong> conversation. The two ends are linked by the <strong>projector</strong> in the middle (<span class="mono">SessionProjector</span>) — it consumes events and "applies" them as rows in the message tables.</p>
+<p>The core of the whole design is splitting one truth into <strong>two ends, each taking what it needs</strong>. The <strong>write end</strong> is the event log: Lesson 15's <span class="mono">admit</span>, every fragment the model emits, every tool-state flip… all <strong>append</strong> an immutable record to the event stream. The <strong>read end</strong> is the projected message table (<span class="mono">SessionMessageTable</span>; in V2 each message's part array is <strong>embedded directly in that row's JSON <span class="mono">data</span> column</strong> — there is no separate part table): a <strong>transcribed, directly readable</strong> conversation. The two ends are linked by the <strong>projector</strong> in the middle (<span class="mono">SessionProjector</span>) — it consumes events and "applies" them as rows in the message table.</p>
 <div class="cols">
   <div class="col"><h4>write end · events (ledger)</h4><p>append-only, immutable, ordered. For <strong>stability</strong>: crash-safe, replayable, accountable. But to read it directly, you'd replay everything.</p></div>
   <div class="col"><h4>read end · projected messages (statement)</h4><p>transcribed, current, ready-made. For <strong>speed</strong>: the model reads it as-is, no replay. It's the ledger's "projection," rebuildable from the ledger anytime.</p></div>
@@ -490,13 +490,13 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="flow">
   <div class="node">event log<span class="sub">append-only · ledger (Lesson 15)</span></div>
   <div class="arrow">projector →</div>
-  <div class="node">message/part tables<span class="sub">transcribed read model</span></div>
+  <div class="node">SessionMessage table<span class="sub">transcribed read model</span></div>
   <div class="arrow">history.load →</div>
   <div class="node">agent loop<span class="sub">reread each round (Lesson 17)</span></div>
 </div>
 
 <h2>The projector: transcribing events into messages</h2>
-<p><span class="mono">SessionProjector</span> (<span class="mono">projector.ts</span>) is that back-office transcribing clerk. It consumes events one by one, <strong>inserting or updating</strong> the matching rows in <span class="mono">MessageTable</span>/<span class="mono">PartTable</span> — an <span class="mono">Admitted</span> event projects into a User message, a stream of fragments projects into the gradually-growing part array of an Assistant message, a tool-state change updates that tool part's state… A comment in the source shows its care well: "<strong>a newer turn supersedes stale incomplete rows; never resume an older assistant projection</strong>." In other words, projection isn't mindless appending; it <strong>knows a new turn should override stale, half-finished leftovers</strong>, keeping the transcribed statement always self-consistent.</p>
+<p><span class="mono">SessionProjector</span> (<span class="mono">projector.ts</span>) is that back-office transcribing clerk. It consumes events one by one, <strong>inserting or updating</strong> the matching rows in <span class="mono">SessionMessageTable</span> — an <span class="mono">Admitted</span> event projects into a User message, a stream of fragments projects into the gradually-growing part array of an Assistant message (embedded in that row's JSON), a tool-state change updates that tool part's state… A comment in the source shows its care well: "<strong>a newer turn supersedes stale incomplete rows; never resume an older assistant projection</strong>." In other words, projection isn't mindless appending; it <strong>knows a new turn should override stale, half-finished leftovers</strong>, keeping the transcribed statement always self-consistent.</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">1</span><span class="t-txt">a PromptLifecycle.Admitted arrives → project into a User message row</span></div>
   <div class="t-row"><span class="t-num">2</span><span class="t-txt">streaming text/reasoning/tool-call fragments → grow into an Assistant message's part array</span></div>
@@ -532,7 +532,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="tag">🗺️ The big picture</div>
   <p>This lesson supplies the missing puzzle piece between Lessons 15 and 17, and builds a bridge to Parts 4 and 5:</p>
   <ul>
-    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability), the read end is projected message/part tables (statement, for speed) — CQRS / event-sourcing read model.</li>
+    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability), the read end is the projected message table (<span class="mono">SessionMessageTable</span>, parts embedded in the row's JSON) (statement, for speed) — CQRS / event-sourcing read model.</li>
     <li><strong>The projector</strong> (SessionProjector): consumes events, transcribes them into message rows; knows a new turn overrides stale leftovers, keeping the read model self-consistent. It's the "form-filler" of Lesson 14's structured data.</li>
     <li><strong>history.load</strong>: the underside of Lesson 17's "reread projected history"; reads a <strong>bounded</strong> window, edge-trimmed by latest compaction + context epoch baseline.</li>
     <li><strong>Authority never changes, the statement rebuilds</strong>: lose the projection and it re-projects from events, only rewriting events truly distorts — set the priority right and reliability and readability stop fighting.</li>
@@ -558,7 +558,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 <div class="card key">
   <div class="tag">🎯 Key points</div>
   <ul>
-    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability: crash-safe/replayable/accountable), the read end is projected message/part tables (statement, for speed: read as-is). I.e. CQRS / event-sourcing read model.</li>
+    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability: crash-safe/replayable/accountable), the read end is the projected message table (<span class="mono">SessionMessageTable</span>, parts embedded in the row's JSON) (statement, for speed: read as-is). I.e. CQRS / event-sourcing read model.</li>
     <li><strong>The projector</strong> (SessionProjector) consumes events and transcribes them into message rows — the "form-filler" of Lesson 14's structured data; it knows to let a new turn override stale leftovers, keeping the read model consistent.</li>
     <li><strong>history.load</strong> is the underside of Lesson 17's "reread projected history": it reads <strong>projected</strong> messages, and only a <strong>bounded</strong> window.</li>
     <li>The window's edges are trimmed by <strong>latest compaction</strong> (Lesson 51) + <strong>context epoch baseline</strong> (Lesson 24) — "reading history" is "reading the slice you should see now," not all of it.</li>
@@ -573,7 +573,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <li>One before compression, one after</li>
     <li>One copy in a database, one in a file, identical content</li>
     <li>One Chinese copy, one English copy</li>
-    <li>Write end uses append-only events (ledger); read end uses projected message/part tables (statement)</li>
+    <li>Write end uses append-only events (ledger); read end uses the projected SessionMessageTable (statement)</li>
   </ol>
   <details class="accordion">
     <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>

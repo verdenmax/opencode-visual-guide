@@ -318,7 +318,7 @@ LESSON_53 = {
     },
     <span class="fn">use</span>() {
       <span class="kw">const</span> value = <span class="fn">useContext</span>(ctx)
-      <span class="kw">if</span> (!value) <span class="kw">throw new</span> <span class="fn">Error</span>(<span class="st">`${'$'}{input.name} context must be used within a context provider`</span>)  <span class="cm">// ← 快速失败</span>
+      <span class="kw">if</span> (!value) <span class="kw">throw new</span> <span class="fn">Error</span>(<span class="st">`${input.name} context must be used within a context provider`</span>)  <span class="cm">// ← 快速失败</span>
       <span class="kw">return</span> value
     },
   }
@@ -429,7 +429,7 @@ LESSON_53 = {
     },
     <span class="fn">use</span>() {
       <span class="kw">const</span> value = <span class="fn">useContext</span>(ctx)
-      <span class="kw">if</span> (!value) <span class="kw">throw new</span> <span class="fn">Error</span>(<span class="st">`${'$'}{input.name} context must be used within a context provider`</span>)  <span class="cm">// ← fail fast</span>
+      <span class="kw">if</span> (!value) <span class="kw">throw new</span> <span class="fn">Error</span>(<span class="st">`${input.name} context must be used within a context provider`</span>)  <span class="cm">// ← fail fast</span>
       <span class="kw">return</span> value
     },
   }

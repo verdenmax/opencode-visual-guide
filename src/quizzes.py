@@ -1253,7 +1253,7 @@ QUIZZES = {
                     {"zh": "只能用来锁数据库", "en": "It can only lock the database"},
                 ],
                 "answer": 0,
-                "why": {"zh": "按 key 精确排队：以 session ID 为 key，同一会话的处理串成一条线、不打架，不同会话照样满速并行——既保正确又不牺牲并发。", "en": "Precise per-key queuing: with session ID as key, one session's processing is serialized and won't clash, while different sessions run at full concurrency — correctness without sacrificing parallelism."},
+                "why": {"zh": "按 key 精确排队：例如以文件路径为 key（file-mutation.ts），对同一文件的并发改动串成一条线、不打架，不同文件照样满速并行——既保正确又不牺牲并发。（注意：会话级的「同一时刻一路 drain」是 run-coordinator 干的，不是 KeyedMutex，但二者都是「按 key 排队」这同一思路。）", "en": "Precise per-key queuing: e.g. with the file path as key (file-mutation.ts), concurrent edits to one file are serialized and won't clash, while different files run at full concurrency — correctness without sacrificing parallelism. (Note: per-session «one drain at a time» is done by run-coordinator, not KeyedMutex, though both use the same «queue by key» idea.)"},
             },
         ],
         "open": [
@@ -1395,7 +1395,7 @@ QUIZZES = {
                     {"zh": "从数据库 schema 推导", "en": "Derived from the database schema"},
                 ],
                 "answer": 0,
-                "why": {"zh": "核心是一行 OpenApi.fromApi(PublicApi)：把结构化的 API 类型读成标准 OpenAPI 规范；opencode generate 加料+格式化；@hey-api 照规范印出 types/sdk/client 三个文件。全程没有手写。", "en": "The core is one line, OpenApi.fromApi(PublicApi): read the structured API types into a standard OpenAPI spec; generate seasons+formats; @hey-api prints types/sdk/client from the spec. None hand-written."},
+                "why": {"zh": "核心是一行 OpenApi.fromApi(PublicApi)：把结构化的 API 类型读成标准 OpenAPI 规范；opencode generate 加料+格式化；@hey-api 照规范印出 types/sdk/client 三个文件。全程没有手写。", "en": "The core is one line, OpenApi.fromApi(PublicApi): read the structured API types into a standard OpenAPI spec; the `generate` command adds extras and formats it; @hey-api prints types/sdk/client from the spec. None hand-written."},
             },
             {
                 "q": {"zh": "为什么生成 SDK 能根除前后端「类型漂移」？", "en": "Why does a generated SDK eliminate frontend/backend \"type drift\"?"},
@@ -1676,7 +1676,7 @@ QUIZZES = {
             {
                 "q": {"zh": "opencode 会话存储「一份真相、两种形状」指的是？", "en": "What does opencode's session storage \"one truth, two shapes\" mean?"},
                 "opts": [
-                    {"zh": "写端用 append-only 事件（底账），读端用投影出的消息/部件表（报表）", "en": "Write end uses append-only events (ledger); read end uses projected message/part tables (statement)"},
+                    {"zh": "写端用 append-only 事件（底账），读端用投影出的消息表 SessionMessageTable（报表）", "en": "Write end uses append-only events (ledger); read end uses the projected SessionMessageTable (statement)"},
                     {"zh": "一份存数据库、一份存文件，内容相同", "en": "One copy in a database, one in a file, identical content"},
                     {"zh": "中文一份、英文一份", "en": "One Chinese copy, one English copy"},
                     {"zh": "压缩前一份、压缩后一份", "en": "One before compression, one after"},
@@ -1749,7 +1749,7 @@ QUIZZES = {
             },
         ],
         "open": [
-            {"zh": "课里说安全护栏的艺术「不在有没有，而在卡在哪个值」——MAX_STEPS 太小掐断复杂任务、太大失控代价可怕，25 是经验折中。如果让你为一个会动用户文件的 agent 选这个上限，你会考虑哪些因素？", "en": "The lesson says a guardrail's art is \"not whether but at what value\" — too-small MAX_STEPS cuts off complex tasks, too-large makes runaway costs frightening, 25 an empirical compromise. If you set this cap for an agent that touches user files, what factors would you weigh?"},
+            {"zh": "课里说安全护栏的艺术「不在有没有，而在卡在哪个值」——MAX_STEPS 太小掐断复杂任务、太大失控代价可怕，而 25 这个具体数字源码注释自己都打了问号（「它合理吗？」）。如果让你为一个会动用户文件的 agent 选这个上限，你会考虑哪些因素？又该如何验证它选得合不合适？", "en": "The lesson says a guardrail's art is \"not whether but at what value\" — too-small MAX_STEPS cuts off complex tasks, too-large makes runaway costs frightening, and the source comment itself question-marks the exact 25 (\"Does it make sense?\"). If you set this cap for an agent that touches user files, what factors would you weigh, and how would you validate the choice?"},
             {"zh": "源码错误处理段对「失败」分得极细（被中断/工具炸了/模型报错各有收尾），但都殊途同归到 failUnsettledTools，最后才如实 failCause 上抛。「先收干净自己的烂摊子，再诚实交出错误」——为什么这个顺序很重要？", "en": "The source's error handling dissects \"failure\" finely (interrupted/tool-blew-up/model-error each with its wind-down) but all converge on failUnsettledTools, only then faithfully failCause-rethrowing. \"Clean up your own mess first, then hand the error over honestly\" — why does this order matter?"},
         ],
     },

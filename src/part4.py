@@ -1132,7 +1132,7 @@ LESSON_19 = {
 </div>
 
 <h2>一份真相，两种形状</h2>
-<p>整套设计的核心，是把同一份真相<strong>分成两端、各取所需</strong>。<strong>写端</strong>是事件日志：第 15 课的 <span class="mono">admit</span>、模型每吐一个片段、每个工具状态翻牌……全是往事件流里<strong>追加</strong>一条不可变记录。<strong>读端</strong>是投影出来的消息/部件表（<span class="mono">MessageTable</span> / <span class="mono">PartTable</span>）：一份<strong>誊写好的、可直接读的</strong>对话。两端由中间的<strong>投影器</strong>（<span class="mono">SessionProjector</span>）连起来——它消费事件，把它们「应用」成消息表里的行。</p>
+<p>整套设计的核心，是把同一份真相<strong>分成两端、各取所需</strong>。<strong>写端</strong>是事件日志：第 15 课的 <span class="mono">admit</span>、模型每吐一个片段、每个工具状态翻牌……全是往事件流里<strong>追加</strong>一条不可变记录。<strong>读端</strong>是投影出来的消息表（<span class="mono">SessionMessageTable</span>，V2 里每条消息的 part 数组<strong>直接嵌在该行的 JSON <span class="mono">data</span> 列</strong>里，并无独立的 part 表）：一份<strong>誊写好的、可直接读的</strong>对话。两端由中间的<strong>投影器</strong>（<span class="mono">SessionProjector</span>）连起来——它消费事件，把它们「应用」成消息表里的行。</p>
 <div class="cols">
   <div class="col"><h4>写端 · 事件（底账）</h4><p>append-only、不可变、有序。求<strong>稳</strong>：崩不丢、可重放、可定责。但直接读它，得自己重放一切。</p></div>
   <div class="col"><h4>读端 · 投影消息（报表）</h4><p>誊写好、当下、现成。求<strong>快</strong>：模型一读即用，不必重放。它是底账的「投影」，可随时据底账重建。</p></div>
@@ -1141,13 +1141,13 @@ LESSON_19 = {
 <div class="flow">
   <div class="node">事件日志<span class="sub">append-only·底账（第 15 课）</span></div>
   <div class="arrow">投影器 →</div>
-  <div class="node">消息/部件表<span class="sub">誊写好的读模型</span></div>
+  <div class="node">SessionMessage 表<span class="sub">誊写好的读模型</span></div>
   <div class="arrow">history.load →</div>
   <div class="node">agent 循环<span class="sub">每轮重读（第 17 课）</span></div>
 </div>
 
 <h2>投影器：把事件誊成消息</h2>
-<p><span class="mono">SessionProjector</span>（<span class="mono">projector.ts</span>）就是那个后台誊账的clerk。它消费一个个事件，往 <span class="mono">MessageTable</span>/<span class="mono">PartTable</span> 里<strong>插入或更新</strong>对应的行——一个 <span class="mono">Admitted</span> 事件投影成一条 User 消息，一串流式片段投影成 Assistant 消息里逐渐长出的 part 数组，一个工具状态变更更新对应 tool part 的 state……源码里有一行注释很能说明它的谨慎：「<strong>更新的回合会取代过时的残行；绝不接着投影一条更老的 assistant 记录</strong>」。换句话说，投影不是无脑追加，它<strong>懂得新回合该盖过旧的、半截的残留</strong>，保证誊出来的对账单始终自洽。</p>
+<p><span class="mono">SessionProjector</span>（<span class="mono">projector.ts</span>）就是那个后台誊账的clerk。它消费一个个事件，往 <span class="mono">SessionMessageTable</span> 里<strong>插入或更新</strong>对应的行——一个 <span class="mono">Admitted</span> 事件投影成一条 User 消息，一串流式片段投影成 Assistant 消息里逐渐长出的 part 数组（嵌在该行 JSON 里），一个工具状态变更更新对应 tool part 的 state……源码里有一行注释很能说明它的谨慎：「<strong>更新的回合会取代过时的残行；绝不接着投影一条更老的 assistant 记录</strong>」。换句话说，投影不是无脑追加，它<strong>懂得新回合该盖过旧的、半截的残留</strong>，保证誊出来的对账单始终自洽。</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">1</span><span class="t-txt">事件流来一个 PromptLifecycle.Admitted → 投影成一条 User 消息行</span></div>
   <div class="t-row"><span class="t-num">2</span><span class="t-txt">模型流式 text/reasoning/tool-call 片段 → 长进 Assistant 消息的 part 数组</span></div>
@@ -1183,7 +1183,7 @@ LESSON_19 = {
   <div class="tag">🗺️ 宏观图景</div>
   <p>这一课把第 15、17 课之间缺的那块拼图补上了，也为第四、第五部分搭了座桥：</p>
   <ul>
-    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳），读端是投影出的消息/部件表（报表，求快）——CQRS / 事件溯源读模型。</li>
+    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳），读端是投影出的消息表（<span class="mono">SessionMessageTable</span>，part 嵌在行内 JSON）（报表，求快）——CQRS / 事件溯源读模型。</li>
     <li><strong>投影器</strong>（SessionProjector）：消费事件、誊成消息行；懂得新回合盖过过时残留，保证读模型自洽。它正是第 14 课结构化数据的「填表人」。</li>
     <li><strong>history.load</strong>：第 17 课「重读投影历史」的底层；读的是一段<strong>有界</strong>窗口，由最近压缩 + 上下文纪元基线裁边。</li>
     <li><strong>权威永不变、报表可重建</strong>：投影丢了能照事件重投，事件改了才真失真——主次摆正，可靠与好读就不再打架。</li>
@@ -1209,7 +1209,7 @@ LESSON_19 = {
 <div class="card key">
   <div class="tag">🎯 本课要点</div>
   <ul>
-    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳：崩不丢/可重放/可定责），读端是投影出的消息/部件表（报表，求快：一读即用）。即 CQRS / 事件溯源读模型。</li>
+    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳：崩不丢/可重放/可定责），读端是投影出的消息表（<span class="mono">SessionMessageTable</span>，part 嵌在行内 JSON）（报表，求快：一读即用）。即 CQRS / 事件溯源读模型。</li>
     <li><strong>投影器</strong>（SessionProjector）消费事件、誊成消息行，是第 14 课结构化数据的「填表人」；它懂得让新回合盖过过时残留，保证读模型自洽。</li>
     <li><strong>history.load</strong> 是第 17 课「重读投影历史」的底层：它读的是<strong>投影好的</strong>消息，且只读一段<strong>有界</strong>窗口。</li>
     <li>窗口的边界由<strong>最近一次压缩</strong>（第 51 课）+ <strong>上下文纪元基线</strong>（第 24 课）裁定——「读历史」是「读当前该看的那一段」，不是读全部。</li>
@@ -1227,7 +1227,7 @@ LESSON_19 = {
 </div>
 
 <h2>One truth, two shapes</h2>
-<p>The core of the whole design is splitting one truth into <strong>two ends, each taking what it needs</strong>. The <strong>write end</strong> is the event log: Lesson 15's <span class="mono">admit</span>, every fragment the model emits, every tool-state flip… all <strong>append</strong> an immutable record to the event stream. The <strong>read end</strong> is the projected message/part tables (<span class="mono">MessageTable</span> / <span class="mono">PartTable</span>): a <strong>transcribed, directly readable</strong> conversation. The two ends are linked by the <strong>projector</strong> in the middle (<span class="mono">SessionProjector</span>) — it consumes events and "applies" them as rows in the message tables.</p>
+<p>The core of the whole design is splitting one truth into <strong>two ends, each taking what it needs</strong>. The <strong>write end</strong> is the event log: Lesson 15's <span class="mono">admit</span>, every fragment the model emits, every tool-state flip… all <strong>append</strong> an immutable record to the event stream. The <strong>read end</strong> is the projected message table (<span class="mono">SessionMessageTable</span>; in V2 each message's part array is <strong>embedded directly in that row's JSON <span class="mono">data</span> column</strong> — there is no separate part table): a <strong>transcribed, directly readable</strong> conversation. The two ends are linked by the <strong>projector</strong> in the middle (<span class="mono">SessionProjector</span>) — it consumes events and "applies" them as rows in the message table.</p>
 <div class="cols">
   <div class="col"><h4>write end · events (ledger)</h4><p>append-only, immutable, ordered. For <strong>stability</strong>: crash-safe, replayable, accountable. But to read it directly, you'd replay everything.</p></div>
   <div class="col"><h4>read end · projected messages (statement)</h4><p>transcribed, current, ready-made. For <strong>speed</strong>: the model reads it as-is, no replay. It's the ledger's "projection," rebuildable from the ledger anytime.</p></div>
@@ -1236,13 +1236,13 @@ LESSON_19 = {
 <div class="flow">
   <div class="node">event log<span class="sub">append-only · ledger (Lesson 15)</span></div>
   <div class="arrow">projector →</div>
-  <div class="node">message/part tables<span class="sub">transcribed read model</span></div>
+  <div class="node">SessionMessage table<span class="sub">transcribed read model</span></div>
   <div class="arrow">history.load →</div>
   <div class="node">agent loop<span class="sub">reread each round (Lesson 17)</span></div>
 </div>
 
 <h2>The projector: transcribing events into messages</h2>
-<p><span class="mono">SessionProjector</span> (<span class="mono">projector.ts</span>) is that back-office transcribing clerk. It consumes events one by one, <strong>inserting or updating</strong> the matching rows in <span class="mono">MessageTable</span>/<span class="mono">PartTable</span> — an <span class="mono">Admitted</span> event projects into a User message, a stream of fragments projects into the gradually-growing part array of an Assistant message, a tool-state change updates that tool part's state… A comment in the source shows its care well: "<strong>a newer turn supersedes stale incomplete rows; never resume an older assistant projection</strong>." In other words, projection isn't mindless appending; it <strong>knows a new turn should override stale, half-finished leftovers</strong>, keeping the transcribed statement always self-consistent.</p>
+<p><span class="mono">SessionProjector</span> (<span class="mono">projector.ts</span>) is that back-office transcribing clerk. It consumes events one by one, <strong>inserting or updating</strong> the matching rows in <span class="mono">SessionMessageTable</span> — an <span class="mono">Admitted</span> event projects into a User message, a stream of fragments projects into the gradually-growing part array of an Assistant message (embedded in that row's JSON), a tool-state change updates that tool part's state… A comment in the source shows its care well: "<strong>a newer turn supersedes stale incomplete rows; never resume an older assistant projection</strong>." In other words, projection isn't mindless appending; it <strong>knows a new turn should override stale, half-finished leftovers</strong>, keeping the transcribed statement always self-consistent.</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">1</span><span class="t-txt">a PromptLifecycle.Admitted arrives → project into a User message row</span></div>
   <div class="t-row"><span class="t-num">2</span><span class="t-txt">streaming text/reasoning/tool-call fragments → grow into an Assistant message's part array</span></div>
@@ -1278,7 +1278,7 @@ LESSON_19 = {
   <div class="tag">🗺️ The big picture</div>
   <p>This lesson supplies the missing puzzle piece between Lessons 15 and 17, and builds a bridge to Parts 4 and 5:</p>
   <ul>
-    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability), the read end is projected message/part tables (statement, for speed) — CQRS / event-sourcing read model.</li>
+    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability), the read end is the projected message table (<span class="mono">SessionMessageTable</span>, parts embedded in the row's JSON) (statement, for speed) — CQRS / event-sourcing read model.</li>
     <li><strong>The projector</strong> (SessionProjector): consumes events, transcribes them into message rows; knows a new turn overrides stale leftovers, keeping the read model self-consistent. It's the "form-filler" of Lesson 14's structured data.</li>
     <li><strong>history.load</strong>: the underside of Lesson 17's "reread projected history"; reads a <strong>bounded</strong> window, edge-trimmed by latest compaction + context epoch baseline.</li>
     <li><strong>Authority never changes, the statement rebuilds</strong>: lose the projection and it re-projects from events, only rewriting events truly distorts — set the priority right and reliability and readability stop fighting.</li>
@@ -1304,7 +1304,7 @@ LESSON_19 = {
 <div class="card key">
   <div class="tag">🎯 Key points</div>
   <ul>
-    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability: crash-safe/replayable/accountable), the read end is projected message/part tables (statement, for speed: read as-is). I.e. CQRS / event-sourcing read model.</li>
+    <li><strong>One truth, two shapes</strong>: the write end is append-only events (ledger, for stability: crash-safe/replayable/accountable), the read end is the projected message table (<span class="mono">SessionMessageTable</span>, parts embedded in the row's JSON) (statement, for speed: read as-is). I.e. CQRS / event-sourcing read model.</li>
     <li><strong>The projector</strong> (SessionProjector) consumes events and transcribes them into message rows — the "form-filler" of Lesson 14's structured data; it knows to let a new turn override stale leftovers, keeping the read model consistent.</li>
     <li><strong>history.load</strong> is the underside of Lesson 17's "reread projected history": it reads <strong>projected</strong> messages, and only a <strong>bounded</strong> window.</li>
     <li>The window's edges are trimmed by <strong>latest compaction</strong> (Lesson 51) + <strong>context epoch baseline</strong> (Lesson 24) — "reading history" is "reading the slice you should see now," not all of it.</li>
@@ -1336,7 +1336,7 @@ LESSON_20 = {
   { sessionID: SessionSchema.ID, limit: Schema.Int },  <span class="cm">// ← 谁、撞了多少</span>
 ) {}</pre>
 <p>为什么非要一个硬上限？因为模型<strong>不总知道自己该停</strong>。它可能陷进「再查一个文件、再改一处、再验证一下」的兔子洞，自以为在勤勤恳恳地推进，实则在原地打转、烧着你的钱。<span class="mono">while(true)</span> 式的「让它自由迭代到满意为止」，对一个会消耗真金白银、还可能动你文件的循环，是不可接受的赌博。25 这道环，是 opencode 替你按下的一道<strong>不容商量的刹车</strong>：迭代可以，但到此为止。而把「到此为止」做成一个<strong>带字段的类型化错误</strong>而非默默 return，意味着上层能<strong>明确地知道「这次是因为撞了上限才停的」</strong>，从而做出恰当反应（比如提示用户「任务太长，要不要分步」），而不是面对一个语焉不详的「就这么结束了」。</p>
-<p>这里有个容易被忽略的分寸：上限是 25，不是 5、也不是 250。太小，复杂任务还没展开就被掐断，agent 显得「不中用」；太大，失控的代价（钱、时间、对你文件的折腾）又太可怕。25 是一个<strong>经验校准过的折中</strong>——它给了模型足够长的自驱空间去完成多数真实任务，又给了一道在它跑偏时及时止损的硬线。安全护栏的艺术，往往不在「有没有」，而在「卡在哪个值」：太松等于没有，太紧等于碍事。把这个数字钉成一个<strong>显式的常量</strong>（<span class="mono">MAX_STEPS</span>）而非散落在代码里的魔法数，也方便它日后被审视、被调整——这又是这套代码「把关键决策摆到明面上」的一贯做派。</p>
+<p>这里有个容易被忽略的分寸：上限是 25，不是 5、也不是 250。太小，复杂任务还没展开就被掐断，agent 显得「不中用」；太大，失控的代价（钱、时间、对你文件的折腾）又太可怕。但要诚实地说——<strong>25 这个具体数字，源码自己也没把握</strong>：常量上方就挂着一行注释「<span class="mono">QUESTION: 这个限制是本来就有、还是我们后加的？它合理吗？</span>」。所以与其说它是精确调校出的最优值，不如说是一个<strong>「先定个数、别让它失控」的硬上限</strong>——它给了模型足够长的自驱空间去完成多数真实任务，又给了一道在它跑偏时及时止损的硬线。安全护栏的艺术，往往不在「有没有」，而在「卡在哪个值」：太松等于没有，太紧等于碍事，而这个值<strong>本就允许日后再校准</strong>。正因如此，把这个数字钉成一个<strong>显式的常量</strong>（<span class="mono">MAX_STEPS</span>）而非散落在代码里的魔法数，才尤其要紧——它方便日后被审视、被调整，这又是这套代码「把关键决策（连同它的不确定）摆到明面上」的一贯做派。</p>
 <div class="cols">
   <div class="col"><h4>❌ while(true) 自由迭代</h4><p>让模型转到自己满意。可它常陷兔子洞原地打转，烧钱、动文件，没人喊停。</p></div>
   <div class="col"><h4>✅ for(step&lt;25) + 类型化错误</h4><p>硬上限 25 圈，超了抛 StepLimitExceededError（带 sessionID/limit）。上层明确知道"为何而停"。</p></div>
@@ -1351,6 +1351,8 @@ LESSON_20 = {
   <div class="cell"><div class="k">SessionRunnerModel.Error</div><div class="v">模型解析失败</div></div>
   <div class="cell"><div class="k">AgentReplacementBlocked</div><div class="v">中途换 agent 被拦（第 27 课）</div></div>
   <div class="cell"><div class="k">ToolOutputStore.Error</div><div class="v">工具输出落盘出错</div></div>
+  <div class="cell"><div class="k">ContextSnapshotDecodeError</div><div class="v">上下文快照解不出来（第 24 课）</div></div>
+  <div class="cell"><div class="k">SystemContext.InitializationBlocked</div><div class="v">系统上下文初始化被拦（第 21 课）</div></div>
 </div>
 <p>这正是第 5、8 课那条「<strong>错误是值，写进签名</strong>」的世界观，在整台 runner 上的终极兑现。<span class="mono">run</span> 的返回类型是 <span class="mono">Effect&lt;void, RunError&gt;</span>——那个 <span class="mono">RunError</span> 明明白白挂在签名里，意味着<strong>任何调用这台循环的人，都被编译器逼着去面对「它可能这样失败」</strong>。没有藏在某个 <span class="mono">throw</span> 里、靠运行时炸了才发现的暗雷；每一种失败都是类型里一个<strong>看得见、躲不开</strong>的分支。对一个本质上充满不确定（模型会抽风、网络会断、工具会炸）的系统，把这份不确定<strong>从「运行时的惊吓」抬成「编译期的清单」</strong>，是 opencode 敢让这台循环放手去跑的底气。</p>
 <p>更妙的是，这份「失败清单」本身就是一份<strong>极佳的文档</strong>。一个新人想知道「这台循环到底会怎么坏」，不用翻遍实现、不用问老手——直接看 <span class="mono">RunError</span> 这个联合类型，<strong>八个</strong>成员就是八种会发生的坏事，名字还自带解释（<span class="mono">StepLimitExceededError</span>、<span class="mono">MessageDecodeError</span>……）。<strong>类型化错误不只让编译器替你把关，还让代码自己说清楚「我会以哪些方式失败」</strong>。比起散落在各处、语焉不详的 <span class="mono">throw new Error("something went wrong")</span>，一个收拢齐整的错误联合，是把「失败」这件事当一等公民来认真对待的标志。</p>
@@ -1400,7 +1402,7 @@ LESSON_20 = {
   <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">"interrupted"</span>)  <span class="cm">// 没结清的标记失败</span>
 }
 <span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> && !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// 工具真炸了</span>
-  <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${'$'}{message}`</span>)
+  <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${message}`</span>)
 }
 <span class="kw">if</span> (stream._tag === <span class="st">"Failure"</span>) <span class="kw">return</span> <span class="kw">yield</span>* Effect.<span class="fn">failCause</span>(stream.cause)  <span class="cm">// 错误如实上抛</span></pre>
   <p>读这段，你会发现它对「失败」分得极细：是被中断、还是工具真炸了、还是模型报错，各有各的收尾话术，但<strong>殊途同归到一件事——<span class="mono">failUnsettledTools</span></strong>：无论哪种倒法，都先把没结清的工具结清。最后那句 <span class="mono">Effect.failCause(stream.cause)</span> 也很关键：错误不是被吞掉，而是<strong>如实地沿 Effect 的错误通道往上抛</strong>，最终汇成签名里那个 <span class="mono">RunError</span>。<strong>先把自己的烂摊子收干净，再把错误诚实地交出去</strong>——这就是一台健壮的循环面对失败时，应有的体面。</p>
@@ -1439,7 +1441,7 @@ LESSON_20 = {
   { sessionID: SessionSchema.ID, limit: Schema.Int },  <span class="cm">// ← who, hit what cap</span>
 ) {}</pre>
 <p>Why insist on a hard cap? Because the model <strong>doesn't always know to stop</strong>. It can fall into a "check one more file, fix one more spot, verify once more" rabbit hole, thinking it's diligently advancing while actually spinning in place, burning your money. A <span class="mono">while(true)</span>-style "let it iterate freely until satisfied" is an unacceptable gamble for a loop that spends real money and may touch your files. The ring of 25 is a <strong>non-negotiable brake</strong> opencode presses for you: iterate, yes, but this far. And making "this far" a <strong>typed error with fields</strong> rather than a silent return means the upper layer can <strong>know definitively "this stopped because it hit the cap,"</strong> and react appropriately (e.g. prompt the user "task too long, break it into steps?") instead of facing a vague "it just ended."</p>
-<p>There's an easily-missed sense of proportion here: the cap is 25, not 5, not 250. Too small, and complex tasks are cut off before they unfold, making the agent seem "useless"; too large, and the cost of running wild (money, time, churn on your files) becomes too frightening. 25 is an <strong>empirically-calibrated compromise</strong> — long enough self-driving room to finish most real tasks, with a hard line to cut losses when it strays. The art of a guardrail is often not in "whether" but "at what value": too loose is as good as none, too tight gets in the way. Nailing this number as an <strong>explicit constant</strong> (<span class="mono">MAX_STEPS</span>) rather than a magic number scattered in code also keeps it reviewable and adjustable later — again this codebase's habit of "putting key decisions out in the open."</p>
+<p>There's an easily-missed sense of proportion here: the cap is 25, not 5, not 250. Too small, and complex tasks are cut off before they unfold, making the agent seem "useless"; too large, and the cost of running wild (money, time, churn on your files) becomes too frightening. But honestly — <strong>the source itself isn't sure about the exact number 25</strong>: right above the constant sits a comment, "<span class="mono">QUESTION: Did this exist previously, or did we add this limit? Does it make sense?</span>" So rather than a precisely-tuned optimum, it's better seen as a <strong>"pick a number so it can't run wild" hard cap</strong> — long enough self-driving room to finish most real tasks, with a hard line to cut losses when it strays. The art of a guardrail is often not in "whether" but "at what value": too loose is as good as none, too tight gets in the way — and this value is <strong>explicitly open to recalibration later</strong>. Precisely for that reason, nailing this number as an <strong>explicit constant</strong> (<span class="mono">MAX_STEPS</span>) rather than a magic number scattered in code matters all the more — it keeps it reviewable and adjustable, again this codebase's habit of "putting key decisions (and their uncertainty) out in the open."</p>
 <div class="cols">
   <div class="col"><h4>❌ while(true) free iteration</h4><p>Let the model run till satisfied. But it often rabbit-holes in place, burning money, touching files, with no one to halt it.</p></div>
   <div class="col"><h4>✅ for(step&lt;25) + typed error</h4><p>Hard cap of 25 cycles; exceed it and throw StepLimitExceededError (with sessionID/limit). The upper layer knows exactly "why it stopped."</p></div>
@@ -1454,6 +1456,8 @@ LESSON_20 = {
   <div class="cell"><div class="k">SessionRunnerModel.Error</div><div class="v">model resolution failed</div></div>
   <div class="cell"><div class="k">AgentReplacementBlocked</div><div class="v">a mid-way agent switch was blocked (Lesson 27)</div></div>
   <div class="cell"><div class="k">ToolOutputStore.Error</div><div class="v">tool-output disk write failed</div></div>
+  <div class="cell"><div class="k">ContextSnapshotDecodeError</div><div class="v">context snapshot won't decode (L24)</div></div>
+  <div class="cell"><div class="k">SystemContext.InitializationBlocked</div><div class="v">system context init blocked (L21)</div></div>
 </div>
 <p>This is Lessons 5 and 8's worldview of "<strong>errors are values, written into the signature</strong>" cashed out at the whole runner. <span class="mono">run</span>'s return type is <span class="mono">Effect&lt;void, RunError&gt;</span> — that <span class="mono">RunError</span> hangs plainly in the signature, meaning <strong>anyone calling this loop is forced by the compiler to face "it can fail this way."</strong> No landmine hidden in some <span class="mono">throw</span>, discovered only when it blows up at runtime; every failure is a <strong>visible, unavoidable</strong> branch in the type. For a system inherently full of uncertainty (models glitch, networks drop, tools blow up), lifting that uncertainty <strong>from "a runtime fright" to "a compile-time checklist"</strong> is what gives opencode the confidence to let this loop run free.</p>
 <p>Better still, this "failure checklist" is itself <strong>excellent documentation</strong>. A newcomer wanting to know "how exactly can this loop break" needn't comb the implementation or ask a veteran — just look at the <span class="mono">RunError</span> union; its <strong>eight</strong> members are eight bad things that can happen, the names self-explanatory (<span class="mono">StepLimitExceededError</span>, <span class="mono">MessageDecodeError</span>…). <strong>Typed errors not only have the compiler guard for you but make the code state for itself "the ways I can fail."</strong> Compared to vague <span class="mono">throw new Error("something went wrong")</span> scattered everywhere, a tidy error union is the mark of treating "failure" as a first-class citizen.</p>
@@ -1503,7 +1507,7 @@ LESSON_20 = {
   <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">"interrupted"</span>)  <span class="cm">// mark unsettled as failed</span>
 }
 <span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> && !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// a tool really blew up</span>
-  <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${'$'}{message}`</span>)
+  <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${message}`</span>)
 }
 <span class="kw">if</span> (stream._tag === <span class="st">"Failure"</span>) <span class="kw">return</span> <span class="kw">yield</span>* Effect.<span class="fn">failCause</span>(stream.cause)  <span class="cm">// rethrow the error faithfully</span></pre>
   <p>Read it and you'll find it dissects "failure" finely: interrupted, or a tool really blew up, or a model error — each has its own wind-down wording, but <strong>all converge on one thing — <span class="mono">failUnsettledTools</span></strong>: whichever way it falls, settle the unsettled tools first. The final <span class="mono">Effect.failCause(stream.cause)</span> matters too: the error isn't swallowed but <strong>faithfully rethrown up Effect's error channel</strong>, ultimately joining the <span class="mono">RunError</span> in the signature. <strong>Clean up your own mess first, then hand the error over honestly</strong> — that's the dignity a robust loop owes when facing failure.</p>

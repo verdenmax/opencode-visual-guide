@@ -1661,20 +1661,20 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
 <p>别小看这"只造一份"。如果每个依赖方各造一个 Database，你就会有好几条数据库连接、好几份缓存，它们之间的状态<strong>可能悄悄对不上</strong>——这是分布式里最难查的那类 bug。memoMap 用一个进程级的备忘录把这种隐患从根上掐掉：<strong>无论一个服务被多少条依赖路径牵涉到，它在内存里永远只有一份</strong>。一行代码，换来整个依赖图的实例一致性。</p>
 
 <h2>KeyedMutex：给同一把钥匙排队</h2>
-<p>有些操作"<strong>同一个对象上不能同时来两个</strong>"——比如同一个 session，不能让两路逻辑同时往里写、把状态搅乱。但<strong>不同</strong> session 之间又完全可以并行。普通的锁要么锁太狠（全局一把锁、并发全没了），要么自己手写一堆 per-key 的锁很容易错。<span class="mono">KeyedMutex</span> 就是为此而生：</p>
+<p>有些操作"<strong>同一个对象上不能同时来两个</strong>"——比如同一个文件，不能让两处逻辑同时往里写、把内容搅乱。但<strong>不同</strong>文件之间又完全可以并行。普通的锁要么锁太狠（全局一把锁、并发全没了），要么自己手写一堆 per-key 的锁很容易错。<span class="mono">KeyedMutex</span> 就是为此而生：</p>
 <div class="cellgroup">
   <div class="cg-cap"><b>KeyedMutex&lt;Key&gt;</b>：按"钥匙"分别排队的锁</div>
   <div class="cells"><span class="cell scale">同一个 Key</span><span class="lab">串行——一个做完下一个才进</span></div>
   <div class="cells"><span class="cell q">不同 Key</span><span class="lab">并行——互不相干，各跑各的</span></div>
 </div>
-<p>它的接口（<span class="mono">effect/keyed-mutex.ts</span>）就是"<strong>给我一把钥匙，我保证同一把钥匙下的操作一个接一个</strong>"。落到 opencode，最自然的钥匙就是 session ID：同一个会话的处理被串起来、不打架，不同会话照样满速并发。这种"<strong>细到每把钥匙</strong>"的精确排队，既保住了正确性，又没牺牲并发——是手写锁很难同时做到的。</p>
+<p>它的接口（<span class="mono">effect/keyed-mutex.ts</span>）就是"<strong>给我一把钥匙，我保证同一把钥匙下的操作一个接一个</strong>"。落到 opencode，一把最自然的钥匙就是<strong>文件路径</strong>：对同一个文件的并发改动被串起来、不打架（见 <span class="mono">file-mutation.ts</span>，按文件规范路径加锁），不同文件照样满速并发。这种"<strong>细到每把钥匙</strong>"的精确排队，既保住了正确性，又没牺牲并发——是手写锁很难同时做到的。</p>
 <div class="vflow">
-  <div class="step"><b>session A · 操作①</b>　拿到 A 这把钥匙，进入执行</div>
-  <div class="step"><b>session A · 操作②</b>　同一把钥匙，<strong>排队</strong>等①做完才进</div>
-  <div class="step"><b>session B · 操作</b>　不同钥匙，<strong>立刻并行</strong>，完全不等 A</div>
+  <div class="step"><b>文件 A · 改动①</b>　拿到 A 这把钥匙，进入执行</div>
+  <div class="step"><b>文件 A · 改动②</b>　同一把钥匙，<strong>排队</strong>等①做完才进</div>
+  <div class="step"><b>文件 B · 改动</b>　不同钥匙，<strong>立刻并行</strong>，完全不等 A</div>
 </div>
-<p>这正是第 3 课"agent 循环"能安全跑的隐形前提之一：同一个会话的处理被 KeyedMutex 串成一条线，不会出现"两路 drain 同时往一个 session 写"的混乱；而你开十个会话，它们之间照样满速并行。<strong>"细到每把钥匙"的锁</strong>，让"安全"和"并发"这对常被认为对立的目标，在 opencode 里同时成立。后面第四部分讲 <span class="mono">run-coordinator</span> 时，你会再见到这种"按 session 排队"的思路。</p>
-<p>顺带一提，"按 key 排队"是个适用面极广的模式，远不止 session。任何"同一个实体上的操作必须串行、不同实体之间却可以并行"的场景——同一个文件的写入、同一个账号的状态变更、同一个项目的某项后台任务——都能套上这把锁。opencode 把它抽成一个泛型的 <span class="mono">KeyedMutex&lt;Key&gt;</span>，正是看准了这个模式会在仓库各处反复出现，与其每处手写一遍、错一遍，不如做成一件公用的、一定正确的小工具。一件好工具的标志，就是它解决的不是某一个特例，而是<strong>一整类问题</strong>——你换个 Key，它就服务于一个全新的场景。</p>
+<p>它在 opencode 里有两处真实落点：<strong>文件改动</strong>（<span class="mono">file-mutation.ts</span>，按文件路径加锁）与<strong>插件调用</strong>（<span class="mono">plugin.ts</span>，按插件 id 加锁）。要注意区分一个常见误解：<strong>"同一个会话同一时刻只有一路在 drain"并不是靠 KeyedMutex，而是由第四部分的 <span class="mono">run-coordinator</span> 专门保证</strong>的——不过它用的正是<strong>同一个</strong>"按 key 排队"的思路（按 session 排队）。换句话说，<strong>"细到每把钥匙"的锁</strong>是一种贯穿全局的范式：文件、插件、会话各按自己的 key 排队，让"安全"和"并发"这对常被认为对立的目标，在 opencode 里处处同时成立。</p>
+<p>顺带一提，"按 key 排队"是个适用面极广的模式，远不止文件。任何"同一个实体上的操作必须串行、不同实体之间却可以并行"的场景——同一个文件的写入、同一个插件的调用、同一个会话的运行——都能套上这把锁。opencode 把它抽成一个泛型的 <span class="mono">KeyedMutex&lt;Key&gt;</span>，正是看准了这个模式会在仓库各处反复出现，与其每处手写一遍、错一遍，不如做成一件公用的、一定正确的小工具。一件好工具的标志，就是它解决的不是某一个特例，而是<strong>一整类问题</strong>——你换个 Key，它就服务于一个全新的场景。</p>
 
 <h2>serviceUse：少写点样板</h2>
 <p>还记得用一个 Service 要 <span class="mono">yield* Service</span> 再调方法吗？当某个服务被频繁调用，这套样板会反复出现。<span class="mono">effect/service-use.ts</span> 的 <span class="mono">serviceUse(tag)</span> 把它包薄了一层：</p>
@@ -1696,7 +1696,7 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
 
 <div class="card macro">
   <div class="tag">🌍 宏观理解</div>
-  <span class="mono">packages/core/src/effect/</span> 是 opencode 在 Effect 之上自建的<strong>小工具箱</strong>，把高频模式固化成趁手件：<strong>Effect.fn</strong> 给每段 effect 命名（277 处，自带可观测性）；<strong>memoMap</strong> 让同一服务全进程只造一份；<strong>KeyedMutex</strong> 按钥匙（如 session ID）精确排队——同 key 串行、异 key 并行；<strong>serviceUse</strong> 省掉调用服务的样板。它们不改 Effect 的玩法，只把"该做对的高频动作"磨顺。认得这几件，读 core 就少了一半"自家约定"的门槛。说到底，读懂这一抽屉小工具，收获的不只是几个 API，更是一种<strong>眼光</strong>：看任何大型代码库时，先认出它"为自己造了哪些趁手件"，往往就抓住了这个团队的工程品味与高频痛点。带着这种眼光，你接下来读 server、读 session core，都会更快摸到门道。
+  <span class="mono">packages/core/src/effect/</span> 是 opencode 在 Effect 之上自建的<strong>小工具箱</strong>，把高频模式固化成趁手件：<strong>Effect.fn</strong> 给每段 effect 命名（277 处，自带可观测性）；<strong>memoMap</strong> 让同一服务全进程只造一份；<strong>KeyedMutex</strong> 按钥匙（如文件路径）精确排队——同 key 串行、异 key 并行；<strong>serviceUse</strong> 省掉调用服务的样板。它们不改 Effect 的玩法，只把"该做对的高频动作"磨顺。认得这几件，读 core 就少了一半"自家约定"的门槛。说到底，读懂这一抽屉小工具，收获的不只是几个 API，更是一种<strong>眼光</strong>：看任何大型代码库时，先认出它"为自己造了哪些趁手件"，往往就抓住了这个团队的工程品味与高频痛点。带着这种眼光，你接下来读 server、读 session core，都会更快摸到门道。
 </div>
 
 <div class="card detail">
@@ -1720,7 +1720,7 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
     <li><span class="mono">effect/</span> 是 opencode 在 Effect 之上自建的<strong>工具箱</strong>，固化高频模式。</li>
     <li><strong>Effect.fn("Domain.method")</strong>：给 effect 命名（277 处），自带可观测性；内部用 <span class="mono">fnUntraced</span>。</li>
     <li><strong>memoMap</strong>（一行）：同一个 Layer 全进程只造一份。</li>
-    <li><strong>KeyedMutex</strong>：按钥匙排队——同 key 串行、异 key 并行（天然适配 session ID）。</li>
+    <li><strong>KeyedMutex</strong>：按钥匙排队——同 key 串行、异 key 并行（如同一文件的并发改动）。</li>
     <li><strong>serviceUse</strong>：省掉调用服务的样板。它们让 core 读起来顺、写起来不易错。</li>
   </ul>
 </div>
@@ -1763,7 +1763,7 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
-    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。按 key 精确排队：以 session ID 为 key，同一会话的处理串成一条线、不打架，不同会话照样满速并行——既保正确又不牺牲并发。</div></div></div>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。按 key 精确排队：例如以文件路径为 key（file-mutation.ts），对同一文件的并发改动串成一条线、不打架，不同文件照样满速并行——既保正确又不牺牲并发。（注意：会话级的「同一时刻一路 drain」是 run-coordinator 干的，不是 KeyedMutex，但二者都是「按 key 排队」这同一思路。）</div></div></div>
   </details>
 </div>
 <div class="card spark">
@@ -2024,7 +2024,7 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
 </div>
 <p>其中<strong>错误中间件</strong>（<span class="mono">middleware/error.ts</span>）的设计很能体现 opencode 的克制。它<strong>不</strong>粗暴地把所有异常都拦下来变成 500——恰恰相反，它特意放行那些<strong>已经声明在契约里的、有类型的失败</strong>（比如 404、BadRequest），让它们沿着自己声明过的错误路径正常返回。它只管一件事：<strong>兜住那些没人预料到的「裸崩溃」（defect）</strong>，把它们包成一个带 <span class="mono">ref</span> 编号的 500，并把真实堆栈写进服务器日志。</p>
 <pre class="code"><span class="cm">// 简化自 middleware/error.ts —— 只兜底「意料之外」的崩溃</span>
-<span class="kw">const</span> ref = <span class="st">`err_${'$'}{crypto.randomUUID().slice(0, 8)}`</span>
+<span class="kw">const</span> ref = <span class="st">`err_${crypto.randomUUID().slice(0, 8)}`</span>
 <span class="kw">yield</span>* Effect.<span class="fn">logError</span>(<span class="st">"failed"</span>, { ref, error })  <span class="cm">// 真相进日志</span>
 <span class="kw">return</span> HttpServerResponse.<span class="fn">jsonUnsafe</span>(
   { message: <span class="st">"Unexpected server error. Check server logs."</span>, ref },
@@ -2322,7 +2322,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   source: [
     <span class="st">`import { createOpencodeClient } from "@opencode-ai/sdk"`</span>,
     <span class="st">`const client = createOpencodeClient()`</span>,
-    <span class="st">`await client.${'$'}{operation.operationId}({ ... })`</span>,
+    <span class="st">`await client.${operation.operationId}({ ... })`</span>,
   ].<span class="fn">join</span>(<span class="st">"\n"</span>),
 }]</pre>
 <p>于是生成出来的 API 文档里，每个端点旁边都自带一段「这样调用我」的复制即用代码——文档不再是干巴巴的字段表，而是<strong>能直接照抄的活例子</strong>。其二，整份 JSON <strong>过一遍 prettier 格式化</strong>，确保无论谁在什么机器上跑，产出的文件都<strong>逐字节一致</strong>。这个「可复现」的执念很关键：因为生成物是<strong>要提交进仓库</strong>的，只有逐字节稳定，代码评审里才不会冒出一堆无意义的格式 diff。</p>
@@ -2378,7 +2378,7 @@ operation[<span class="st">"x-codeSamples"</span>] = [{
   <div class="tag">🔬 源码细节</div>
   <p>整条流水线的「装订机」配置，浓缩在 build.ts 这几行里：</p>
   <pre class="code"><span class="cm">// packages/sdk/js/script/build.ts</span>
-<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${'$'}{dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// 先 dump 规范</span>
+<span class="kw">await</span> $<span class="st">`bun dev generate &gt; ${dir}/openapi.json`</span>.<span class="fn">cwd</span>(opencode)  <span class="cm">// 先 dump 规范</span>
 
 <span class="kw">await</span> <span class="fn">createClient</span>({
   input: <span class="st">"./openapi.json"</span>,
@@ -3459,7 +3459,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 </div>
 
 <h2>一份真相，两种形状</h2>
-<p>整套设计的核心，是把同一份真相<strong>分成两端、各取所需</strong>。<strong>写端</strong>是事件日志：第 15 课的 <span class="mono">admit</span>、模型每吐一个片段、每个工具状态翻牌……全是往事件流里<strong>追加</strong>一条不可变记录。<strong>读端</strong>是投影出来的消息/部件表（<span class="mono">MessageTable</span> / <span class="mono">PartTable</span>）：一份<strong>誊写好的、可直接读的</strong>对话。两端由中间的<strong>投影器</strong>（<span class="mono">SessionProjector</span>）连起来——它消费事件，把它们「应用」成消息表里的行。</p>
+<p>整套设计的核心，是把同一份真相<strong>分成两端、各取所需</strong>。<strong>写端</strong>是事件日志：第 15 课的 <span class="mono">admit</span>、模型每吐一个片段、每个工具状态翻牌……全是往事件流里<strong>追加</strong>一条不可变记录。<strong>读端</strong>是投影出来的消息表（<span class="mono">SessionMessageTable</span>，V2 里每条消息的 part 数组<strong>直接嵌在该行的 JSON <span class="mono">data</span> 列</strong>里，并无独立的 part 表）：一份<strong>誊写好的、可直接读的</strong>对话。两端由中间的<strong>投影器</strong>（<span class="mono">SessionProjector</span>）连起来——它消费事件，把它们「应用」成消息表里的行。</p>
 <div class="cols">
   <div class="col"><h4>写端 · 事件（底账）</h4><p>append-only、不可变、有序。求<strong>稳</strong>：崩不丢、可重放、可定责。但直接读它，得自己重放一切。</p></div>
   <div class="col"><h4>读端 · 投影消息（报表）</h4><p>誊写好、当下、现成。求<strong>快</strong>：模型一读即用，不必重放。它是底账的「投影」，可随时据底账重建。</p></div>
@@ -3468,13 +3468,13 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 <div class="flow">
   <div class="node">事件日志<span class="sub">append-only·底账（第 15 课）</span></div>
   <div class="arrow">投影器 →</div>
-  <div class="node">消息/部件表<span class="sub">誊写好的读模型</span></div>
+  <div class="node">SessionMessage 表<span class="sub">誊写好的读模型</span></div>
   <div class="arrow">history.load →</div>
   <div class="node">agent 循环<span class="sub">每轮重读（第 17 课）</span></div>
 </div>
 
 <h2>投影器：把事件誊成消息</h2>
-<p><span class="mono">SessionProjector</span>（<span class="mono">projector.ts</span>）就是那个后台誊账的clerk。它消费一个个事件，往 <span class="mono">MessageTable</span>/<span class="mono">PartTable</span> 里<strong>插入或更新</strong>对应的行——一个 <span class="mono">Admitted</span> 事件投影成一条 User 消息，一串流式片段投影成 Assistant 消息里逐渐长出的 part 数组，一个工具状态变更更新对应 tool part 的 state……源码里有一行注释很能说明它的谨慎：「<strong>更新的回合会取代过时的残行；绝不接着投影一条更老的 assistant 记录</strong>」。换句话说，投影不是无脑追加，它<strong>懂得新回合该盖过旧的、半截的残留</strong>，保证誊出来的对账单始终自洽。</p>
+<p><span class="mono">SessionProjector</span>（<span class="mono">projector.ts</span>）就是那个后台誊账的clerk。它消费一个个事件，往 <span class="mono">SessionMessageTable</span> 里<strong>插入或更新</strong>对应的行——一个 <span class="mono">Admitted</span> 事件投影成一条 User 消息，一串流式片段投影成 Assistant 消息里逐渐长出的 part 数组（嵌在该行 JSON 里），一个工具状态变更更新对应 tool part 的 state……源码里有一行注释很能说明它的谨慎：「<strong>更新的回合会取代过时的残行；绝不接着投影一条更老的 assistant 记录</strong>」。换句话说，投影不是无脑追加，它<strong>懂得新回合该盖过旧的、半截的残留</strong>，保证誊出来的对账单始终自洽。</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">1</span><span class="t-txt">事件流来一个 PromptLifecycle.Admitted → 投影成一条 User 消息行</span></div>
   <div class="t-row"><span class="t-num">2</span><span class="t-txt">模型流式 text/reasoning/tool-call 片段 → 长进 Assistant 消息的 part 数组</span></div>
@@ -3510,7 +3510,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   <div class="tag">🗺️ 宏观图景</div>
   <p>这一课把第 15、17 课之间缺的那块拼图补上了，也为第四、第五部分搭了座桥：</p>
   <ul>
-    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳），读端是投影出的消息/部件表（报表，求快）——CQRS / 事件溯源读模型。</li>
+    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳），读端是投影出的消息表（<span class="mono">SessionMessageTable</span>，part 嵌在行内 JSON）（报表，求快）——CQRS / 事件溯源读模型。</li>
     <li><strong>投影器</strong>（SessionProjector）：消费事件、誊成消息行；懂得新回合盖过过时残留，保证读模型自洽。它正是第 14 课结构化数据的「填表人」。</li>
     <li><strong>history.load</strong>：第 17 课「重读投影历史」的底层；读的是一段<strong>有界</strong>窗口，由最近压缩 + 上下文纪元基线裁边。</li>
     <li><strong>权威永不变、报表可重建</strong>：投影丢了能照事件重投，事件改了才真失真——主次摆正，可靠与好读就不再打架。</li>
@@ -3536,7 +3536,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 <div class="card key">
   <div class="tag">🎯 本课要点</div>
   <ul>
-    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳：崩不丢/可重放/可定责），读端是投影出的消息/部件表（报表，求快：一读即用）。即 CQRS / 事件溯源读模型。</li>
+    <li><strong>一份真相、两种形状</strong>：写端是 append-only 事件（底账，求稳：崩不丢/可重放/可定责），读端是投影出的消息表（<span class="mono">SessionMessageTable</span>，part 嵌在行内 JSON）（报表，求快：一读即用）。即 CQRS / 事件溯源读模型。</li>
     <li><strong>投影器</strong>（SessionProjector）消费事件、誊成消息行，是第 14 课结构化数据的「填表人」；它懂得让新回合盖过过时残留，保证读模型自洽。</li>
     <li><strong>history.load</strong> 是第 17 课「重读投影历史」的底层：它读的是<strong>投影好的</strong>消息，且只读一段<strong>有界</strong>窗口。</li>
     <li>窗口的边界由<strong>最近一次压缩</strong>（第 51 课）+ <strong>上下文纪元基线</strong>（第 24 课）裁定——「读历史」是「读当前该看的那一段」，不是读全部。</li>
@@ -3552,7 +3552,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
     <li>压缩前一份、压缩后一份</li>
     <li>一份存数据库、一份存文件，内容相同</li>
     <li>中文一份、英文一份</li>
-    <li>写端用 append-only 事件（底账），读端用投影出的消息/部件表（报表）</li>
+    <li>写端用 append-only 事件（底账），读端用投影出的消息表 SessionMessageTable（报表）</li>
   </ol>
   <details class="accordion" open>
     <summary>看答案与解析 <span class="hint">点击展开</span></summary>
@@ -3618,7 +3618,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   { sessionID: SessionSchema.ID, limit: Schema.Int },  <span class="cm">// ← 谁、撞了多少</span>
 ) {}</pre>
 <p>为什么非要一个硬上限？因为模型<strong>不总知道自己该停</strong>。它可能陷进「再查一个文件、再改一处、再验证一下」的兔子洞，自以为在勤勤恳恳地推进，实则在原地打转、烧着你的钱。<span class="mono">while(true)</span> 式的「让它自由迭代到满意为止」，对一个会消耗真金白银、还可能动你文件的循环，是不可接受的赌博。25 这道环，是 opencode 替你按下的一道<strong>不容商量的刹车</strong>：迭代可以，但到此为止。而把「到此为止」做成一个<strong>带字段的类型化错误</strong>而非默默 return，意味着上层能<strong>明确地知道「这次是因为撞了上限才停的」</strong>，从而做出恰当反应（比如提示用户「任务太长，要不要分步」），而不是面对一个语焉不详的「就这么结束了」。</p>
-<p>这里有个容易被忽略的分寸：上限是 25，不是 5、也不是 250。太小，复杂任务还没展开就被掐断，agent 显得「不中用」；太大，失控的代价（钱、时间、对你文件的折腾）又太可怕。25 是一个<strong>经验校准过的折中</strong>——它给了模型足够长的自驱空间去完成多数真实任务，又给了一道在它跑偏时及时止损的硬线。安全护栏的艺术，往往不在「有没有」，而在「卡在哪个值」：太松等于没有，太紧等于碍事。把这个数字钉成一个<strong>显式的常量</strong>（<span class="mono">MAX_STEPS</span>）而非散落在代码里的魔法数，也方便它日后被审视、被调整——这又是这套代码「把关键决策摆到明面上」的一贯做派。</p>
+<p>这里有个容易被忽略的分寸：上限是 25，不是 5、也不是 250。太小，复杂任务还没展开就被掐断，agent 显得「不中用」；太大，失控的代价（钱、时间、对你文件的折腾）又太可怕。但要诚实地说——<strong>25 这个具体数字，源码自己也没把握</strong>：常量上方就挂着一行注释「<span class="mono">QUESTION: 这个限制是本来就有、还是我们后加的？它合理吗？</span>」。所以与其说它是精确调校出的最优值，不如说是一个<strong>「先定个数、别让它失控」的硬上限</strong>——它给了模型足够长的自驱空间去完成多数真实任务，又给了一道在它跑偏时及时止损的硬线。安全护栏的艺术，往往不在「有没有」，而在「卡在哪个值」：太松等于没有，太紧等于碍事，而这个值<strong>本就允许日后再校准</strong>。正因如此，把这个数字钉成一个<strong>显式的常量</strong>（<span class="mono">MAX_STEPS</span>）而非散落在代码里的魔法数，才尤其要紧——它方便日后被审视、被调整，这又是这套代码「把关键决策（连同它的不确定）摆到明面上」的一贯做派。</p>
 <div class="cols">
   <div class="col"><h4>❌ while(true) 自由迭代</h4><p>让模型转到自己满意。可它常陷兔子洞原地打转，烧钱、动文件，没人喊停。</p></div>
   <div class="col"><h4>✅ for(step&lt;25) + 类型化错误</h4><p>硬上限 25 圈，超了抛 StepLimitExceededError（带 sessionID/limit）。上层明确知道"为何而停"。</p></div>
@@ -3633,6 +3633,8 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   <div class="cell"><div class="k">SessionRunnerModel.Error</div><div class="v">模型解析失败</div></div>
   <div class="cell"><div class="k">AgentReplacementBlocked</div><div class="v">中途换 agent 被拦（第 27 课）</div></div>
   <div class="cell"><div class="k">ToolOutputStore.Error</div><div class="v">工具输出落盘出错</div></div>
+  <div class="cell"><div class="k">ContextSnapshotDecodeError</div><div class="v">上下文快照解不出来（第 24 课）</div></div>
+  <div class="cell"><div class="k">SystemContext.InitializationBlocked</div><div class="v">系统上下文初始化被拦（第 21 课）</div></div>
 </div>
 <p>这正是第 5、8 课那条「<strong>错误是值，写进签名</strong>」的世界观，在整台 runner 上的终极兑现。<span class="mono">run</span> 的返回类型是 <span class="mono">Effect&lt;void, RunError&gt;</span>——那个 <span class="mono">RunError</span> 明明白白挂在签名里，意味着<strong>任何调用这台循环的人，都被编译器逼着去面对「它可能这样失败」</strong>。没有藏在某个 <span class="mono">throw</span> 里、靠运行时炸了才发现的暗雷；每一种失败都是类型里一个<strong>看得见、躲不开</strong>的分支。对一个本质上充满不确定（模型会抽风、网络会断、工具会炸）的系统，把这份不确定<strong>从「运行时的惊吓」抬成「编译期的清单」</strong>，是 opencode 敢让这台循环放手去跑的底气。</p>
 <p>更妙的是，这份「失败清单」本身就是一份<strong>极佳的文档</strong>。一个新人想知道「这台循环到底会怎么坏」，不用翻遍实现、不用问老手——直接看 <span class="mono">RunError</span> 这个联合类型，<strong>八个</strong>成员就是八种会发生的坏事，名字还自带解释（<span class="mono">StepLimitExceededError</span>、<span class="mono">MessageDecodeError</span>……）。<strong>类型化错误不只让编译器替你把关，还让代码自己说清楚「我会以哪些方式失败」</strong>。比起散落在各处、语焉不详的 <span class="mono">throw new Error("something went wrong")</span>，一个收拢齐整的错误联合，是把「失败」这件事当一等公民来认真对待的标志。</p>
@@ -3682,7 +3684,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">"interrupted"</span>)  <span class="cm">// 没结清的标记失败</span>
 }
 <span class="kw">if</span> (settled._tag === <span class="st">"Failure"</span> && !Cause.<span class="fn">hasInterrupts</span>(...)) {  <span class="cm">// 工具真炸了</span>
-  <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${'$'}{message}`</span>)
+  <span class="kw">yield</span>* publisher.<span class="fn">failUnsettledTools</span>(<span class="st">`Tool execution failed: ${message}`</span>)
 }
 <span class="kw">if</span> (stream._tag === <span class="st">"Failure"</span>) <span class="kw">return</span> <span class="kw">yield</span>* Effect.<span class="fn">failCause</span>(stream.cause)  <span class="cm">// 错误如实上抛</span></pre>
   <p>读这段，你会发现它对「失败」分得极细：是被中断、还是工具真炸了、还是模型报错，各有各的收尾话术，但<strong>殊途同归到一件事——<span class="mono">failUnsettledTools</span></strong>：无论哪种倒法，都先把没结清的工具结清。最后那句 <span class="mono">Effect.failCause(stream.cause)</span> 也很关键：错误不是被吞掉，而是<strong>如实地沿 Effect 的错误通道往上抛</strong>，最终汇成签名里那个 <span class="mono">RunError</span>。<strong>先把自己的烂摊子收干净，再把错误诚实地交出去</strong>——这就是一台健壮的循环面对失败时，应有的体面。</p>
@@ -3743,7 +3745,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 <div class="card spark">
   <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
   <ul>
-    <li>课里说安全护栏的艺术「不在有没有，而在卡在哪个值」——MAX_STEPS 太小掐断复杂任务、太大失控代价可怕，25 是经验折中。如果让你为一个会动用户文件的 agent 选这个上限，你会考虑哪些因素？</li>
+    <li>课里说安全护栏的艺术「不在有没有，而在卡在哪个值」——MAX_STEPS 太小掐断复杂任务、太大失控代价可怕，而 25 这个具体数字源码注释自己都打了问号（「它合理吗？」）。如果让你为一个会动用户文件的 agent 选这个上限，你会考虑哪些因素？又该如何验证它选得合不合适？</li>
     <li>源码错误处理段对「失败」分得极细（被中断/工具炸了/模型报错各有收尾），但都殊途同归到 failUnsettledTools，最后才如实 failCause 上抛。「先收干净自己的烂摊子，再诚实交出错误」——为什么这个顺序很重要？</li>
   </ul>
 </div>
@@ -3791,7 +3793,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 <h2>代数：让不同类型的源统一组合</h2>
 <p>难点在于：<span class="mono">core/date</span> 的值是个日期，<span class="mono">core/environment</span> 的值是个目录结构——<strong>类型各不相同</strong>。怎么把这些「值类型各异」的源装进同一个容器、统一处理？答案是 <span class="mono">make&lt;A&gt;(source)</span>：它<strong>把具体的值类型 <span class="mono">A</span> 藏起来（closes over A）</strong>，产出一个<strong>不透明的 <span class="mono">SystemContext</span></strong>——从外面看，所有源都长一个样，无论它内部装的是日期还是目录。于是 <span class="mono">combine([...])</span> 就能把一堆类型迥异的源<strong>均匀地拼成一个</strong>。</p>
 <div class="flow">
-  <div class="node">Source&lt;Date&gt;<span class="sub">core/date</span></div>
+  <div class="node">Source&lt;string&gt;<span class="sub">core/date</span></div>
   <div class="arrow">make →</div>
   <div class="node">SystemContext<span class="sub">藏起类型·不透明</span></div>
   <div class="arrow">combine →</div>
@@ -4538,10 +4540,10 @@ text: SessionEvent.ContextUpdated.data.fields.text
 <pre class="code"><span class="cm">// 简化自 system-context/builtins.ts</span>
 <span class="kw">const</span> environment = [
   <span class="st">"&lt;env&gt;"</span>,
-  <span class="st">`  Working directory: ${'$'}{location.directory}`</span>,        <span class="cm">// 工作目录</span>
-  <span class="st">`  Workspace root folder: ${'$'}{location.project.directory}`</span>, <span class="cm">// 项目根</span>
-  <span class="st">`  Is directory a git repo: ${'$'}{...}`</span>,                  <span class="cm">// 是不是 git 仓库</span>
-  <span class="st">`  Platform: ${'$'}{process.platform}`</span>,                    <span class="cm">// 操作系统平台</span>
+  <span class="st">`  Working directory: ${location.directory}`</span>,        <span class="cm">// 工作目录</span>
+  <span class="st">`  Workspace root folder: ${location.project.directory}`</span>, <span class="cm">// 项目根</span>
+  <span class="st">`  Is directory a git repo: ${...}`</span>,                  <span class="cm">// 是不是 git 仓库</span>
+  <span class="st">`  Platform: ${process.platform}`</span>,                    <span class="cm">// 操作系统平台</span>
   <span class="st">"&lt;/env&gt;"</span>,
 ].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
 <p>留意那对 <span class="mono">&lt;env&gt;...&lt;/env&gt;</span> 标签——这是给大模型喂结构化信息的一个常用小技巧：用类 XML 的标签把一块信息<strong>圈出清晰的边界</strong>，模型一眼就能认出「这是环境块」，不会和正文混淆。里面四项也都挑得很实在：<strong>工作目录</strong>（我在哪干活）、<strong>项目根</strong>（这个项目的边界在哪）、<strong>是否 git 仓库</strong>（能不能用 git 命令）、<strong>平台</strong>（是 Linux 还是 Mac，影响命令写法）。这四样，正是一个要帮你写代码、跑命令的 agent <strong>最起码得知道的「我在哪」</strong>。</p>
@@ -4560,8 +4562,8 @@ SystemContext.<span class="fn">make</span>({
   key: SystemContext.Key.<span class="fn">make</span>(<span class="st">"core/date"</span>),
   codec: Schema.<span class="fn">toCodecJson</span>(Schema.String),
   load: DateTime.nowAsDate.<span class="fn">pipe</span>(Effect.<span class="fn">map</span>((d) =&gt; d.<span class="fn">toDateString</span>())),
-  baseline: (date) =&gt; <span class="st">`Today's date: ${'$'}{date}`</span>,            <span class="cm">// 首次</span>
-  update: (_prev, date) =&gt; <span class="st">`Today's date is now: ${'$'}{date}`</span>,  <span class="cm">// 跨天后</span>
+  baseline: (date) =&gt; <span class="st">`Today's date: ${date}`</span>,            <span class="cm">// 首次</span>
+  update: (_prev, date) =&gt; <span class="st">`Today's date is now: ${date}`</span>,  <span class="cm">// 跨天后</span>
 })</pre>
 <p>答案是：<strong>因为日期会变</strong>。一个会话可能从晚上聊到第二天凌晨——<strong>跨过了午夜</strong>。如果日期是开场写死的，那么过了午夜，模型脑子里的「今天」就<strong>错了</strong>，它可能把昨天当今天、把 deadline 算错一天。把日期做成源，下一轮 <span class="mono">prepare</span> 一对表，<span class="mono">reconcile</span> 就会发现「日期变了」，自动 publish 一条更新——模型于是读到「Today's date is now: ...」，时钟无缝拨正。<strong>连「日期」这种看似一成不变的东西，在一个可能长跑的会话里，都是「活」的</strong>——这正是前五课那套增量机制存在的意义：它不挑大小，任何「可能会变」的环境信息，都能用同一套源框架，优雅地保持新鲜。</p>
 <div class="timeline">
@@ -4608,8 +4610,8 @@ SystemContext.<span class="fn">make</span>({
   key: SystemContext.Key.<span class="fn">make</span>(<span class="st">"core/environment"</span>),     <span class="cm">// 唯一标识</span>
   codec: Schema.<span class="fn">toCodecJson</span>(Schema.String),               <span class="cm">// 值是字符串</span>
   load: Effect.<span class="fn">succeed</span>(environment),                      <span class="cm">// 怎么观察</span>
-  baseline: (env) =&gt; <span class="st">`Here is ...:\n${'$'}{env}`</span>,            <span class="cm">// 首次全文</span>
-  update: (_prev, env) =&gt; <span class="st">`The environment ...is now:\n${'$'}{env}`</span>, <span class="cm">// 变化文本</span>
+  baseline: (env) =&gt; <span class="st">`Here is ...:\n${env}`</span>,            <span class="cm">// 首次全文</span>
+  update: (_prev, env) =&gt; <span class="st">`The environment ...is now:\n${env}`</span>, <span class="cm">// 变化文本</span>
 })</pre>
   <p>就这么五行。<strong>没有</strong>一行在写「怎么序列化」（<span class="mono">codec</span> 一指，第 22 课的 encode/decode/equivalent 自动就位）；<strong>没有</strong>一行在写「怎么注册、怎么排序、怎么并发」（交给第 23 课的注册表）；<strong>没有</strong>一行在写「怎么持久化、怎么钉序号、怎么投影成 System 消息」（交给第 24、25 课）。一个源的作者，只需回答五个最本质的问题：<strong>叫什么、值长啥样、怎么观察、首次怎么说、变了怎么说</strong>。其余一切，前五课那套机制全替他答了。<strong>这五行的清爽，是前面所有复杂换来的——复杂被收进了框架，简单留给了使用者。</strong></p>
   <div class="cols">
@@ -5824,7 +5826,7 @@ Route.<span class="fn">make</span>({
 <span class="cm">// 账：Anthropic 5 分钟缓存，写入 = 1.25x 基础价、读取 = 0.1x。</span>
 <span class="cm">// 只要 5 分钟内复用一次，就已经回本（1.25 + 0.1 &lt; 2）。</span>
 <span class="cm">// 而一个工具回合里要复用很多次 → 稳赚。所以默认就开。</span></pre>
-  <p>缓存写入比不缓存还贵一点点（1.25x），但读取便宜到几乎免费（0.1x）。<strong>只要前缀在 5 分钟内被复用哪怕一次，这笔买卖就划算</strong>；而一个工具回合动辄十几次往返，复用次数远不止一次——所以 opencode 把缓存<strong>设成默认开启</strong>，符合 LangChain 缓存中间件、kern-ai 等生产级 agent 框架的共识。还有个工程细节值得一提：<span class="mono">markMessageAt</span> 故意不用 <span class="mono">.map()</span> 而用 <span class="mono">slice + 下标赋值</span>，注释说得很实在——长对话每次请求都要跑它，<span class="mono">.map()</span> 的闭包派发和整数组复制「在性能剖析里会冒头」。<strong>连这种微小的热路径开销都被盯着</strong>，是生产级代码的底色，也是这套缓存逻辑敢于「默认开启」的底气所在。</p>
+  <p>缓存写入比不缓存还贵一点点（1.25x），但读取便宜到几乎免费（0.1x）。<strong>只要前缀在 5 分钟内被复用哪怕一次，这笔买卖就划算</strong>；而一个工具回合动辄十几次往返，复用次数远不止一次——所以 opencode 把缓存<strong>设成默认开启</strong>（源码 <span class="mono">cache-policy.ts</span> 里只给了这笔成本账，没提任何外部框架）。还有个工程细节值得一提：<span class="mono">markMessageAt</span> 故意不用 <span class="mono">.map()</span> 而用 <span class="mono">slice + 下标赋值</span>，注释说得很实在——长对话每次请求都要跑它，<span class="mono">.map()</span> 的闭包派发和整数组复制「在性能剖析里会冒头」。<strong>连这种微小的热路径开销都被盯着</strong>，是生产级代码的底色，也是这套缓存逻辑敢于「默认开启」的底气所在。</p>
 </div>
 
 <h2>各家缓存机制不同：一个克制的「跳过」</h2>
@@ -6779,7 +6781,7 @@ format: Schema.<span class="fn">Literals</span>([<span class="st">"text"</span>,
   .pipe(Schema.<span class="fn">withDecodingDefault</span>(() =&gt; <span class="st">"markdown"</span>))
 
 <span class="cm">// websearch：把当前年份写进给模型的 description</span>
-description = <span class="st">`...The current year is ${'$'}{new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
+description = <span class="st">`...The current year is ${new Date().getFullYear()}. Use this year when searching for recent information...`</span></pre>
   <p>两处都体现了「<strong>把对模型的体贴写进定义里</strong>」。<span class="mono">withDecodingDefault</span> 让模型<strong>可以不传 format</strong>——不传就当 markdown，省去模型每次都要想「我要什么格式」的负担，默认就给它最好消化的那种。而 websearch 把 <span class="mono">new Date().getFullYear()</span> 拼进 description，是在<strong>每次构建工具定义时</strong>动态算出真实年份注进去——模型的训练知识有「时间盲区」，它不知道「现在是哪年」，这一句注入就把这个盲区补上了。<strong>这些细节都不改变工具「能做什么」，却显著改善模型「用得好不好」</strong>——好的工具，不只给模型能力，还替模型把「怎么用好」想在前面。这正是「工具的用户是个模型」这一前提，催生出的一整套体贴。</p>
 </div>
 
@@ -7219,12 +7221,12 @@ Ruleset = Rule[]</pre>
   <div class="tag">🔬 源码细节</div>
   <p><span class="mono">skill</span> 工具注入正文的 <span class="mono">toModelOutput</span>，把「说明书 + 文件夹」交得很清楚（简化自 tool/skill.ts）：</p>
   <pre class="code"><span class="cm">// 注入给模型的技能正文：指令 + 基准目录 + 文件清单</span>
-[ <span class="st">`&lt;skill_content name="${'$'}{skill.name}"&gt;`</span>,
-  <span class="st">`# Skill: ${'$'}{skill.name}`</span>,
+[ <span class="st">`&lt;skill_content name="${skill.name}"&gt;`</span>,
+  <span class="st">`# Skill: ${skill.name}`</span>,
   skill.content.<span class="fn">trim</span>(),                          <span class="cm">// 完整指令正文</span>
-  <span class="st">`Base directory for this skill: ${'$'}{dirURL}`</span>,   <span class="cm">// 配套文件在哪</span>
+  <span class="st">`Base directory for this skill: ${dirURL}`</span>,   <span class="cm">// 配套文件在哪</span>
   <span class="st">"Relative paths (e.g., scripts/) are relative to this base directory."</span>,
-  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${'$'}{f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
+  <span class="st">"&lt;skill_files&gt;"</span>, ...files.map(f =&gt; <span class="st">`&lt;file&gt;${f}&lt;/file&gt;`</span>), <span class="st">"&lt;/skill_files&gt;"</span>,
 ].<span class="fn">join</span>(<span class="st">"\n"</span>)</pre>
   <p>这段注入有两处用心。其一，它给的是<strong>基准目录的 URL + 一份文件清单</strong>，而非把那些脚本文件的<strong>内容</strong>也一并塞进来——又是「渐进式披露」：先告诉模型「<strong>有哪些文件、在哪</strong>」，至于某个脚本<strong>具体写了啥</strong>，等模型真要用时，再用 read 工具去读。一层套一层的懒加载：技能正文懒加载、技能里的文件再懒加载。其二，注释里那句「<span class="mono">file list is sampled</span>（文件清单是抽样的）」很诚实——当一个技能附带成百上千个文件时，清单本身也会被<strong>有界</strong>（呼应第 42 课），不让「列文件」这件事反过来撑爆上下文。<strong>从技能正文到文件清单，处处是『按需、有界』——这套贯穿 M7 的纪律，到收官这一课依然一以贯之。</strong></p>
 </div>
@@ -8017,7 +8019,7 @@ sdks.<span class="fn">set</span>(sdkKey, sdk)               <span class="cm">// 
       <span class="kw">yield*</span> schema.<span class="fn">up</span>(tx)                       <span class="cm">// schema.gen 完整快照</span>
       <span class="kw">yield*</span> tx.<span class="fn">run</span>(sql<span class="st">`CREATE TABLE migration (id TEXT PRIMARY KEY, ...)`</span>)
       <span class="kw">yield*</span> Effect.<span class="fn">forEach</span>(migrations, (m) =&gt;        <span class="cm">// 全标记已完成</span>
-        tx.<span class="fn">run</span>(sql<span class="st">`INSERT INTO migration (id, time_completed) VALUES (${'$'}{m.id}, ...)`</span>))
+        tx.<span class="fn">run</span>(sql<span class="st">`INSERT INTO migration (id, time_completed) VALUES (${m.id}, ...)`</span>))
     }))
   }))
 }</pre>
@@ -8834,7 +8836,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
     },
     <span class="fn">use</span>() {
       <span class="kw">const</span> value = <span class="fn">useContext</span>(ctx)
-      <span class="kw">if</span> (!value) <span class="kw">throw new</span> <span class="fn">Error</span>(<span class="st">`${'$'}{input.name} context must be used within a context provider`</span>)  <span class="cm">// ← 快速失败</span>
+      <span class="kw">if</span> (!value) <span class="kw">throw new</span> <span class="fn">Error</span>(<span class="st">`${input.name} context must be used within a context provider`</span>)  <span class="cm">// ← 快速失败</span>
       <span class="kw">return</span> value
     },
   }
@@ -9404,7 +9406,7 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
       mytool: <span class="fn">tool</span>({
         description: <span class="st">"This is a custom tool"</span>,
         args: { foo: tool.schema.<span class="fn">string</span>() },
-        <span class="kw">async</span> <span class="fn">execute</span>(args) { <span class="kw">return</span> <span class="st">`Hello ${'$'}{args.foo}!`</span> },
+        <span class="kw">async</span> <span class="fn">execute</span>(args) { <span class="kw">return</span> <span class="st">`Hello ${args.foo}!`</span> },
       }),
     },
   }
@@ -9797,9 +9799,9 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
   <span class="kw">if</span> (errors.length === <span class="nu">0</span>) <span class="kw">return</span> <span class="st">""</span>                  <span class="cm">// 没错误就什么都不说</span>
   <span class="kw">const</span> limited = errors.<span class="fn">slice</span>(<span class="nu">0</span>, MAX_PER_FILE)         <span class="cm">// ← 每文件最多 20 条</span>
   <span class="kw">const</span> more = errors.length - MAX_PER_FILE
-  <span class="kw">return</span> <span class="st">`&lt;diagnostics file="${'$'}{file}"&gt;\n`</span> +
+  <span class="kw">return</span> <span class="st">`&lt;diagnostics file="${file}"&gt;\n`</span> +
     limited.<span class="fn">map</span>(pretty).<span class="fn">join</span>(<span class="st">"\n"</span>) +                  <span class="cm">// pretty: ERROR [行:列] 消息</span>
-    (more &gt; <span class="nu">0</span> ? <span class="st">`\n... and ${'$'}{more} more`</span> : <span class="st">""</span>) + <span class="st">`\n&lt;/diagnostics&gt;`</span>
+    (more &gt; <span class="nu">0</span> ? <span class="st">`\n... and ${more} more`</span> : <span class="st">""</span>) + <span class="st">`\n&lt;/diagnostics&gt;`</span>
 }</pre>
   <p>这二十来行代码里，藏着一个常被新手忽略、却对 agent 体验至关重要的判断：<strong>什么该说、什么不该说。</strong>一个朴素的实现可能会把语言服务器吐出的<strong>所有</strong>诊断（错误、警告、提示、风格建议）一股脑塞给模型——结果是灾难：模型的上下文被几百条「这里少个分号」「建议用 const」的噪音淹没，真正会导致编译失败的那三条 ERROR 反而被埋了。<span class="mono">report</span> 做了三层克制：<strong>只报 ERROR</strong>（agent 当下最该管的是「能不能编译过」，warning 多是风格偏好，可以稍后再说）、<strong>每文件封顶 20 条</strong>（一个文件错到 20 条以上，再多列也没意义，先修这些）、<strong>没错误就返回空字符串</strong>（一个字都不浪费）。这背后是一个深刻的产品直觉：<strong>给 agent 的反馈，不是越多越好，而是越「准」越好。</strong>信息过载和信息缺失一样有害——前者淹没重点、烧光上下文，后者让 agent 盲目。<span class="mono">report</span> 这二十行的全部用心，就是在这两者之间，为「agent 此刻最需要知道什么」找到那个恰到好处的量。这和 L42 有界工具输出是同一种对「模型注意力稀缺」的敬畏，只不过这次稀缺的对象，是那几条<strong>真正要命</strong>的编译错误。</p>
 </div>

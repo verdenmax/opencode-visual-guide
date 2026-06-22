@@ -347,7 +347,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
       mytool: <span class="fn">tool</span>({
         description: <span class="st">"This is a custom tool"</span>,
         args: { foo: tool.schema.<span class="fn">string</span>() },
-        <span class="kw">async</span> <span class="fn">execute</span>(args) { <span class="kw">return</span> <span class="st">`Hello ${'$'}{args.foo}!`</span> },
+        <span class="kw">async</span> <span class="fn">execute</span>(args) { <span class="kw">return</span> <span class="st">`Hello ${args.foo}!`</span> },
       }),
     },
   }
@@ -515,7 +515,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
       mytool: <span class="fn">tool</span>({
         description: <span class="st">"This is a custom tool"</span>,
         args: { foo: tool.schema.<span class="fn">string</span>() },
-        <span class="kw">async</span> <span class="fn">execute</span>(args) { <span class="kw">return</span> <span class="st">`Hello ${'$'}{args.foo}!`</span> },
+        <span class="kw">async</span> <span class="fn">execute</span>(args) { <span class="kw">return</span> <span class="st">`Hello ${args.foo}!`</span> },
       }),
     },
   }
