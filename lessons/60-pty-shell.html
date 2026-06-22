@@ -328,8 +328,304 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第十一部分 · 扩展与集成</span><span class="lang-en">Part 11 · Extensibility</span></div>
     <h1><span class="lang-zh">PTY 与 shell</span><span class="lang-en">PTY &amp; shell</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《PTY 与 shell》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“PTY 与 shell”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "PTY & shell" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "PTY & shell" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh">
+<p class="lead">还记得第 39 课那个关键澄清吗——opencode 的 bash 工具是<strong>批处理</strong>（启动子进程、跑完、收 stdout），而 <span class="mono">pty/*</span> 是<strong>另一套</strong>给交互式终端用的基础设施。当时我们把 PTY 搁下了，这一课就来补上：<strong>PTY（pseudo-terminal，伪终端）</strong>。问题很实在：为什么 opencode 光有批处理的 bash 还不够、非得搞一套真终端？因为有些程序<strong>非真终端不可</strong>——交互式 REPL（你得能边看输出边输入）、会检测「自己是不是连着终端」才显示彩色/进度条的程序、需要你<strong>实时打字进去</strong>的命令。批处理的 bash 对这些无能为力（它一问一答、不能中途输入、程序也知道自己没连终端）。PTY 给的，是一个<strong>真实的、能流式看输出、能打字进去、能调整大小</strong>的终端——就像你在屏幕上开的那个终端窗口本身。</p>
+<p>这一课有两个最值得带走的洞见。第一，<strong>PTY 是一个干净的、跨平台的「真终端」抽象</strong>：一个 <span class="mono">Proc</span> 接口（<span class="mono">onData</span> 流式收输出、<span class="mono">write</span> 打字进去、<span class="mono">resize</span> 调大小、<span class="mono">kill</span> 杀掉），背后由 Bun 和 Node 两套实现撑着；它的输出还能<strong>经 WebSocket 流给客户端</strong>（带「游标重放」，断了能从某处接着看），并用<strong>短时令牌（ticket）</strong>守住「谁能连上这个终端」。第二，也是最点睛的——<strong>PTY 的环境变量是「层层叠加」出来的</strong>，而且叠加的顺序暗藏深意：先是<strong>调用方传的值</strong>，再叠一层<strong>宿主覆盖</strong>（正是第 58 课那个 <span class="mono">shell.env</span> 插件钩子！），最后强制盖上 <strong>opencode 写死的终端不变量</strong>（如 <span class="mono">TERM</span>、<span class="mono">OPENCODE_TERMINAL</span>）。读懂这个「<strong>可定制的在中间、不可妥协的在最后</strong>」的叠加顺序，你就懂了一个老练的系统是怎么<strong>既给足灵活性、又守住底线</strong>的。</p>
+
+<div class="card analogy">
+  <div class="tag">🖥️ 生活类比</div>
+  把<strong>批处理 bash</strong>（L39）想象成<strong>寄一封信</strong>：你写好一条命令寄出去，对方跑完，把结果打印成一张纸寄回来——全程你插不上话，对方也知道这是封「信」而非面对面。而 <strong>PTY</strong>，是给了你一个<strong>真正的视频通话窗口</strong>：你能实时看到对方屏幕的每一帧、能随时打字过去、窗口还能拉大拉小——对方程序也确确实实「感觉到」自己正连着一个活人在用的终端，于是放心地输出彩色、画进度条、等你输入。至于那套<strong>环境变量的叠加</strong>，像极了<strong>上班穿衣服</strong>：最底层是你自己挑的衣服（调用方传的环境），公司再给你套一件<strong>工服</strong>（插件 <span class="mono">shell.env</span> 钩子的覆盖），而最外面，是那件<strong>无论如何都得穿、谁也不准脱的安全背心</strong>（opencode 强制的 <span class="mono">TERM</span> 等终端不变量）。顺序很关键：<strong>个性化的让你和公司随意叠，但保命的那件永远盖在最外、压住一切</strong>——这样既不妨碍你穿出风格，又绝不让任何人把安全背心脱掉。
+</div>
+
+<h2>PTY vs 批处理：为什么需要一个真终端</h2>
+<p>第 39 课已经点明：bash 工具经 <span class="mono">AppProcess</span> 走<strong>批处理</strong>（spawn 子进程、跑完收结果），而 PTY 是<strong>另一套</strong>。两者的区别，不是「快慢」而是「能不能交互」：</p>
+<div class="cols">
+  <div class="col"><h4>批处理 bash（L39）</h4><p>一问一答：给一条命令、等它跑完、收 stdout。<strong>不能中途输入</strong>、程序也知道自己<strong>没连终端</strong>（于是常不输出彩色/进度条）。适合「跑个命令拿结果」给模型。</p></div>
+  <div class="col"><h4>交互式 PTY</h4><p>真终端：<strong>流式</strong>看输出、<strong>随时打字</strong>进去、能 <strong>resize</strong>。程序「以为」自己连着真人，放心交互。适合 REPL、需 TTY 的工具、给人实时操作。</p></div>
+</div>
+<p>PTY 把「一个真终端」抽象成了一个极简的 <span class="mono">Proc</span> 接口（<span class="mono">pty/pty.ts</span>），干净得像一台设备的遥控器：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">onData(listener)</div><div class="c-txt">订阅终端吐出的输出（流式，一块块来）</div></div>
+  <div class="cell"><div class="c-tag">write(data)</div><div class="c-txt">往终端打字（把输入送进去）</div></div>
+  <div class="cell"><div class="c-tag">resize(cols, rows)</div><div class="c-txt">调终端尺寸（窗口拉大拉小时同步）</div></div>
+  <div class="cell"><div class="c-tag">onExit / kill</div><div class="c-txt">监听退出 / 杀掉进程</div></div>
+</div>
+<p>这个接口最妙的，是它<strong>把「平台差异」彻底藏在了背后</strong>。创建一个真伪终端这件事，Bun 和 Node 的底层 API 并不一样，于是 opencode 提供了 <span class="mono">pty.bun.ts</span> 和 <span class="mono">pty.node.ts</span> 两套实现，<strong>都满足同一个 <span class="mono">Proc</span> 接口</strong>。上层代码只管对着 <span class="mono">Proc</span> 编程——<span class="mono">onData</span>/<span class="mono">write</span>/<span class="mono">resize</span>——根本不必关心此刻跑在 Bun 还是 Node 上。这又是「<strong>定义一个干净接口、多套实现各自满足</strong>」的经典手法（同 L52 opentui 把不同终端能力抽象掉、L46 MCP 把 stdio/HTTP transport 抽象掉）：<strong>把善变的、平台相关的脏活封在接口之下，让上层永远面对同一张稳定的脸。</strong></p>
+
+<h2>流式与连接：把终端送到客户端</h2>
+<p>一个 PTY 跑在服务器上，但<strong>看它、用它</strong>的可能是别处的客户端（你的 TUI、甚至一个远程会话）。从「创建一个 PTY」到「客户端连上实时看」，走的是这样一条路：</p>
+<div class="flow">
+  <div class="f-node">创建 PTY<br><small>Proc：起真终端</small></div>
+  <div class="f-arrow">申领 →</div>
+  <div class="f-node">短时 ticket 令牌<br><small>绑 ptyID+目录、60 秒</small></div>
+  <div class="f-arrow">凭票连 →</div>
+  <div class="f-node">WebSocket 流<br><small>原始块 + 游标帧</small></div>
+  <div class="f-arrow">断线 →</div>
+  <div class="f-node">凭游标重放续看<br><small>从断点接着流</small></div>
+</div>
+<p>opencode 用一套 WebSocket 协议（<span class="mono">pty/protocol.ts</span>）把终端「送出去」，几个设计很务实：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">原始 UTF-8 块出站</div><div class="c-txt">终端输出就是一块块原始字节，直接流给客户端</div></div>
+  <div class="cell"><div class="c-tag">游标控制帧（0x00+JSON）</div><div class="c-txt">夹一个特殊帧报「当前输出到第几个字节」——断线后能<strong>从游标续看</strong></div></div>
+  <div class="cell"><div class="c-tag">REPLAY_CHUNK=64KB</div><div class="c-txt">重放可能有几 MB，分成有界的块发，不一次撑爆</div></div>
+  <div class="cell"><div class="c-tag">ticket 连接令牌</div><div class="c-txt">连一个 PTY 要先拿<strong>短时令牌</strong>（60 秒 TTL、限定 ptyID+目录+工作区）</div></div>
+</div>
+<p>这里两处尤其值得点出。其一，<strong>游标重放</strong>：终端的输出是连续的一长串，客户端断线重连时不必从头来过，凭一个「游标」（已看到第几个字节）就能<strong>从断点接着流</strong>——这让远程/不稳网络下用 PTY 成为可能。其二，<strong>ticket 令牌</strong>：你不能随便连上任意一个终端。连接前必须先<strong>申领一张短命令牌</strong>（<span class="mono">pty/ticket.ts</span>，60 秒过期、绑死某个具体 ptyID + 目录 + 工作区），用一次即焚。一个能让人<strong>实时打字进去</strong>的终端是极强的能力，若谁都能连，就是天大的安全洞——ticket 把这道门用「短时、限定作用域、一次性」的令牌守住，正是把「强大能力」和「严格授权」绑在一起的务实之举（呼应 L41 权限、L46 MCP 的 OAuth）。</p>
+
+<h2>环境叠加：可定制的在中间，不可妥协的在最后</h2>
+<p>现在来到这一课最点睛的设计。创建一个 PTY 时，它该带着<strong>什么环境变量</strong>跑？opencode 的答案不是「用某一份环境」，而是把环境<strong>分层叠加</strong>出来——按 CONTEXT.md 写明的顺序，<strong>合并调用方的值、再叠宿主覆盖、最后强制盖上 opencode 的终端不变量</strong>：</p>
+<div class="layers">
+  <div class="layer"><span class="l-tag">① 调用方传入的值</span><span class="l-desc">最底层：发起 PTY 的一方给的环境（如继承当前进程的 env）</span></div>
+  <div class="layer"><span class="l-tag">② 宿主覆盖（plugin shell.env）</span><span class="l-desc">中间层：触发第 58 课的 <span class="mono">shell.env</span> 钩子，让插件注入/覆盖（如内部代理、CI 标记）</span></div>
+  <div class="layer"><span class="l-tag">③ 核心强制的终端不变量</span><span class="l-desc">最上层：opencode 写死盖上 <span class="mono">TERM</span>、<span class="mono">OPENCODE_TERMINAL</span> 等——一个真终端必须有的</span></div>
+</div>
+<p>这个叠加顺序，绝不是随手排的，它编码了一套清晰的<strong>优先级哲学</strong>。最底层是调用方的「基础环境」，给出一个合理起点；中间层是<strong>可定制的口子</strong>——通过 <span class="mono">shell.env</span> 插件钩子（正是第 58 课那个「改草稿」钩子的一个触发点），让组织/用户能注入自己的环境变量（比如给所有终端注入一个内部 npm 镜像、一个代理地址）；而最上层，是 opencode <strong>强制盖上、谁也覆盖不了</strong>的终端不变量。为什么 <span class="mono">TERM</span>、<span class="mono">OPENCODE_TERMINAL</span> 这些要放<strong>最后、压住一切</strong>？因为它们是「一个真终端之所以是真终端」的<strong>底线</strong>：少了 <span class="mono">TERM</span>，程序就不知道该用什么终端类型来渲染、彩色和光标控制全乱套。这些<strong>不能让任何中间层（哪怕是好心的插件）不小心改坏</strong>，所以必须<strong>最后强制写入</strong>——叠加顺序里，越往后优先级越高，而「不可妥协的底线」就该享有最高优先级。</p>
+<p>把这套叠加用一次创建走一遍，那个「可定制与不可妥协」的分寸感就跃然纸上：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">取调用方传的 env 作基底（如继承 process.env）</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">trigger <span class="mono">shell.env</span> 钩子 → 插件往里注入/覆盖几个变量</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">最后强制写入 <span class="mono">TERM</span>/<span class="mono">OPENCODE_TERMINAL</span> → 覆盖前面任何同名项</span></div>
+  <div class="t-row"><span class="t-num">✓</span><span class="t-txt">既允许灵活定制，又绝不让终端底线被改坏</span></div>
+</div>
+<p>CONTEXT.md 还点出一个干净的职责切分：<strong>「PTY 环境」是服务器层的事，而非 Core PTY 的事</strong>。Core 的 PTY 只管「造一个真终端」这件纯粹的事；而「这个终端该带什么环境」——要不要触发插件、要叠哪些不变量——是<strong>服务器层</strong>的职责（独立服务器用一个空适配器即可）。这种「Core 只做最纯粹的事、把策略性的装配留给上层」的分层，又是全书反复出现的审美：<strong>把『机制』（造终端）和『策略』（配什么环境）切开</strong>，让 Core 保持极简纯粹、可在任何场景复用，而把会因场景而变的策略性组装，留给更靠上、更懂上下文的那一层。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观视角</div>
+  <p>这一课补齐了 L39 搁下的 PTY——opencode 的真终端基础设施：</p>
+  <ul>
+    <li><strong>PTY=真交互终端</strong>（vs L39 批处理 bash）：批处理一问一答不能中途输入；PTY 流式看输出+随时打字+resize，程序「以为」连着真人。<span class="mono">Proc</span> 接口（<span class="mono">pty/pty.ts</span>）=onData/write/resize/onExit/kill，<strong>Bun/Node 两套实现满足同一接口</strong>（平台差异藏在接口下，同 L52/L46）。</li>
+    <li><strong>流式+连接</strong>（<span class="mono">pty/protocol.ts</span>/<span class="mono">ticket.ts</span>）：WebSocket 送终端给客户端，原始 UTF-8 块出站 + 游标控制帧(0x00+JSON)做<strong>断线重放</strong>、REPLAY_CHUNK 64KB 分块；连接要<strong>短时 ticket 令牌</strong>（60 秒、绑 ptyID+目录+工作区、一次性）守门（强能力绑严授权，同 L41/L46）。</li>
+    <li><strong>环境叠加（最点睛）</strong>：PTY 创建按序合并 ①调用方值 → ②宿主覆盖（触发 L58 <span class="mono">shell.env</span> 插件钩子）→ ③核心强制终端不变量（<span class="mono">TERM</span>/<span class="mono">OPENCODE_TERMINAL</span>）。<strong>可定制的在中间、不可妥协的在最后压住一切</strong>——越后优先级越高，底线享最高优先级。</li>
+    <li><strong>机制 vs 策略的分层</strong>：「PTY 环境」是服务器层的事、非 Core PTY 的事——Core 只造终端（纯机制），「配什么环境」（策略）留给更懂上下文的服务器层（独立服务器用空适配器）。同全书「切开机制与策略」审美。</li>
+  </ul>
+  <p>真终端这块基础设施补齐了。M11 还剩最后一课 L61：<strong>ACP 与 Location 抽象</strong>——opencode 怎么反过来作为一个 <strong>ACP server</strong> 被别的编辑器（如 Zed）接入、会话怎么跨「位置（Location）」移动、control plane 怎么协调。讲完 L61，整个 M11「扩展与集成」就收官，opencode「向外敞开的所有门」也就讲全了。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p>CONTEXT.md 用一句话钉死了环境叠加的顺序，而 <span class="mono">pty-environment</span> 插件正是那「中间层」的实现（简化自源码）：</p>
+  <pre class="code"><span class="cm">// CONTEXT.md：PTY creation merges caller values, then the host</span>
+<span class="cm">// overlay, then Core-forced terminal invariants such as TERM</span>
+<span class="cm">// 即：调用方值 → 宿主覆盖 → 强制不变量（后者覆盖前者）</span>
+
+<span class="cm">// 宿主覆盖层 = 触发 shell.env 插件钩子（第 58 课）</span>
+PtyEnvironment.Service.of({
+  get: (input) =&gt;
+    plugin
+      .<span class="fn">trigger</span>(<span class="st">"shell.env"</span>, { cwd: input.cwd }, { env: {} })   <span class="cm">// ← 插件往 env 注入</span>
+      .<span class="fn">pipe</span>(Effect.<span class="fn">map</span>((result) =&gt; result.env)),
+})</pre>
+  <p>这段代码最值得品的，是它如何把<strong>第 58 课的插件机制</strong>，<strong>无缝嵌</strong>进了 PTY 环境的「中间层」。你看那个 <span class="mono">plugin.trigger("shell.env", {cwd}, {env:{}})</span>——它正是 L58 讲的「改草稿」：opencode 递一个空的 <span class="mono">{env:{}}</span> 草稿、插件往里填，最后拿到插件改过的 env 作为「宿主覆盖」那一层。<strong>于是 PTY 的环境定制，根本不需要为它发明一套新机制——直接复用了已有的插件钩子。</strong>这正是一套设计良好的系统该有的「<strong>积木相扣</strong>」之美：L58 造好的 <span class="mono">shell.env</span> 钩子是一块通用积木，到了 L60 的 PTY 环境这里，它<strong>恰好就是「中间那一层可定制覆盖」</strong>，严丝合缝地嵌了进去。一个系统里，当你发现「这个新需求，用现成的某个机制一拼就成」时，往往说明前面那些抽象的接缝找得准——它们不是为某一处专门造的，而是<strong>通用到能在意想不到的地方再次复用</strong>。从 L58 的 shell.env 到 L60 的环境叠加，正是这种「<strong>一块积木、多处复用</strong>」的范例。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>PTY=真交互终端</strong>（vs L39 批处理 bash）：批处理一问一答不能中途输入、程序知道没连终端；PTY 流式看输出+随时打字+resize，程序「以为」连真人（REPL/需 TTY 的工具/给人实时操作）。<span class="mono">Proc</span> 接口 onData/write/resize/kill，Bun/Node 两实现满足同一接口（平台差异藏接口下，同 L52/L46）。</li>
+    <li><strong>流式+连接</strong>：WebSocket 送终端（<span class="mono">protocol.ts</span>），原始 UTF-8 块 + 游标帧(0x00+JSON)断线重放、REPLAY_CHUNK 64KB；连接要短时 ticket（60 秒/绑 ptyID+目录+工作区/一次性，<span class="mono">ticket.ts</span>）守门——强能力绑严授权（同 L41/L46）。</li>
+    <li><strong>环境叠加（最点睛）</strong>：PTY 创建按序合并 ①调用方值→②宿主覆盖（触发 L58 <span class="mono">shell.env</span> 钩子）→③核心强制不变量（<span class="mono">TERM</span>/<span class="mono">OPENCODE_TERMINAL</span>）。可定制在中间、不可妥协在最后压住一切——越后优先级越高，底线享最高优先级。</li>
+    <li><strong>积木相扣</strong>：PTY 环境的「中间层」直接复用 L58 的 <span class="mono">shell.env</span> 钩子（<span class="mono">plugin.trigger("shell.env",{cwd},{env:{}})</span>「改草稿」）——新需求用现成机制一拼即成，说明接缝找得准、抽象通用到能意外复用。</li>
+    <li><strong>机制 vs 策略分层</strong>：「PTY 环境」是服务器层事、非 Core PTY 事——Core 只造终端（纯机制），配什么环境（策略）留给更懂上下文的上层（独立服务器用空适配器）。同全书「切开机制与策略」。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. 为什么 opencode 光有批处理的 bash 工具（L39）还不够，非得搞一套 PTY 真终端？</div>
+  <ol class="opts">
+    <li>有些程序非真终端不可——交互式 REPL（要边看输出边输入）、检测到 TTY 才显示彩色/进度条的程序、需实时打字进去的命令；批处理一问一答、不能中途输入、程序也知道没连终端</li>
+    <li>纯粹是为了好看</li>
+    <li>批处理不能跑 shell 命令</li>
+    <li>PTY 比批处理跑得快</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。L39 已澄清：bash 工具经 AppProcess 走批处理（spawn 子进程、跑完收 stdout），PTY 是另一套。区别不是快慢而是能不能交互。批处理一问一答：给命令、等跑完、收 stdout，不能中途输入，程序也知道自己没连终端（常不输出彩色/进度条），适合「跑个命令拿结果」给模型。但有些程序非真终端不可：交互式 REPL（你得能边看输出边输入）、会检测「自己是否连着终端」才显示彩色/进度条的程序、需要实时打字进去的命令——批处理对这些无能为力。PTY 给的是真终端：流式看输出、随时打字（write）、能 resize，程序「以为」连着真人于是放心交互。PTY 把真终端抽象成极简的 Proc 接口（onData/write/resize/onExit/kill），由 Bun/Node 两套实现满足同一接口，平台差异藏在接口下（同 L52 opentui、L46 MCP transport）。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. 创建 PTY 时，它的环境变量是按「调用方值 → 宿主覆盖 → 核心强制终端不变量(TERM 等)」分层叠加的。这个顺序为什么这么排？</div>
+  <ol class="opts">
+    <li>可定制的在中间、不可妥协的在最后压住一切——越后优先级越高；TERM/OPENCODE_TERMINAL 是「真终端之所以是真终端」的底线，不能被任何中间层（哪怕好心插件）改坏，故最后强制写入、享最高优先级</li>
+    <li>按字母顺序排的</li>
+    <li>随便排的、顺序无所谓</li>
+    <li>核心不变量在最底层</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。CONTEXT.md 写明：PTY 创建合并调用方值、再叠宿主覆盖、最后核心强制终端不变量如 TERM。这个顺序编码了优先级哲学：①最底=调用方基础环境（合理起点，如继承 process.env）；②中间=可定制口子，通过 shell.env 插件钩子（正是 L58「改草稿」钩子的触发点）让组织/用户注入自己的环境变量（内部 npm 镜像、代理地址等）；③最上=opencode 强制盖上、谁也覆盖不了的终端不变量。为什么 TERM/OPENCODE_TERMINAL 放最后压住一切？因为它们是「真终端之所以是真终端」的底线——少了 TERM 程序就不知用什么终端类型渲染、彩色和光标控制全乱套。这些不能让任何中间层（哪怕好心插件）改坏，故必须最后强制写入。叠加里越往后优先级越高，「不可妥协的底线」就该享最高优先级——既给足定制灵活性、又守住底线。这是老练系统的分寸。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. PTY 的环境「中间层」（宿主覆盖）是怎么实现的？这体现了什么设计之美？</div>
+  <ol class="opts">
+    <li>硬编码一份固定的环境变量</li>
+    <li>直接复用 L58 的 shell.env 插件钩子——plugin.trigger("shell.env",{cwd},{env:{}}) 递空草稿让插件填；新需求用现成机制一拼即成，说明 L58 的接缝找得准、抽象通用到能意外复用（积木相扣）</li>
+    <li>为 PTY 环境专门发明了一套新机制</li>
+    <li>让用户手动改配置文件</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：B</strong>。pty-environment 插件的 get() 实现就是：plugin.trigger("shell.env", {cwd: input.cwd}, {env:{}}).pipe(map(result => result.env))——正是 L58 讲的「改草稿」：opencode 递一个空的 {env:{}} 草稿、插件往里填，最后拿插件改过的 env 作为「宿主覆盖」那一层。于是 PTY 的环境定制根本不需要为它发明新机制，直接复用了已有的 shell.env 插件钩子。这正是设计良好系统的「积木相扣」之美：L58 造好的 shell.env 钩子是一块通用积木，到 L60 的 PTY 环境这里它恰好就是「中间那一层可定制覆盖」，严丝合缝嵌进去。当你发现「这个新需求用现成机制一拼即成」时，往往说明前面那些抽象的接缝找得准——它们不是为某一处专门造的，而是通用到能在意想不到的地方再次复用。另外 CONTEXT.md 点出干净的职责切分：PTY 环境是服务器层的事、非 Core PTY 的事——Core 只造终端（纯机制），配什么环境（策略）留给更懂上下文的上层（切开机制与策略）。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里反复礼赞 PTY 的环境叠加「可定制的在中间、不可妥协的在最后压住一切」——通过叠加顺序让插件能灵活注入、又让 TERM 等终端不变量绝不被改坏。请你提炼这种「用『层的顺序』来表达『优先级/不可覆盖性』」的设计模式，并把它和你见过的类似机制串起来：CSS 的 !important 与层叠顺序、Kubernetes 的 admission webhook 链、配置的 defaults→user→forced 三层、防火墙规则的顺序。它们如何用「顺序」编码「谁能覆盖谁」？设计这类系统时，把「强制项」放最后（最高优先级）相比放最前，安全性上各有何利弊？</li>
+    <li>课里说一个能让人实时打字进去的 PTY 终端是极强的能力，若谁都能连就是天大的安全洞，于是用「短时、限定作用域、一次性」的 ticket 令牌守门（60 秒 TTL、绑死 ptyID+目录+工作区）。请你结合 L41 权限、L46 MCP 的 OAuth，提炼 opencode 反复出现的「把强大能力绑定到严格授权」的安全设计原则。再设计一个思想实验：如果让你为「远程连接一个正在运行的 agent 终端」设计授权，你会怎样权衡 ticket 的 TTL（太长不安全、太短体验差）、作用域粒度、是否一次性、能否续期？短时令牌相比长期 token / session cookie，在「强能力短暴露窗口」上的优势是什么？</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en">
+<p class="lead">Remember that key clarification in lesson 39—opencode's bash tool is <strong>batch</strong> (spawn a child process, run to completion, collect stdout), while <span class="mono">pty/*</span> is <strong>a separate</strong> infrastructure for interactive terminals. We set PTY aside then; this lesson fills it in: <strong>PTY (pseudo-terminal)</strong>. The question is concrete: why isn't a batch bash enough for opencode, why build a real terminal too? Because some programs <strong>require a real terminal</strong>—interactive REPLs (you must read output while typing input), programs that detect "am I attached to a terminal?" before showing color/progress bars, commands you need to <strong>type into in real time</strong>. Batch bash is helpless with these (it's one-shot Q&A, can't input mid-way, and the program knows it isn't attached to a terminal). PTY gives a <strong>real terminal you can stream output from, type into, and resize</strong>—just like that terminal window you open on screen itself.</p>
+<p>This lesson has two highlights most worth taking away. First, <strong>PTY is a clean, cross-platform "real terminal" abstraction</strong>: a <span class="mono">Proc</span> interface (<span class="mono">onData</span> streams output, <span class="mono">write</span> types in, <span class="mono">resize</span> adjusts size, <span class="mono">kill</span> kills it), backed by two implementations, Bun and Node; its output can also <strong>stream to a client over WebSocket</strong> (with "cursor replay," resume from a point after a drop), guarded by <strong>short-lived tickets</strong> on "who can attach to this terminal." Second, and the most eye-opening—<strong>a PTY's environment variables are "stacked layer by layer,"</strong> and the stacking order hides intent: first the <strong>caller's values</strong>, then a <strong>host overlay</strong> (exactly lesson 58's <span class="mono">shell.env</span> plugin hook!), and finally opencode's <strong>forced terminal invariants</strong> (like <span class="mono">TERM</span>, <span class="mono">OPENCODE_TERMINAL</span>) stamped on top. Grasp this "<strong>customizable in the middle, non-negotiable last</strong>" stacking order and you'll understand how a seasoned system <strong>gives ample flexibility yet holds the bottom line</strong>.</p>
+
+<div class="card analogy">
+  <div class="tag">🖥️ Analogy</div>
+  Picture <strong>batch bash</strong> (L39) as <strong>mailing a letter</strong>: you write a command, mail it out, the other side runs it and mails back a printed page of results—you can't interject the whole time, and the other side knows it's a "letter," not face-to-face. <strong>PTY</strong> gives you a <strong>real video-call window</strong>: you can watch every frame of the other's screen in real time, type over anytime, and the window can be stretched larger or smaller—and the program really does "feel" it's attached to a terminal a live person is using, so it confidently outputs color, draws progress bars, awaits your input. As for that <strong>environment-variable stacking</strong>, it's just like <strong>dressing for work</strong>: the bottom layer is the clothes you picked (the caller's env), the company adds a <strong>uniform</strong> over it (the plugin <span class="mono">shell.env</span> hook's overlay), and outermost is the <strong>mandatory safety vest no one's allowed to remove</strong> (opencode's forced <span class="mono">TERM</span> and other terminal invariants). The order is key: <strong>let you and the company stack the personalized freely, but the life-saving piece always covers outermost, overriding all</strong>—so it doesn't stop you dressing with style, yet never lets anyone take the safety vest off.
+</div>
+
+<h2>PTY vs batch: why you need a real terminal</h2>
+<p>Lesson 39 already noted: the bash tool goes <strong>batch</strong> via <span class="mono">AppProcess</span> (spawn a child process, run to completion, collect the result), while PTY is <strong>a separate</strong> thing. The difference isn't "fast vs slow" but "interactive or not":</p>
+<div class="cols">
+  <div class="col"><h4>batch bash (L39)</h4><p>one-shot Q&A: give a command, wait for it to finish, collect stdout. <strong>Can't input mid-way</strong>, and the program knows it's <strong>not attached to a terminal</strong> (so it often omits color/progress bars). Suited to "run a command, get the result" for the model.</p></div>
+  <div class="col"><h4>interactive PTY</h4><p>a real terminal: <strong>stream</strong> output, <strong>type in anytime</strong>, can <strong>resize</strong>. The program "thinks" it's attached to a live person, interacting confidently. Suited to REPLs, TTY-requiring tools, real-time human operation.</p></div>
+</div>
+<p>PTY abstracts "a real terminal" into a minimal <span class="mono">Proc</span> interface (<span class="mono">pty/pty.ts</span>), clean as a device's remote control:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">onData(listener)</div><div class="c-txt">subscribe to the terminal's output (streaming, chunk by chunk)</div></div>
+  <div class="cell"><div class="c-tag">write(data)</div><div class="c-txt">type into the terminal (send input in)</div></div>
+  <div class="cell"><div class="c-tag">resize(cols, rows)</div><div class="c-txt">adjust terminal size (sync when the window is stretched)</div></div>
+  <div class="cell"><div class="c-tag">onExit / kill</div><div class="c-txt">listen for exit / kill the process</div></div>
+</div>
+<p>The finest thing about this interface is it <strong>fully hides "platform differences" behind it</strong>. Creating a real pseudo-terminal differs between Bun's and Node's low-level APIs, so opencode provides two implementations, <span class="mono">pty.bun.ts</span> and <span class="mono">pty.node.ts</span>, <strong>both satisfying the same <span class="mono">Proc</span> interface</strong>. Upper code just programs against <span class="mono">Proc</span>—<span class="mono">onData</span>/<span class="mono">write</span>/<span class="mono">resize</span>—not caring whether it's running on Bun or Node right now. This is again the classic technique of "<strong>define a clean interface, multiple implementations each satisfy it</strong>" (like L52 opentui abstracting away different terminal capabilities, L46 MCP abstracting away stdio/HTTP transports): <strong>seal the changeable, platform-specific dirty work beneath an interface, so the upper layer always faces the same stable face.</strong></p>
+
+<h2>Streaming and connecting: delivering the terminal to the client</h2>
+<p>A PTY runs on the server, but what <strong>watches and uses</strong> it may be a client elsewhere (your TUI, even a remote session). From "create a PTY" to "the client attaches and watches live," the path is:</p>
+<div class="flow">
+  <div class="f-node">create PTY<br><small>Proc: start a real terminal</small></div>
+  <div class="f-arrow">issue →</div>
+  <div class="f-node">short-lived ticket<br><small>bound to ptyID+dir, 60s</small></div>
+  <div class="f-arrow">attach with ticket →</div>
+  <div class="f-node">WebSocket stream<br><small>raw chunks + cursor frame</small></div>
+  <div class="f-arrow">on drop →</div>
+  <div class="f-node">replay by cursor to resume<br><small>continue streaming from the break</small></div>
+</div>
+<p>opencode uses a WebSocket protocol (<span class="mono">pty/protocol.ts</span>) to "deliver" the terminal, with a few pragmatic designs:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">raw UTF-8 chunks outbound</div><div class="c-txt">the terminal output is raw bytes, streamed directly to the client chunk by chunk</div></div>
+  <div class="cell"><div class="c-tag">cursor control frame (0x00+JSON)</div><div class="c-txt">a special frame reports "the current output byte position"—after a drop you can <strong>resume from the cursor</strong></div></div>
+  <div class="cell"><div class="c-tag">REPLAY_CHUNK=64KB</div><div class="c-txt">replay may be several MB, sent in bounded chunks, not overflowing at once</div></div>
+  <div class="cell"><div class="c-tag">ticket connection token</div><div class="c-txt">attaching to a PTY first needs a <strong>short-lived ticket</strong> (60s TTL, scoped to ptyID+directory+workspace)</div></div>
+</div>
+<p>Two points here especially worth noting. First, <strong>cursor replay</strong>: the terminal's output is a continuous long stream; on reconnect after a drop the client needn't start over—with a "cursor" (which byte it's seen) it can <strong>resume streaming from the break</strong>—making PTY usable over remote/unstable networks. Second, <strong>the ticket</strong>: you can't just attach to any terminal. Before connecting you must <strong>claim a short-lived ticket</strong> (<span class="mono">pty/ticket.ts</span>, 60s expiry, bound to a specific ptyID + directory + workspace), used once then burned. A terminal you can <strong>type into in real time</strong> is an extremely strong capability; if anyone could attach, it'd be a giant security hole—the ticket guards this door with "short-lived, scope-limited, one-time" tokens, exactly the pragmatic move of binding "strong capability" to "strict authorization" (echoing L41 permissions, L46 MCP's OAuth).</p>
+
+<h2>Environment stacking: customizable in the middle, non-negotiable last</h2>
+<p>Now to this lesson's most eye-opening design. When creating a PTY, with <strong>what environment variables</strong> should it run? opencode's answer isn't "use some one env" but stacks the environment <strong>in layers</strong>—per the order spelled out in CONTEXT.md, <strong>merge the caller's values, then stack the host overlay, then forcibly stamp opencode's terminal invariants on top</strong>:</p>
+<div class="layers">
+  <div class="layer"><span class="l-tag">① caller-passed values</span><span class="l-desc">bottom layer: the env the PTY initiator gave (e.g. inherit the current process's env)</span></div>
+  <div class="layer"><span class="l-tag">② host overlay (plugin shell.env)</span><span class="l-desc">middle layer: trigger lesson 58's <span class="mono">shell.env</span> hook, letting plugins inject/override (e.g. internal proxy, CI marker)</span></div>
+  <div class="layer"><span class="l-tag">③ core-forced terminal invariants</span><span class="l-desc">top layer: opencode forcibly stamps <span class="mono">TERM</span>, <span class="mono">OPENCODE_TERMINAL</span>, etc.—what a real terminal must have</span></div>
+</div>
+<p>This stacking order is by no means casually arranged; it encodes a clear <strong>priority philosophy</strong>. The bottom layer is the caller's "base environment," giving a reasonable starting point; the middle layer is the <strong>customizable hatch</strong>—via the <span class="mono">shell.env</span> plugin hook (exactly lesson 58's "edit a draft" hook at one of its trigger points), letting orgs/users inject their own env vars (e.g. inject an internal npm mirror, a proxy address, into all terminals); and the top layer is the terminal invariants opencode <strong>forcibly stamps, that no one can override</strong>. Why put <span class="mono">TERM</span>, <span class="mono">OPENCODE_TERMINAL</span> these <strong>last, overriding all</strong>? Because they're the <strong>bottom line</strong> of "what makes a real terminal a real terminal": without <span class="mono">TERM</span>, a program doesn't know which terminal type to render with, and color and cursor control all break. These <strong>can't be accidentally broken by any middle layer (even a well-meaning plugin)</strong>, so they must be <strong>force-written last</strong>—in the stacking order, the later the higher priority, and the "non-negotiable bottom line" deserves the highest priority.</p>
+<p>Walking this stacking through one creation, that sense of "customizable yet non-negotiable" leaps out:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">take the caller's env as the base (e.g. inherit process.env)</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">trigger the <span class="mono">shell.env</span> hook → plugins inject/override a few vars into it</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">finally force-write <span class="mono">TERM</span>/<span class="mono">OPENCODE_TERMINAL</span> → override any same-named items before</span></div>
+  <div class="t-row"><span class="t-num">✓</span><span class="t-txt">both allow flexible customization and never let the terminal's bottom line be broken</span></div>
+</div>
+<p>CONTEXT.md also points out a clean separation of responsibility: <strong>the "PTY Environment" is a server-layer concern, not a Core PTY concern</strong>. Core's PTY just handles the pure thing of "making a real terminal"; while "what env this terminal should carry"—whether to trigger plugins, which invariants to stack—is the <strong>server layer</strong>'s job (a standalone server just uses an empty adapter). This layering of "Core does only the purest thing, leaving the strategic assembly to the upper layer" is again the book's recurring aesthetic: <strong>cut "mechanism" (making a terminal) from "policy" (what env to configure)</strong>, letting Core stay minimal, pure, reusable in any scenario, while leaving the scenario-varying strategic assembly to a higher, more context-aware layer.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson fills in the PTY L39 set aside—opencode's real-terminal infrastructure:</p>
+  <ul>
+    <li><strong>PTY = real interactive terminal</strong> (vs L39 batch bash): batch is one-shot Q&A, can't input mid-way; PTY streams output + type anytime + resize, the program "thinks" it's attached to a live person. The <span class="mono">Proc</span> interface (<span class="mono">pty/pty.ts</span>) = onData/write/resize/onExit/kill, <strong>Bun/Node two implementations satisfy the same interface</strong> (platform difference hidden under the interface, like L52/L46).</li>
+    <li><strong>streaming + connecting</strong> (<span class="mono">pty/protocol.ts</span>/<span class="mono">ticket.ts</span>): WebSocket delivers the terminal to clients, raw UTF-8 chunks outbound + cursor control frame (0x00+JSON) for <strong>drop replay</strong>, REPLAY_CHUNK 64KB chunking; connecting needs a <strong>short-lived ticket</strong> (60s, bound to ptyID+directory+workspace, one-time) to guard (strong capability bound to strict authorization, like L41/L46).</li>
+    <li><strong>environment stacking (most eye-opening)</strong>: PTY creation merges in order ① caller values → ② host overlay (triggers L58 <span class="mono">shell.env</span> plugin hook) → ③ core-forced terminal invariants (<span class="mono">TERM</span>/<span class="mono">OPENCODE_TERMINAL</span>). <strong>Customizable in the middle, non-negotiable last overriding all</strong>—the later the higher priority, the bottom line gets the highest priority.</li>
+    <li><strong>mechanism vs policy layering</strong>: the "PTY Environment" is a server-layer concern, not a Core PTY one—Core only makes the terminal (pure mechanism), "what env to configure" (policy) is left to the more context-aware server layer (standalone server uses an empty adapter). The book's "cut mechanism from policy" aesthetic.</li>
+  </ul>
+  <p>The real-terminal infrastructure is filled in. M11 has one lesson left, L61: <strong>ACP and the Location model</strong>—how opencode, conversely, gets connected by other editors (like Zed) as an <strong>ACP server</strong>, how sessions move across "Locations," how the control plane coordinates. After L61, the whole M11 "Extensibility and integration" wraps up, and "all the doors opencode opens outward" are fully covered.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p>CONTEXT.md nails the env-stacking order in one sentence, and the <span class="mono">pty-environment</span> plugin is exactly that "middle layer"'s implementation (simplified from source):</p>
+  <pre class="code"><span class="cm">// CONTEXT.md: PTY creation merges caller values, then the host</span>
+<span class="cm">// overlay, then Core-forced terminal invariants such as TERM</span>
+<span class="cm">// i.e.: caller values → host overlay → forced invariants (later overrides earlier)</span>
+
+<span class="cm">// the host-overlay layer = trigger the shell.env plugin hook (lesson 58)</span>
+PtyEnvironment.Service.of({
+  get: (input) =&gt;
+    plugin
+      .<span class="fn">trigger</span>(<span class="st">"shell.env"</span>, { cwd: input.cwd }, { env: {} })   <span class="cm">// ← plugins inject into env</span>
+      .<span class="fn">pipe</span>(Effect.<span class="fn">map</span>((result) =&gt; result.env)),
+})</pre>
+  <p>What's most worth savoring is how it <strong>seamlessly embeds lesson 58's plugin mechanism</strong> into the PTY environment's "middle layer." Look at that <span class="mono">plugin.trigger("shell.env", {cwd}, {env:{}})</span>—it's exactly L58's "edit a draft": opencode hands an empty <span class="mono">{env:{}}</span> draft, plugins fill into it, and finally the plugin-edited env is taken as the "host overlay" layer. <strong>So PTY environment customization needn't invent a new mechanism at all—it directly reuses the existing plugin hook.</strong> This is the "<strong>building blocks interlocking</strong>" beauty a well-designed system should have: the <span class="mono">shell.env</span> hook L58 built is a generic block, and here at L60's PTY environment, it <strong>happens to be exactly "that customizable overlay in the middle,"</strong> snapping in perfectly. In a system, when you find "this new need is just a snap-together of some existing mechanism," it often means the earlier abstraction seams were found accurately—they weren't built for one spot but are <strong>generic enough to be reused again in unexpected places</strong>. From L58's shell.env to L60's environment stacking is exactly this "<strong>one block, reused in many places</strong>" exemplar.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>PTY = real interactive terminal</strong> (vs L39 batch bash): batch is one-shot Q&A can't input mid-way, the program knows it's not attached; PTY streams output + type anytime + resize, the program "thinks" it's attached to a live person (REPLs/TTY-requiring tools/real-time human operation). The <span class="mono">Proc</span> interface onData/write/resize/kill, Bun/Node two implementations satisfy the same interface (platform difference hidden under the interface, like L52/L46).</li>
+    <li><strong>streaming + connecting</strong>: WebSocket delivers the terminal (<span class="mono">protocol.ts</span>), raw UTF-8 chunks + cursor frame (0x00+JSON) for drop replay, REPLAY_CHUNK 64KB; connecting needs a short-lived ticket (60s/bound to ptyID+directory+workspace/one-time, <span class="mono">ticket.ts</span>) to guard—strong capability bound to strict authorization (like L41/L46).</li>
+    <li><strong>environment stacking (most eye-opening)</strong>: PTY creation merges in order ① caller values → ② host overlay (triggers L58 <span class="mono">shell.env</span> hook) → ③ core-forced invariants (<span class="mono">TERM</span>/<span class="mono">OPENCODE_TERMINAL</span>). Customizable in the middle, non-negotiable last overriding all—the later the higher priority, the bottom line gets the highest priority.</li>
+    <li><strong>blocks interlocking</strong>: the PTY environment's "middle layer" directly reuses L58's <span class="mono">shell.env</span> hook (<span class="mono">plugin.trigger("shell.env",{cwd},{env:{}})</span> "edit a draft")—a new need snaps together from an existing mechanism, showing the seams were found accurately, the abstraction generic enough for unexpected reuse.</li>
+    <li><strong>mechanism vs policy layering</strong>: the "PTY Environment" is a server-layer concern, not a Core PTY one—Core only makes the terminal (pure mechanism), what env to configure (policy) is left to the more context-aware upper layer (standalone server uses an empty adapter). The book's "cut mechanism from policy."</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. Why isn't opencode's batch bash tool (L39) enough, requiring a PTY real-terminal infrastructure too?</div>
+  <ol class="opts">
+    <li>Some programs require a real terminal—interactive REPLs (read output while typing input), programs showing color/progress bars only on a TTY, commands you type into in real time; batch is one-shot Q&A, can't input mid-way, and the program knows it's not attached to a terminal</li>
+    <li>Purely for aesthetics</li>
+    <li>Batch can't run shell commands</li>
+    <li>PTY runs faster than batch</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. L39 already clarified: the bash tool goes batch via AppProcess (spawn a child process, run to completion, collect stdout), PTY is a separate thing. The difference isn't fast/slow but interactive-or-not. Batch is one-shot Q&A: give a command, wait, collect stdout, can't input mid-way, and the program knows it's not attached to a terminal (often omits color/progress bars), suited to "run a command, get the result" for the model. But some programs require a real terminal: interactive REPLs (you must read output while typing input), programs that detect "am I attached to a terminal?" before showing color/progress bars, commands you type into in real time—batch is helpless with these. PTY gives a real terminal: stream output, type anytime (write), can resize, the program "thinks" it's attached to a live person and interacts confidently. PTY abstracts a real terminal into a minimal Proc interface (onData/write/resize/onExit/kill), with Bun/Node two implementations satisfying the same interface, platform difference hidden under the interface (like L52 opentui, L46 MCP transport).</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. When creating a PTY, its env vars are stacked in order "caller values → host overlay → core-forced terminal invariants (TERM etc.)." Why this order?</div>
+  <ol class="opts">
+    <li>Customizable in the middle, non-negotiable last overriding all—the later the higher priority; TERM/OPENCODE_TERMINAL are the bottom line of "what makes a real terminal real," can't be broken by any middle layer (even a well-meaning plugin), so force-written last, getting the highest priority</li>
+    <li>Arranged alphabetically</li>
+    <li>Arranged arbitrarily, order doesn't matter</li>
+    <li>Core invariants at the bottom layer</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. CONTEXT.md spells out: PTY creation merges caller values, then stacks the host overlay, then core-forced terminal invariants like TERM. This order encodes a priority philosophy: ① bottom = caller's base environment (a reasonable starting point, e.g. inherit process.env); ② middle = customizable hatch, via the shell.env plugin hook (exactly L58's "edit a draft" hook's trigger point) letting orgs/users inject their own env vars (internal npm mirror, proxy address, etc.); ③ top = the terminal invariants opencode forcibly stamps that no one can override. Why put TERM/OPENCODE_TERMINAL last overriding all? Because they're the bottom line of "what makes a real terminal real"—without TERM a program doesn't know which terminal type to render with, color and cursor control all break. These can't be broken by any middle layer (even a well-meaning plugin), so must be force-written last. In the stacking the later the higher priority, the "non-negotiable bottom line" deserves the highest priority—both giving ample customization flexibility and holding the bottom line. This is a seasoned system's sense of proportion.</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. How is the PTY environment's "middle layer" (host overlay) implemented? What design beauty does this embody?</div>
+  <ol class="opts">
+    <li>Hardcodes a fixed set of env vars</li>
+    <li>Directly reuses L58's shell.env plugin hook—plugin.trigger("shell.env",{cwd},{env:{}}) hands an empty draft for plugins to fill; a new need snaps together from an existing mechanism, showing L58's seam was found accurately, the abstraction generic enough for unexpected reuse (blocks interlocking)</li>
+    <li>A new mechanism specially invented for PTY environment</li>
+    <li>Lets the user manually edit a config file</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: B</strong>. The pty-environment plugin's get() implementation is exactly: plugin.trigger("shell.env", {cwd: input.cwd}, {env:{}}).pipe(map(result => result.env))—exactly L58's "edit a draft": opencode hands an empty {env:{}} draft, plugins fill into it, finally the plugin-edited env is taken as the "host overlay" layer. So PTY environment customization needn't invent a new mechanism at all, directly reusing the existing shell.env plugin hook. This is the "building blocks interlocking" beauty of a well-designed system: the shell.env hook L58 built is a generic block, and here at L60's PTY environment it happens to be exactly "that customizable overlay in the middle," snapping in perfectly. When you find "this new need is just a snap-together of some existing mechanism," it often means the earlier abstraction seams were found accurately—they weren't built for one spot but are generic enough to be reused again in unexpected places. Also CONTEXT.md points out a clean separation of responsibility: the PTY environment is a server-layer concern, not a Core PTY one—Core only makes the terminal (pure mechanism), what env to configure (policy) is left to the more context-aware upper layer (cut mechanism from policy).</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson repeatedly praises PTY's env stacking "customizable in the middle, non-negotiable last overriding all"—using the stacking order to let plugins inject flexibly yet never let TERM and other terminal invariants be broken. Distill this "use 'layer order' to express 'priority/non-overridability'" design pattern, connecting it with similar mechanisms you've seen: CSS's !important and cascade order, Kubernetes admission webhook chains, config's defaults→user→forced three layers, firewall rule order. How do they use "order" to encode "who can override whom"? Designing such systems, what are the security pros/cons of putting "forced items" last (highest priority) versus first?</li>
+    <li>The lesson says a PTY terminal you can type into in real time is an extremely strong capability, a giant security hole if anyone could attach, so it's guarded with "short-lived, scope-limited, one-time" tickets (60s TTL, bound to ptyID+directory+workspace). From L41 permissions and L46 MCP's OAuth, distill opencode's recurring "bind strong capability to strict authorization" security design principle. Then design a thought experiment: if you designed authorization for "remotely attaching to a running agent terminal," how would you weigh the ticket's TTL (too long unsafe, too short poor UX), scope granularity, one-time-ness, renewability? What's the advantage of short-lived tickets over long-lived tokens / session cookies in "a short exposure window for a strong capability"?</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="59-lsp.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">LSP 集成</span><span class="lang-en">LSP integration</span></div></a><a class="next" href="61-acp-location.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">ACP 与 Location 抽象</span><span class="lang-en">ACP &amp; the Location model</span></div></a></div>
 </div>
 <script>
