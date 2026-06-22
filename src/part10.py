@@ -665,5 +665,216 @@ LESSON_54 = {
 </div>
 """,
 }
-LESSON_55 = wip('prompt 组件', 'The prompt component')
+LESSON_55 = {
+    "zh": r"""
+<p class="lead">前三课讲透了 TUI 的「机器」——opentui 渲染器（L52）、Provider 金字塔（L53）、事件数据流（L54）。这一课转向你<strong>每天接触最多的那个组件</strong>：<span class="mono">prompt</span> 编辑器——你敲字、发问、@文件、/命令的那个输入框。乍看它只是个文本框，但 opencode 给它塞进了四样让它「懂你」的本事：<strong>编辑器</strong>（多行输入 + 富内容：文本、@文件提及、@agent）、<strong>自动补全</strong>（敲 <span class="mono">@</span> 补文件、敲 <span class="mono">/</span> 补命令）、<strong>历史</strong>（↑↓ 翻出你刚发过的话）、以及最妙的 <strong>frecency</strong>（按你的使用习惯给文件排序，把你最可能想要的那个顶到最前）。这一课就拆开这四件套，看一个朴素的输入框如何被打磨成<strong>「越用越顺手」</strong>的高手工具。</p>
+<p>这一课有两个最值得带走的亮点。第一，<strong>frecency 这个排序算法</strong>——它的名字是 <strong>frequency（频率）+ recency（最近度）</strong>的合成词，公式只有一行却极其精妙：<span class="mono">frequency / (1 + 距上次打开的天数)</span>。一个文件你开得越<strong>频繁</strong>、上次开得越<strong>近</strong>，分越高。正是它，让你敲 <span class="mono">@</span> 时，<strong>真正想要的那个文件浮到候选列表最前面</strong>——既不会被你三个月前点过一次的文件干扰，也不会让你天天用的核心文件沉底。第二，<strong>历史与 frecency 都用「追加式 JSONL 日志 + 定期压缩」来持久化</strong>：每次更新只往文件<strong>追加一行</strong>（O(1)、抗崩溃），超过上限或加载时再<strong>重写压缩、顺带自愈损坏</strong>。这个朴素的持久化范式，和 M9 的迁移日志、L54 的事件溯源遥相呼应——<strong>追加是廉价又安全的，整理留到不影响热路径的时候做</strong>。读懂这两点，你就懂了「为什么 opencode 的输入框用着用着，就好像越来越懂你想敲什么」。</p>
+
+<div class="card analogy">
+  <div class="tag">⌨️ 生活类比</div>
+  把这个 prompt 编辑器想象成一个<strong>「会学习的命令行 + 智能键盘」</strong>的合体。它的<strong>历史</strong>就像 shell 里按 ↑ 翻出上一条命令——肌肉记忆般顺手。它的 <strong>frecency</strong>，则像你手机输入法推荐 emoji 的逻辑：不是简单按「用得最多」排（否则你半年前疯狂用过的某个表情会永远霸榜），也不是单纯按「最近用过」排（否则一个误触的表情会插到最前），而是<strong>把「常用」和「最近」揉成一个分数</strong>——你<strong>既常用、又刚用过</strong>的那几个，才会被顶到最顺手的位置。所以你打开一个文件、再敲 <span class="mono">@</span> 时，它就出现在候选第一个；你冷落一个文件几天，它就悄悄往下沉。<strong>这个输入框不是被动等你打字，而是在默默观察你的习惯、并据此把「你最可能想要的」一次次端到你面前</strong>——这正是「好工具越用越合手」的奥秘。
+</div>
+
+<h2>四件套：把文本框打磨成高手工具</h2>
+<p>opencode 的 prompt 不是一个 <span class="mono">&lt;textarea&gt;</span> 就完事，而是<strong>四个协作的部件</strong>（都在 <span class="mono">component/prompt/</span> 与 <span class="mono">prompt/</span> 下）。先纵览它们各管一摊：</p>
+<table class="t">
+  <tr><th>部件</th><th>职责</th><th>关键</th></tr>
+  <tr><td>编辑器（index.tsx）</td><td>多行输入 + 富内容</td><td><span class="mono">PromptInfo</span>={input, parts[]}；parts 可含文本/@文件/@agent；normal/shell 模式</td></tr>
+  <tr><td>自动补全（autocomplete.tsx）</td><td>敲 @ 补文件、敲 / 补命令</td><td>触发→过滤→排序；<span class="mono">visible: false｜"@"｜"/"</span></td></tr>
+  <tr><td>历史（history.tsx）</td><td>↑↓ 翻出发过的话</td><td><span class="mono">move(±1)</span> 导航、<span class="mono">append</span> 去重存；上限 50 条</td></tr>
+  <tr><td>frecency（frecency.tsx）</td><td>按使用习惯给文件排序</td><td><span class="mono">freq/(1+天数)</span>；@补全靠它把常用文件顶前</td></tr>
+</table>
+<p>这四件套的分工很清楚：<strong>编辑器</strong>是承载你输入的画布，它存的不只是一串字符，而是一个结构化的 <span class="mono">PromptInfo</span>——里面除了纯文本 <span class="mono">input</span>，还有 <span class="mono">parts</span> 数组，记着你 @ 进来的文件、@ 上的 agent，甚至每个提及在原文里的位置。<strong>自动补全</strong>是输入时的助手：它盯着你敲的字符，一旦发现 <span class="mono">@</span> 或 <span class="mono">/</span> 这样的「触发符」（靠 <span class="mono">mentionTriggerIndex</span> 定位），就弹出候选列表。它的工作是一条「触发→过滤→排序」的小流水：</p>
+<div class="flow">
+  <div class="f-node">检测触发符<br><small>@文件 / /命令</small></div>
+  <div class="f-arrow">过滤 →</div>
+  <div class="f-node">按已敲文字筛<br><small>match 候选项</small></div>
+  <div class="f-arrow">排序 →</div>
+  <div class="f-node">frecency 排名<br><small>常用又最近的顶前</small></div>
+  <div class="f-arrow">展示 →</div>
+  <div class="f-node">候选浮层<br><small>选中即插入</small></div>
+</div>
+<p><strong>历史</strong>和 <strong>frecency</strong> 则是两种「记忆」：历史记得你<strong>说过什么</strong>（整条 prompt），frecency 记得你<strong>用过哪些文件、多频繁、多近</strong>。历史的导航就像 shell 里按 ↑↓：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">↑</span><span class="t-txt"><span class="mono">move(-1)</span>：index 往回退一格，取出更早的那条 prompt 填进输入框</span></div>
+  <div class="t-row"><span class="t-num">↓</span><span class="t-txt"><span class="mono">move(+1)</span>：往回走，index=0 时回到空白的「当前」</span></div>
+  <div class="t-row"><span class="t-num">发送</span><span class="t-txt"><span class="mono">append</span>：去重后入列（与上一条相同则不重复存），index 归 0</span></div>
+</div>
+<p>后面两节，我们重点拆历史与 frecency 这两种「记忆」——它们才是让输入框「懂你」的关键。</p>
+
+<h2>frecency：把「常用」与「最近」揉成一个分数</h2>
+<p>先看那个一行公式的核心（<span class="mono">frecency.tsx</span> 的 <span class="mono">calculateFrecency</span>）：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">frequency（分子）</div><div class="c-txt">这个文件被打开过几次——次数越多，基础分越高</div></div>
+  <div class="cell"><div class="c-tag">(now − lastOpen)/86400000</div><div class="c-txt">距上次打开的<strong>天数</strong>（86400000=一天的毫秒数）</div></div>
+  <div class="cell"><div class="c-tag">分母 1 + 天数</div><div class="c-txt">隔得越久、分母越大、分越被「衰减」；+1 防止刚开时除以零</div></div>
+  <div class="cell"><div class="c-tag">分数 = freq /(1+天数)</div><div class="c-txt">又常用、又最近=高分；常用但很久没碰=被时间稀释</div></div>
+</div>
+<p>这个公式的妙处，在于它<strong>同时打败了两种朴素方案</strong>。如果<strong>只按频率排</strong>（开得多的在前），那你半年前因为某个原因疯狂打开过几十次的文件，会<strong>永远霸占榜首</strong>——哪怕你早就不碰它了。如果<strong>只按最近排</strong>（刚开的在前），那你<strong>误点一次</strong>的某个无关文件，会瞬间插到你天天用的核心文件前面。而 frecency 用「频率<strong>除以</strong>时间衰减」把两者揉到一起：一个文件哪怕历史频率很高，只要久不碰，分母 <span class="mono">(1+天数)</span> 就把它的分数<strong>慢慢拖低</strong>；而一个刚开的新文件，频率虽低但 <span class="mono">天数≈0</span>、分母≈1，能暂时靠前——但若你不再回头开它，它的分也很快随频率不再增长而被后来者超过。<strong>「频率给你长期偏好，最近度给你当下意图，相除让两者动态平衡」</strong>——这就是为什么你敲 <span class="mono">@</span> 时，列表顶端总是「你这阵子又常用、又刚碰过」的那几个文件。这个算法不是 opencode 的独创，而是 Firefox 地址栏、各种编辑器文件选择器背后<strong>同一个久经验证的排序智慧</strong>——一个值得你装进工具箱、随处可用的小而美的算法。三种排序方案的高下，并排一看便知：</p>
+<div class="cols">
+  <div class="col"><h4>纯频率 / 纯最近（各有硬伤）</h4><p><strong>纯频率</strong>：开得多的永远在前→半年前疯狂用过的文件霸榜，早不碰了也赖着不走。<strong>纯最近</strong>：刚开的在前→误点一次的无关文件瞬间插到核心文件前面。各偏一极。</p></div>
+  <div class="col"><h4>frecency（动态平衡）</h4><p>频率 ÷ 时间衰减：历史频率再高，久不碰也被分母慢慢拖低；刚开的新文件能暂时靠前，但不持续就被超过。<strong>长期偏好 × 当下意图，相除自洽</strong>。</p></div>
+</div>
+<p>每次你打开一个文件，<span class="mono">updateFrecency</span> 就给它的 <span class="mono">frequency +1</span>、把 <span class="mono">lastOpen</span> 刷成当下。于是这个分数<strong>随你的行为持续演化</strong>，永远反映你「最近这阵子」的真实习惯。</p>
+
+<h2>追加式日志：抗崩溃又自愈的持久化</h2>
+<p>历史和 frecency 都得<strong>跨会话记住</strong>——你今天翻得到昨天发过的话、@ 得到上周常用的文件。它俩用了同一套朴素而稳健的持久化：<strong>追加式 JSONL 日志 + 定期压缩</strong>。存档是两个文件：<span class="mono">prompt-history.jsonl</span> 和 <span class="mono">frecency.jsonl</span>，每行一条 JSON 记录。其运作有三步：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">追加（热路径）</div><div class="c-txt">每次更新只 <span class="mono">appendText</span> 往文件<strong>追加一行</strong>——O(1)、不重写全文、即便崩了也只丢最后一行</div></div>
+  <div class="cell"><div class="c-tag">压缩（冷路径）</div><div class="c-txt">超过上限（历史 50/frecency 1000）时 <span class="mono">writeText</span> 重写：去重、保留最新 N 条</div></div>
+  <div class="cell"><div class="c-tag">自愈（加载时）</div><div class="c-txt">读取时跳过解析失败的坏行；若有有效行就重写一遍，<strong>顺手修复损坏、抹掉超额</strong></div></div>
+</div>
+<p>为什么不直接「每次都把整个列表重写一遍」？因为那样既慢（列表越长写得越久）、又<strong>不抗崩溃</strong>（重写到一半断电，整个文件可能损坏）。而「追加一行」永远是<strong>廉价且原子的</strong>——这正是数据库预写日志（WAL，L48 见过）、事件溯源（L54）背后的同一个道理：<strong>把高频的「记录」做成廉价的追加，把昂贵的「整理」推迟到低频、不影响体验的时刻</strong>（超限时或下次启动时）。<span class="mono">parseFrecency</span> 读日志时还很聪明：同一个文件可能在日志里出现多行（每次打开追加一次），它用 <span class="mono">reduce</span> 让<strong>后出现的覆盖先出现的</strong>，于是自然取到每个文件的最新状态——这又是 L41 权限、L44 配置那个 <span class="mono">findLast</span>「后者胜」的同款思路。<strong>一个看似不起眼的「记历史」需求，背后藏着一整套「追加—压缩—自愈、后者覆盖前者」的成熟工程范式</strong>，而它在 opencode 里被复用得如此自然，恰恰说明好的范式是跨场景通用的。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观视角</div>
+  <p>这一课拆开了 opencode 的 prompt 编辑器——那个「越用越懂你」的输入框：</p>
+  <ul>
+    <li><strong>四件套</strong>（<span class="mono">component/prompt/</span>、<span class="mono">prompt/</span>）：编辑器（<span class="mono">PromptInfo</span>={input,parts[]}，富内容 @文件/@agent、normal/shell 模式）+ 自动补全（@补文件//补命令，<span class="mono">mentionTriggerIndex</span> 触发→过滤→排序）+ 历史（↑↓ <span class="mono">move(±1)</span>、<span class="mono">append</span> 去重，上限 50）+ frecency（按习惯排文件）。</li>
+    <li><strong>frecency 算法</strong>（<span class="mono">frequency/(1+天数)</span>）：频率给长期偏好、最近度给当下意图、相除动态平衡——同时打败「纯频率（旧favorite霸榜）」与「纯最近（误点插队）」。@补全靠它把「又常用又刚碰」的文件顶前。Firefox 地址栏同款经典算法。</li>
+    <li><strong>追加式 JSONL 持久化</strong>：历史/frecency 都存 <span class="mono">*.jsonl</span>，<strong>追加</strong>（O(1)抗崩溃，热路径）+ <strong>压缩</strong>（超限重写去重，冷路径）+ <strong>自愈</strong>（加载跳坏行、重写修复）。同 L48 WAL、L54 事件溯源「廉价追加、推迟整理」。</li>
+    <li><strong>后者覆盖前者</strong>：<span class="mono">parseFrecency</span> 用 reduce 让日志里同路径后出现的覆盖先出现的，自然取最新——同 L41 权限/L44 配置 <span class="mono">findLast</span>「后者胜」。</li>
+  </ul>
+  <p>输入框拆完了——四件套协作、frecency 排序、追加式日志记忆。M10 还剩最后一课 L56：<strong>对话框、命令面板</strong>（那些弹出来让你选模型、切 agent、跑命令的浮层）<strong>与 run CLI 的 scrollback</strong>（<span class="mono">opencode run</span> 非交互模式下，把对话以滚动日志形式打印出来）。讲完 L56，整个 M10「TUI 与客户端渲染」就收官，opencode 那套从渲染器到具体组件的终端 UI 全貌也就完整了。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">frecency.tsx</span> 的核心就这么几行，把「频率 × 时间衰减」写得朴素而精确（简化自源码）：</p>
+  <pre class="code"><span class="cm">// 一天的毫秒数</span>
+<span class="kw">const</span> DAY = <span class="nu">86400000</span>
+
+<span class="kw">function</span> <span class="fn">calculateFrecency</span>(entry) {
+  <span class="kw">if</span> (!entry) <span class="kw">return</span> <span class="nu">0</span>
+  <span class="cm">// 频率 ÷ (1 + 距上次打开的天数) ——越久没碰、分母越大、分越低</span>
+  <span class="kw">return</span> entry.frequency / (<span class="nu">1</span> + (Date.<span class="fn">now</span>() - entry.lastOpen) / DAY)
+}
+
+<span class="kw">function</span> <span class="fn">updateFrecency</span>(filePath) {
+  <span class="kw">const</span> abs = path.<span class="fn">resolve</span>(cwd, filePath)
+  <span class="cm">// 打开一次：频率 +1，最近度刷成当下</span>
+  <span class="kw">const</span> entry = { frequency: (store.data[abs]?.frequency || <span class="nu">0</span>) + <span class="nu">1</span>, lastOpen: Date.<span class="fn">now</span>() }
+  <span class="fn">setStore</span>(<span class="st">"data"</span>, abs, entry)
+  <span class="fn">appendText</span>(frecencyPath, JSON.<span class="fn">stringify</span>({ path: abs, ...entry }) + <span class="st">"\n"</span>)  <span class="cm">// ← 只追加一行</span>
+}</pre>
+  <p>最值得品的，是这个设计如何用<strong>一个极简的数学式</strong>，优雅地表达了一个本来很「主观」的需求——「把我最可能想要的文件排前面」。「我最可能想要什么」听起来像要靠机器学习、要建用户画像的复杂问题，但 frecency 用一行除法就给出了一个<strong>足够好</strong>的答案：你的<strong>长期偏好</strong>（频率）和<strong>当下意图</strong>（最近度）本就是预测「你想要什么」的两个最强信号，而「频率 ÷ 时间」恰好让它们以一种<strong>会自动新陈代谢</strong>的方式融合——新习惯随你的打开行为不断累积上分，旧习惯随时间流逝自动褪色。<strong>不需要任何显式的「过期」「清理」逻辑，时间衰减让排序永远自动跟着你「最近这阵子」的真实状态走。</strong>这是一个绝佳的范例，说明<strong>很多看似需要「智能」的产品体验，其实一个想透了的简单公式就能漂亮地解决</strong>——关键不在算法多复杂，而在你是否看清了「真正该度量的是什么」。把它装进你的工具箱：任何「最近常用项排序」的需求，frecency 都是第一个该想到的答案。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>prompt 四件套</strong>（<span class="mono">component/prompt/</span>、<span class="mono">prompt/</span>）：编辑器（<span class="mono">PromptInfo</span>={input,parts[]}，富内容 @文件/@agent、normal/shell）+ 自动补全（@///触发→过滤→排序）+ 历史（↑↓ <span class="mono">move</span>、<span class="mono">append</span> 去重、上限 50）+ frecency（按习惯排文件）。把朴素文本框打磨成「越用越顺手」的高手工具。</li>
+    <li><strong>frecency=frequency+recency</strong>：<span class="mono">freq/(1+天数)</span>。频率给长期偏好、最近度给当下意图、相除动态平衡——同时打败纯频率（旧 favorite 霸榜）与纯最近（误点插队）。@补全靠它把「又常用又刚碰」的文件顶前。Firefox 地址栏同款经典算法。</li>
+    <li><strong>时间衰减自动新陈代谢</strong>：<span class="mono">updateFrecency</span> 每次打开 frequency+1、lastOpen 刷新；分母 (1+天数) 让久不碰的自动褪色——无需显式「过期/清理」，排序永远跟着你最近的真实习惯走。</li>
+    <li><strong>追加式 JSONL 持久化</strong>：历史/frecency 存 <span class="mono">*.jsonl</span>，追加（O(1) 抗崩溃，热路径）+ 压缩（超限重写去重，冷路径）+ 自愈（加载跳坏行、重写修复）。同 L48 WAL、L54 事件溯源「廉价追加、推迟整理」。</li>
+    <li><strong>后者覆盖前者</strong>：<span class="mono">parseFrecency</span> 用 reduce 让同路径后出现的覆盖先出现的→自然取最新——同 L41 权限/L44 配置 <span class="mono">findLast</span>「后者胜」。简单公式漂亮解决看似需要「智能」的体验。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">The prior three lessons covered the TUI's "machinery"—the opentui renderer (L52), the Provider pyramid (L53), the event data flow (L54). This lesson turns to the component <strong>you touch most every day</strong>: the <span class="mono">prompt</span> editor—the input box where you type, ask, @ files, / commands. At first glance it's just a text box, but opencode packs four "understand-you" talents into it: an <strong>editor</strong> (multi-line input + rich content: text, @file mentions, @agent), <strong>autocomplete</strong> (type <span class="mono">@</span> for files, <span class="mono">/</span> for commands), <strong>history</strong> (↑↓ to recall what you just sent), and the cleverest, <strong>frecency</strong> (ranking files by your usage habits, floating the one you're most likely to want to the very top). This lesson disassembles these four pieces to see how a plain input box is polished into a power tool that <strong>"gets handier the more you use it."</strong></p>
+<p>This lesson has two highlights most worth taking away. First, <strong>the frecency ranking algorithm</strong>—its name is a portmanteau of <strong>frequency + recency</strong>, its formula one line yet exquisite: <span class="mono">frequency / (1 + days since last open)</span>. The more <strong>frequently</strong> you open a file and the more <strong>recently</strong> you opened it, the higher its score. It's exactly what makes the file you <strong>actually want float to the top of the candidate list</strong> when you type <span class="mono">@</span>—neither disturbed by a file you clicked once three months ago, nor letting the core file you use daily sink to the bottom. Second, <strong>both history and frecency persist via "append-only JSONL log + periodic compaction"</strong>: each update only <strong>appends one line</strong> to the file (O(1), crash-safe), and on exceeding a cap or on load it <strong>rewrites to compact, healing corruption along the way</strong>. This plain persistence paradigm echoes M9's migration journals and L54's event sourcing—<strong>appending is cheap and safe, tidying is left for moments that don't affect the hot path</strong>. Grasp these two and you'll understand "why opencode's input box, the more you use it, seems to increasingly know what you want to type."</p>
+
+<div class="card analogy">
+  <div class="tag">⌨️ Analogy</div>
+  Picture this prompt editor as a fusion of <strong>"a learning command line + a smart keyboard."</strong> Its <strong>history</strong> is like pressing ↑ in a shell to recall the last command—handy as muscle memory. Its <strong>frecency</strong> is like the logic by which your phone's keyboard recommends emoji: not simply by "used most" (else some emoji you frantically used half a year ago would forever top the list), nor purely by "used recently" (else one mis-tapped emoji jumps to the front), but by <strong>kneading "frequent" and "recent" into one score</strong>—the few you <strong>both use often and just used</strong> get floated to the handiest spot. So when you open a file then type <span class="mono">@</span>, it appears first in the candidates; neglect a file for a few days and it quietly sinks. <strong>This input box doesn't passively wait for you to type but silently observes your habits and, accordingly, repeatedly hands you "what you're most likely to want"</strong>—exactly the secret of "a good tool fits better the more you use it."
+</div>
+
+<h2>The four pieces: polishing a text box into a power tool</h2>
+<p>opencode's prompt isn't done with a single <span class="mono">&lt;textarea&gt;</span> but is <strong>four collaborating parts</strong> (all under <span class="mono">component/prompt/</span> and <span class="mono">prompt/</span>). First an overview of what each manages:</p>
+<table class="t">
+  <tr><th>part</th><th>responsibility</th><th>key</th></tr>
+  <tr><td>editor (index.tsx)</td><td>multi-line input + rich content</td><td><span class="mono">PromptInfo</span>={input, parts[]}; parts may hold text/@file/@agent; normal/shell modes</td></tr>
+  <tr><td>autocomplete (autocomplete.tsx)</td><td>type @ for files, / for commands</td><td>trigger→filter→rank; <span class="mono">visible: false｜"@"｜"/"</span></td></tr>
+  <tr><td>history (history.tsx)</td><td>↑↓ recall what you sent</td><td><span class="mono">move(±1)</span> navigate, <span class="mono">append</span> dedup-store; cap 50</td></tr>
+  <tr><td>frecency (frecency.tsx)</td><td>rank files by usage habits</td><td><span class="mono">freq/(1+days)</span>; @complete relies on it to float frequent files up</td></tr>
+</table>
+<p>The four pieces' division is clear: the <strong>editor</strong> is the canvas bearing your input, storing not just a string of characters but a structured <span class="mono">PromptInfo</span>—besides the plain-text <span class="mono">input</span>, a <span class="mono">parts</span> array records files you @'d in, agents you @'d, even each mention's position in the original text. <strong>Autocomplete</strong> is the assistant while typing: it watches the characters you type, and once it spots a "trigger" like <span class="mono">@</span> or <span class="mono">/</span> (located via <span class="mono">mentionTriggerIndex</span>), pops a candidate list. Its work is a little "trigger→filter→rank" pipeline:</p>
+<div class="flow">
+  <div class="f-node">detect trigger<br><small>@file / /command</small></div>
+  <div class="f-arrow">filter →</div>
+  <div class="f-node">filter by typed text<br><small>match candidates</small></div>
+  <div class="f-arrow">rank →</div>
+  <div class="f-node">frecency ranking<br><small>frequent-and-recent on top</small></div>
+  <div class="f-arrow">show →</div>
+  <div class="f-node">candidate overlay<br><small>select to insert</small></div>
+</div>
+<p><strong>History</strong> and <strong>frecency</strong> are two kinds of "memory": history remembers <strong>what you said</strong> (whole prompts), frecency remembers <strong>which files you used, how often, how recently</strong>. History's navigation is like pressing ↑↓ in a shell:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">↑</span><span class="t-txt"><span class="mono">move(-1)</span>: index steps back, takes the earlier prompt into the input box</span></div>
+  <div class="t-row"><span class="t-num">↓</span><span class="t-txt"><span class="mono">move(+1)</span>: walks forward, at index=0 returns to the blank "current"</span></div>
+  <div class="t-row"><span class="t-num">send</span><span class="t-txt"><span class="mono">append</span>: enqueues after dedup (same as the last → not re-stored), index resets to 0</span></div>
+</div>
+<p>The next two sections focus on history and frecency, these two "memories"—they're the key to the input box "knowing you."</p>
+
+<h2>frecency: kneading "frequent" and "recent" into one score</h2>
+<p>First the core of that one-line formula (<span class="mono">frecency.tsx</span>'s <span class="mono">calculateFrecency</span>):</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">frequency (numerator)</div><div class="c-txt">how many times this file was opened—more times, higher base score</div></div>
+  <div class="cell"><div class="c-tag">(now − lastOpen)/86400000</div><div class="c-txt">the <strong>days</strong> since last open (86400000 = ms in a day)</div></div>
+  <div class="cell"><div class="c-tag">denominator 1 + days</div><div class="c-txt">the longer ago, the bigger the denominator, the more the score "decays"; +1 prevents divide-by-zero just after opening</div></div>
+  <div class="cell"><div class="c-tag">score = freq /(1+days)</div><div class="c-txt">frequent and recent = high score; frequent but long untouched = diluted by time</div></div>
+</div>
+<p>This formula's beauty is that it <strong>defeats two naive schemes at once</strong>. If you <strong>rank by frequency only</strong> (most-opened first), a file you frantically opened dozens of times half a year ago for some reason would <strong>forever squat at the top</strong>—even if you stopped touching it long ago. If you <strong>rank by recency only</strong> (just-opened first), some irrelevant file you <strong>mis-clicked once</strong> would instantly jump ahead of the core file you use daily. frecency kneads both together via "frequency <strong>divided by</strong> time decay": however high a file's historical frequency, as long as it's untouched a while, the denominator <span class="mono">(1+days)</span> <strong>slowly drags its score down</strong>; while a just-opened new file, though low-frequency, has <span class="mono">days≈0</span> and denominator≈1, can rank up temporarily—but if you don't reopen it, its score is soon overtaken as its frequency stops growing. <strong>"Frequency gives you long-term preference, recency gives you present intent, division dynamically balances the two"</strong>—that's why, when you type <span class="mono">@</span>, the list's top is always the few files you've "lately both used often and just touched." This algorithm isn't opencode's invention but the <strong>same time-tested ranking wisdom</strong> behind Firefox's address bar and various editors' file pickers—a small, beautiful algorithm worth putting in your toolbox for use anywhere. The merits of the three ranking schemes, side by side, are clear at a glance:</p>
+<div class="cols">
+  <div class="col"><h4>pure frequency / pure recency (each flawed)</h4><p><strong>pure frequency</strong>: most-opened always first → a file frantically used half a year ago squats the top, clings on though long untouched. <strong>pure recency</strong>: just-opened first → an irrelevant file mis-clicked once instantly jumps ahead of core files. Each leans to an extreme.</p></div>
+  <div class="col"><h4>frecency (dynamic balance)</h4><p>frequency ÷ time decay: however high the historical frequency, long untouched is slowly dragged down by the denominator; a just-opened new file can rank up temporarily but is overtaken if not sustained. <strong>Long-term preference × present intent, self-consistent by division</strong>.</p></div>
+</div>
+<p>Each time you open a file, <span class="mono">updateFrecency</span> gives its <span class="mono">frequency +1</span> and refreshes <span class="mono">lastOpen</span> to now. So this score <strong>continuously evolves with your behavior</strong>, always reflecting your "lately" real habits.</p>
+
+<h2>Append-only log: crash-safe, self-healing persistence</h2>
+<p>Both history and frecency must <strong>remember across sessions</strong>—you can recall yesterday's prompts today, @ last week's frequent files. They use the same plain, robust persistence: <strong>append-only JSONL log + periodic compaction</strong>. The archives are two files: <span class="mono">prompt-history.jsonl</span> and <span class="mono">frecency.jsonl</span>, one JSON record per line. Its operation has three steps:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">append (hot path)</div><div class="c-txt">each update only <span class="mono">appendText</span> <strong>appends one line</strong>—O(1), no full rewrite, even a crash loses only the last line</div></div>
+  <div class="cell"><div class="c-tag">compact (cold path)</div><div class="c-txt">on exceeding a cap (history 50/frecency 1000) <span class="mono">writeText</span> rewrites: dedup, keep latest N</div></div>
+  <div class="cell"><div class="c-tag">self-heal (on load)</div><div class="c-txt">on read skip lines that fail to parse; if valid lines exist rewrite once, <strong>healing corruption, trimming overflow</strong></div></div>
+</div>
+<p>Why not just "rewrite the whole list every time"? Because that's both slow (the longer the list, the longer the write) and <strong>not crash-safe</strong> (power cut mid-rewrite may corrupt the whole file). "Append one line" is always <strong>cheap and atomic</strong>—exactly the same principle behind a database's write-ahead log (WAL, seen in L48) and event sourcing (L54): <strong>make the high-frequency "record" a cheap append, defer the expensive "tidy" to a low-frequency, experience-free moment</strong> (on overflow or next startup). <span class="mono">parseFrecency</span> is clever when reading the log too: the same file may appear on multiple lines (one append per open), and it uses <span class="mono">reduce</span> to let <strong>later occurrences override earlier</strong>, naturally getting each file's latest state—again the same <span class="mono">findLast</span> "later wins" idea of L41 permissions and L44 config. <strong>A seemingly unremarkable "remember history" need hides a whole mature engineering paradigm of "append—compact—self-heal, later overrides earlier,"</strong> and that it's reused so naturally in opencode is exactly why good paradigms are cross-scenario universal.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson disassembled opencode's prompt editor—that "gets-to-know-you-as-you-use-it" input box:</p>
+  <ul>
+    <li><strong>four pieces</strong> (<span class="mono">component/prompt/</span>, <span class="mono">prompt/</span>): editor (<span class="mono">PromptInfo</span>={input,parts[]}, rich content @file/@agent, normal/shell modes) + autocomplete (@ for files / / for commands, <span class="mono">mentionTriggerIndex</span> trigger→filter→rank) + history (↑↓ <span class="mono">move(±1)</span>, <span class="mono">append</span> dedup, cap 50) + frecency (rank files by habit).</li>
+    <li><strong>frecency algorithm</strong> (<span class="mono">frequency/(1+days)</span>): frequency gives long-term preference, recency gives present intent, division dynamically balances—defeating both "pure frequency (old favorite squats)" and "pure recency (mis-click jumps)" at once. @complete relies on it to float "frequent-and-just-touched" files up. The same classic algorithm as Firefox's address bar.</li>
+    <li><strong>append-only JSONL persistence</strong>: history/frecency both store <span class="mono">*.jsonl</span>, <strong>append</strong> (O(1) crash-safe, hot path) + <strong>compact</strong> (rewrite-dedup on overflow, cold path) + <strong>self-heal</strong> (skip bad lines on load, rewrite to fix). Like L48 WAL, L54 event sourcing "cheap append, defer tidy."</li>
+    <li><strong>later overrides earlier</strong>: <span class="mono">parseFrecency</span> uses reduce to let same-path later occurrences override earlier, naturally getting the latest—like L41 permission/L44 config <span class="mono">findLast</span> "later wins."</li>
+  </ul>
+  <p>The input box is disassembled—four pieces collaborating, frecency ranking, append-only log memory. M10 has one lesson left, L56: <strong>dialogs, the command palette</strong> (those overlays that pop up to let you pick a model, switch agents, run commands) <strong>and the run CLI's scrollback</strong> (in <span class="mono">opencode run</span> non-interactive mode, printing the conversation as a scrolling log). After L56, the whole M10 "TUI and client rendering" wraps up, and opencode's full picture of terminal UI from renderer to concrete components is complete.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p><span class="mono">frecency.tsx</span>'s core is just these few lines, writing "frequency × time decay" plainly and precisely (simplified from source):</p>
+  <pre class="code"><span class="cm">// ms in a day</span>
+<span class="kw">const</span> DAY = <span class="nu">86400000</span>
+
+<span class="kw">function</span> <span class="fn">calculateFrecency</span>(entry) {
+  <span class="kw">if</span> (!entry) <span class="kw">return</span> <span class="nu">0</span>
+  <span class="cm">// frequency ÷ (1 + days since last open) — longer untouched, bigger denominator, lower score</span>
+  <span class="kw">return</span> entry.frequency / (<span class="nu">1</span> + (Date.<span class="fn">now</span>() - entry.lastOpen) / DAY)
+}
+
+<span class="kw">function</span> <span class="fn">updateFrecency</span>(filePath) {
+  <span class="kw">const</span> abs = path.<span class="fn">resolve</span>(cwd, filePath)
+  <span class="cm">// one open: frequency +1, refresh recency to now</span>
+  <span class="kw">const</span> entry = { frequency: (store.data[abs]?.frequency || <span class="nu">0</span>) + <span class="nu">1</span>, lastOpen: Date.<span class="fn">now</span>() }
+  <span class="fn">setStore</span>(<span class="st">"data"</span>, abs, entry)
+  <span class="fn">appendText</span>(frecencyPath, JSON.<span class="fn">stringify</span>({ path: abs, ...entry }) + <span class="st">"\n"</span>)  <span class="cm">// ← only append a line</span>
+}</pre>
+  <p>What's most worth savoring is how this design uses <strong>a minimal mathematical expression</strong> to elegantly express a need that's inherently "subjective"—"put the file I'm most likely to want up front." "What am I most likely to want" sounds like a complex problem needing machine learning and user profiling, but frecency gives a <strong>good-enough</strong> answer with one line of division: your <strong>long-term preference</strong> (frequency) and <strong>present intent</strong> (recency) are already the two strongest signals for predicting "what you want," and "frequency ÷ time" happens to fuse them in a <strong>self-metabolizing</strong> way—new habits keep scoring up with your opening behavior, old habits auto-fade with passing time. <strong>No explicit "expire" or "cleanup" logic needed; time decay keeps the ranking always automatically tracking your "lately" real state.</strong> This is a superb example that <strong>many product experiences seemingly needing "intelligence" can actually be beautifully solved by one well-thought-through simple formula</strong>—the key isn't how complex the algorithm but whether you've seen clearly "what should truly be measured." Put it in your toolbox: for any "rank recently-frequent items" need, frecency is the first answer to reach for.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>prompt's four pieces</strong> (<span class="mono">component/prompt/</span>, <span class="mono">prompt/</span>): editor (<span class="mono">PromptInfo</span>={input,parts[]}, rich content @file/@agent, normal/shell) + autocomplete (@///trigger→filter→rank) + history (↑↓ <span class="mono">move</span>, <span class="mono">append</span> dedup, cap 50) + frecency (rank files by habit). Polishes a plain text box into a "handier the more you use it" power tool.</li>
+    <li><strong>frecency=frequency+recency</strong>: <span class="mono">freq/(1+days)</span>. frequency gives long-term preference, recency gives present intent, division dynamically balances—defeating pure frequency (old favorite squats) and pure recency (mis-click jumps) at once. @complete floats "frequent-and-just-touched" files up. Same classic algorithm as Firefox's address bar.</li>
+    <li><strong>time decay auto-metabolizes</strong>: <span class="mono">updateFrecency</span> on each open frequency+1, refreshes lastOpen; the denominator (1+days) auto-fades the long-untouched—no explicit "expire/cleanup," the ranking always tracks your lately real habits.</li>
+    <li><strong>append-only JSONL persistence</strong>: history/frecency store <span class="mono">*.jsonl</span>, append (O(1) crash-safe, hot path) + compact (rewrite-dedup on overflow, cold path) + self-heal (skip bad lines on load, rewrite to fix). Like L48 WAL, L54 event sourcing "cheap append, defer tidy."</li>
+    <li><strong>later overrides earlier</strong>: <span class="mono">parseFrecency</span> uses reduce to let same-path later occurrences override earlier → naturally gets the latest—like L41 permission/L44 config <span class="mono">findLast</span> "later wins." A simple formula beautifully solves an experience seemingly needing "intelligence."</li>
+  </ul>
+</div>
+""",
+}
 LESSON_56 = wip('对话框与 scrollback', 'Dialogs & scrollback')

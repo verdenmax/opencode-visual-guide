@@ -45,6 +45,48 @@ def _shuffle(opts, answer, seed):
 
 
 QUIZZES = {
+    "55-prompt-component.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode 的 frecency 算法（freq/(1+距上次打开的天数)）为什么比「纯按频率排」或「纯按最近排」都好？", "en": "Why is opencode's frecency algorithm (freq/(1+days since last open)) better than either \"rank by frequency only\" or \"rank by recency only\"?"},
+                "opts": [
+                    {"zh": "频率给长期偏好、最近度给当下意图，相除让两者动态平衡——纯频率会让半年前疯狂用过的文件永远霸榜，纯最近会让误点一次的文件插到核心文件前；frecency 两者都避开", "en": "Frequency gives long-term preference, recency gives present intent, division dynamically balances—pure frequency lets a file frantically used half a year ago forever squat the top, pure recency lets a mis-clicked file jump ahead of core files; frecency avoids both"},
+                    {"zh": "frecency 计算更快", "en": "frecency computes faster"},
+                    {"zh": "frecency 占用内存更少", "en": "frecency uses less memory"},
+                    {"zh": "纯属代码风格偏好", "en": "Purely a code-style preference"},
+                ],
+                "answer": 0,
+                "why": {"zh": "frecency=frequency+recency，公式 frequency/(1+(now-lastOpen)/86400000)（86400000=一天毫秒数）。它同时打败两种朴素方案：纯频率（开得多的永远在前）→半年前疯狂打开过的文件永远霸榜、早不碰也赖着；纯最近（刚开的在前）→误点一次的无关文件瞬间插到天天用的核心文件前。frecency 用「频率÷时间衰减」揉合：历史频率再高，久不碰，分母(1+天数)就把分慢慢拖低；刚开的新文件频率虽低但天数≈0、分母≈1能暂时靠前，但不持续就被超过。频率给长期偏好、最近度给当下意图、相除动态平衡。这正是 Firefox 地址栏、编辑器文件选择器背后同一个久经验证的排序智慧——值得装进工具箱、随处可用。", "en": "frecency=frequency+recency, formula frequency/(1+(now-lastOpen)/86400000) (86400000=ms in a day). It defeats two naive schemes at once: pure frequency (most-opened always first) → a file frantically opened half a year ago forever squats the top, clings on though untouched; pure recency (just-opened first) → an irrelevant file mis-clicked once instantly jumps ahead of the daily core file. frecency kneads both via \"frequency ÷ time decay\": however high the historical frequency, long untouched, the denominator (1+days) slowly drags the score down; a just-opened new file though low-frequency has days≈0, denominator≈1, can rank up temporarily but is overtaken if not sustained. Frequency gives long-term preference, recency gives present intent, division dynamically balances. This is the same time-tested ranking wisdom behind Firefox's address bar and editors' file pickers—worth putting in your toolbox for use anywhere."},
+            },
+            {
+                "q": {"zh": "opencode 的 prompt 历史和 frecency 都怎么跨会话持久化？为什么不每次都重写整个文件？", "en": "How do opencode's prompt history and frecency persist across sessions? Why not rewrite the whole file each time?"},
+                "opts": [
+                    {"zh": "追加式 JSONL 日志：每次更新只 appendText 追加一行（O(1)、抗崩溃，热路径），超限时才 writeText 重写去重（冷路径），加载时跳过坏行并重写自愈——「廉价追加、推迟整理」", "en": "Append-only JSONL log: each update only appendText appends one line (O(1), crash-safe, hot path), only on overflow writeText rewrites-dedup (cold path), on load skips bad lines and rewrites to self-heal—\"cheap append, defer tidy\""},
+                    {"zh": "每次更新都把整个列表重写一遍", "en": "Rewrites the whole list on every update"},
+                    {"zh": "只存在内存里、退出即丢", "en": "Only in memory, lost on exit"},
+                    {"zh": "存进 SQLite 数据库", "en": "Stored in a SQLite database"},
+                ],
+                "answer": 0,
+                "why": {"zh": "历史/frecency 都存 *.jsonl（prompt-history.jsonl、frecency.jsonl），每行一条 JSON。三步：①追加（热路径）——每次更新只 appendText 追加一行，O(1)、不重写全文，即便崩了也只丢最后一行；②压缩（冷路径）——超过上限（历史 50/frecency 1000）时 writeText 重写去重、保留最新 N；③自愈（加载时）——跳过解析失败的坏行，有有效行就重写一遍修复损坏、抹掉超额。为什么不每次重写整个文件？那样既慢（列表越长写越久）又不抗崩溃（重写到一半断电可能整文件损坏）。「追加一行」永远廉价且原子——同 L48 数据库 WAL、L54 事件溯源的道理：把高频「记录」做成廉价追加，把昂贵「整理」推迟到低频不影响体验时。parseFrecency 读日志用 reduce 让同路径后出现的覆盖先出现的，自然取最新——同 L41/L44 的 findLast「后者胜」。", "en": "History/frecency both store *.jsonl (prompt-history.jsonl, frecency.jsonl), one JSON per line. Three steps: ① append (hot path)—each update only appendText appends one line, O(1), no full rewrite, even a crash loses only the last line; ② compact (cold path)—on exceeding a cap (history 50/frecency 1000) writeText rewrites-dedup, keeps latest N; ③ self-heal (on load)—skip lines that fail to parse, if valid lines exist rewrite once to fix corruption and trim overflow. Why not rewrite the whole file each time? That's both slow (longer list, longer write) and not crash-safe (power cut mid-rewrite may corrupt the whole file). \"Append one line\" is always cheap and atomic—the same principle as L48's database WAL and L54's event sourcing: make the high-frequency \"record\" a cheap append, defer the expensive \"tidy\" to a low-frequency, experience-free moment. parseFrecency reading the log uses reduce to let same-path later occurrences override earlier, naturally getting the latest—like L41/L44's findLast \"later wins.\""},
+            },
+            {
+                "q": {"zh": "课里说 frecency 不需要任何显式的「过期」「清理」逻辑，排序就能永远跟着你「最近这阵子」的真实习惯走。这是靠什么实现的？", "en": "The lesson says frecency needs no explicit \"expire\" or \"cleanup\" logic, yet the ranking always tracks your \"lately\" real habits. What achieves this?"},
+                "opts": [
+                    {"zh": "时间衰减自动新陈代谢——分母(1+天数)让久不碰的分数随时间自动褪色，新习惯随打开行为持续累积上分，无需显式过期/清理", "en": "Time decay auto-metabolizes—the denominator (1+days) auto-fades the score of the long-untouched over time, new habits keep scoring up with opening behavior, no explicit expire/cleanup needed"},
+                    {"zh": "一个后台定时任务每天清理旧条目", "en": "A background cron cleans old entries daily"},
+                    {"zh": "每次打开都把所有其它文件的分数减一", "en": "Each open decrements every other file's score by one"},
+                    {"zh": "用户必须手动删除不用的条目", "en": "The user must manually delete unused entries"},
+                ],
+                "answer": 0,
+                "why": {"zh": "frecency 的精妙在于把「过期」内建进了公式本身，而非靠外部逻辑。calculateFrecency=frequency/(1+(now-lastOpen)/天)：分子 frequency 随 updateFrecency 每次打开 +1（新习惯持续累积上分），分母 (1+距上次打开天数) 随时间流逝自动变大（旧习惯自动褪色）。因为分数是「读取时实时算」的（now 永远是当下），所以一个文件哪怕数据原封不动躺着，它的 frecency 分也会随着「天数」增长而自动下降——无需任何后台清理、无需显式过期标记，排序永远自动反映你最近的真实状态。这是个绝佳范例：很多看似需要「智能」（机器学习、用户画像）的产品体验，一个想透了的简单公式就能漂亮解决——关键不在算法多复杂，而在看清「真正该度量的是什么」（这里是长期偏好×当下意图）。任何「最近常用项排序」需求，frecency 都是第一个该想到的答案。", "en": "frecency's cleverness is building \"expiry\" into the formula itself, not relying on external logic. calculateFrecency=frequency/(1+(now-lastOpen)/day): the numerator frequency +1 with each open via updateFrecency (new habits keep scoring up), the denominator (1+days since last open) auto-grows with passing time (old habits auto-fade). Because the score is \"computed live on read\" (now is always the present), a file's frecency score auto-declines as \"days\" grow even if its data lies untouched—no background cleanup, no explicit expiry flag, the ranking always auto-reflects your lately real state. A superb example: many product experiences seemingly needing \"intelligence\" (machine learning, user profiling) can be beautifully solved by one well-thought-through simple formula—the key isn't how complex the algorithm but seeing clearly \"what should truly be measured\" (here, long-term preference × present intent). For any \"rank recently-frequent items\" need, frecency is the first answer to reach for."},
+            },
+        ],
+        "open": [
+            {"zh": "课里把 frecency 称作「用一个极简数学式优雅表达一个本来很主观的需求」的范例，并说『很多看似需要「智能」的产品体验，其实一个想透了的简单公式就能漂亮解决，关键不在算法多复杂，而在你是否看清了「真正该度量的是什么」』。请你结合自己的经验，举一两个「本可以用简单启发式/公式解决、却被过度工程化成复杂 ML 系统」的反面案例，或反过来「一个朴素公式意外好用」的正面案例。你怎样判断一个排序/推荐需求该用「简单公式」还是「学习模型」？frecency 这类公式的局限又在哪（冷启动、对抗性操纵、无法捕捉复杂关联）？", "en": "The lesson calls frecency an example of \"using a minimal mathematical expression to elegantly express an inherently subjective need,\" saying \"many product experiences seemingly needing 'intelligence' can actually be beautifully solved by one well-thought-through simple formula; the key isn't how complex the algorithm but whether you've seen clearly 'what should truly be measured.'\" From your experience, give one or two counterexamples of \"something solvable by a simple heuristic/formula but over-engineered into a complex ML system,\" or conversely a positive case of \"a plain formula working surprisingly well.\" How do you judge whether a ranking/recommendation need should use a \"simple formula\" or a \"learned model\"? What are the limits of formulas like frecency (cold start, adversarial manipulation, inability to capture complex correlations)?"},
+            {"zh": "课里指出历史与 frecency 都用「追加式 JSONL 日志 + 定期压缩 + 加载自愈」持久化，并把它和 L48 数据库 WAL、L54 事件溯源归为同一个「廉价追加、推迟整理」的范式。请你提炼这个范式的通用结构（热路径只追加→冷路径压缩→读取时折叠/自愈），分析它为什么同时兼顾了「写入性能」「抗崩溃」「最终一致」三者。再谈谈它的代价：日志会无限增长直到压缩、读取需要回放/折叠全部记录、压缩本身若崩溃如何保证安全？你在自己的项目里实现过类似的 append-only + compaction 机制吗（如指标上报、审计日志、LSM-tree 存储）？", "en": "The lesson notes history and frecency both persist via \"append-only JSONL log + periodic compaction + load-time self-heal,\" grouping it with L48's database WAL and L54's event sourcing as the same \"cheap append, defer tidy\" paradigm. Distill this paradigm's general structure (hot path only appends → cold path compacts → read-time folds/self-heals), analyze why it simultaneously serves \"write performance,\" \"crash safety,\" and \"eventual consistency.\" Then discuss its costs: the log grows unboundedly until compaction, reads must replay/fold all records, and how is safety guaranteed if compaction itself crashes? Have you implemented a similar append-only + compaction mechanism in your own projects (e.g. metrics reporting, audit logs, LSM-tree storage)?"},
+        ],
+    },
+
     "54-events-to-store.html": {
         "mcq": [
             {
