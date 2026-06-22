@@ -173,5 +173,171 @@ LESSON_62 = {
 """,
 }
 
-LESSON_63 = wip('测试与贡献', 'Test & contribute')
+LESSON_63 = {
+    "zh": r"""<p class="lead">上一课你学会了把 opencode <strong>跑起来、编出来、调起来</strong>。这一课是临门一脚：<strong>怎么验证你的改动是对的，又怎么把它贡献回去？</strong>——也就是「测试」与「贡献流程」。这两件事看起来一个技术、一个流程，但读完你会发现，它们被同一条暗线串着。先说测试：opencode 用 Bun 自带的测试跑（<span class="mono">bun test</span>），全仓 500 多个测试文件，但有个反直觉的规矩——<strong>测试不能在仓库根目录跑</strong>，根目录的 <span class="mono">test</span> 脚本被故意写成「打印一句『别在根目录跑测试』然后报错退出」。再说贡献：opencode 有一套<strong>异常严格</strong>的流程——必须先开 issue、PR 必须小而专注、标题要遵循约定式提交、还专门立规矩<strong>禁止「AI 生成的长篇大论」</strong>，甚至有一套 vouch 信任名单能把反复灌水的人「除名」。</p>
+<p>这一课最值得带走的洞见只有一个，但它能解释上面所有看似零散的规矩：<strong>opencode 的整套测试与贡献规范，都在为同一个目标服务——在 AI 能批量生成代码与文字的时代，<em>死守信噪比、敬重维护者的时间</em></strong>。你品品这些规矩背后的统一意图：「issue 先行」是怕重复劳动、让维护者能提前拦下不合适的方向；「PR 要小而专注 + 说清你怎么验证的」是让审阅者能快速读懂、能复现你的结论；「禁止 AI 长篇大论」「issue 必须用模板、空泛会被自动关」是过滤掉<strong>体量大但信息密度低</strong>的噪声；而 vouch 名单，干脆把「反复提交低质量 AI 贡献」明确列为除名理由。<strong>一个本身就是 AI 编程助手的项目，却在贡献门口竖起最严的牌子：请不要把未经你消化的 AI 产物倾倒给我们。</strong>这不矛盾，恰恰是清醒——AI 是放大器，放大的可以是信号、也可以是噪声，而 opencode 选择用规范死死咬住信号那一端。读懂这条暗线，你就读懂了这一课所有规矩的「为什么」。</p>
+
+<div class="card analogy">
+  <div class="tag">📨 生活类比</div>
+  把给 opencode 贡献，想象成<strong>给一家以「严谨」著称的学术期刊投稿</strong>。你不能心血来潮写完就塞过去：得<strong>先递一份选题说明（issue）</strong>，让编辑确认这方向值得做、且没人在做（<strong>issue 先行</strong>，免得重复劳动）；正文要<strong>短而聚焦、一篇说清一件事</strong>（<strong>PR 小而专注</strong>），还得写明<strong>你是怎么做实验验证结论的</strong>（<strong>说明如何测试</strong>），好让审稿人能复现；标题得按期刊的<strong>固定格式</strong>写（<strong>约定式提交</strong>）。最关键的是，这家期刊<strong>最痛恨「用 AI 灌出来的、又长又空的稿子」</strong>——它甚至维护一份<strong>作者信誉名单</strong>：踏实的作者被「背书」、反复灌水的被「除名」（<strong>vouch 系统</strong>）。至于<strong>「测试别在根目录跑」</strong>，就像期刊规定「实验数据必须放在<strong>对应章节</strong>、不许堆在封面」——你要是堆错地方，系统会当场<strong>红字报错</strong>提醒你，绝不让你稀里糊涂交上去。
+</div>
+
+<h2>测试：从源码验证你的改动</h2>
+<p>opencode 用 <strong>Bun 内置的测试跑</strong>器——直接 <span class="mono">bun test</span>，无需额外框架（又一次「一套工具贯穿全程」，同 L62）。全仓有 500 多个 <span class="mono">*.test.ts</span>。但这里有个新手必踩的坑，也是个有意思的设计：<strong>测试不能在仓库根目录跑</strong>。根 <span class="mono">package.json</span> 的 <span class="mono">test</span> 脚本被<strong>故意</strong>写成一句拦路的报错：</p>
+<div class="cols">
+  <div class="col"><h4>❌ 在根目录跑</h4><p><span class="mono">bun test</span>（根目录）→ 脚本是 <span class="mono">echo 'do not run tests from root' &amp;&amp; exit 1</span>，<strong>当场报错退出</strong>。这是一道<strong>故意设的护栏</strong>。</p></div>
+  <div class="col"><h4>✅ 进对应包再跑</h4><p><span class="mono">cd packages/opencode &amp;&amp; bun test</span>。因为这是 <strong>monorepo</strong>，每个包有自己的测试与环境，得在<strong>包目录</strong>里跑才对。</p></div>
+</div>
+<p>为什么要专门设这道「别在根目录跑」的护栏？因为在 monorepo 里，根目录跑测试要么语义不清、要么会把所有包的测试一锅乱炖，徒增困惑。与其让你跑出一堆莫名其妙的结果，不如<strong>当场用一句响亮的报错拦住你</strong>、并告诉你正确姿势——这正是全书反复见到的「<strong>让用错的姿势立刻、响亮地失败</strong>」（同 L37 stale 工具调用即抛、L48 库非空却无表即抛、L53 Provider 外用 context 即抛）。一个深思熟虑的项目，会把「容易踩的坑」提前变成「踩到就报警」。日常验证你改动的三件套是：</p>
+<div class="cellgroup">
+  <div class="cel"><b>bun test</b><br>在包目录跑单测（opencode 包还加 <span class="mono">--timeout 30000 --only-failures</span>）</div>
+  <div class="cel"><b>tsgo --noEmit</b><br>类型检查（根目录 <span class="mono">bun turbo typecheck</span> 批量跑各包）</div>
+  <div class="cel"><b>oxlint</b><br>根目录 <span class="mono">bun lint</span>，超快的 Rust 实现 linter</div>
+  <div class="cel"><b>说清「你怎么验证的」</b><br>CONTRIBUTING 要求：非 UI 改动要写明测了什么、审阅者怎么复现</div>
+</div>
+<p>opencode 对「怎么写测试」也有鲜明态度（见 AGENTS 风格指南）：<strong>尽量别用 mock</strong>、<strong>测真实实现</strong>，而不是把逻辑在测试里再抄一遍。道理很朴素——把逻辑复制进测试，测的其实是「你抄得对不对」，而非「代码对不对」；mock 太多则容易测出「假绿」（mock 都顺，真实环境却崩）。所以 CONTRIBUTING 在「逻辑改动」一节反复强调：<strong>说清你测了什么、审阅者如何复现/确认你的修复</strong>——测试的终点不是「我本地过了」，而是「<strong>别人能照着确认它真的对</strong>」。你看，连「怎么写测试」这件小事，背后都站着同一条暗线：<strong>测试是写给<em>未来要读它、要信它的人</em>看的</strong>，所以要测真东西、要能复现，而不是为了让 CI 那盏灯变绿而糊弄过去。一个测试若只测「自己抄的逻辑」或「自己搭的 mock」，绿灯再亮也是自欺。</p>
+
+<h2>贡献流程：issue 先行，小步快跑</h2>
+<p>opencode 的贡献流程，核心一句话：<strong>所有 PR 都必须先有一个 issue</strong>（Issue First Policy）。不是先写代码再补 issue，而是<strong>先开 issue 描述 bug/需求</strong>，让维护者能分诊、避免重复劳动；没关联 issue 的 PR 可能<strong>不经审阅直接关闭</strong>。在 PR 描述里用 <span class="mono">Fixes #123</span>/<span class="mono">Closes #123</span> 关联。整条流程像这样一步步走：</p>
+<div class="timeline">
+  <div class="tl-item"><div class="tl-dot"></div><b>① 开 issue（用模板）</b>：必须用 Bug report / Feature request / Question 之一，不许空白 issue；自动检查会校验，不合规给你 <strong>2 小时</strong>修改、否则自动关闭</div>
+  <div class="tl-item"><div class="tl-dot"></div><b>② 认领</b>：想做就留言，维护者可能指派给你（除非是团队已在做的）</div>
+  <div class="tl-item"><div class="tl-dot"></div><b>③ 开分支改</b>：分支名短、≤3 词、连字符，<strong>不要</strong> <span class="mono">feat/</span> 这类前缀；默认分支是 <span class="mono">dev</span></div>
+  <div class="tl-item"><div class="tl-dot"></div><b>④ 提 PR</b>：小而专注，标题遵循约定式提交，<strong>说明你怎么验证的</strong>；UI 改动附前后截图</div>
+  <div class="tl-item"><div class="tl-dot"></div><b>⑤ 审阅合并</b>：维护者审；UI/核心产品功能须先过设计评审</div>
+</div>
+<p>这套流程里藏着 opencode 最鲜明的一条文化红线——<strong>「不要 AI 生成的长篇大论」（No AI-Generated Walls of Text）</strong>。CONTRIBUTING 白纸黑字：又长又空的 AI 生成 PR 描述和 issue<strong>不可接受、可能被直接忽略</strong>；请用<strong>你自己的话</strong>简短说清「改了什么、为什么」；<strong>「如果你没法简短说清，可能是你的 PR 太大了」</strong>。连新加功能都要求<strong>先开 issue 做设计对话</strong>、等团队点头，而不是直接甩一个 feature PR。这些规矩看似在「设门槛」，实则在<strong>保护一种稀缺资源：维护者认真阅读的注意力</strong>——这与 L42/L59 反复出现的「注意力稀缺、只留高信号」是同一种智慧，只不过这次守护的是<strong>人</strong>的注意力。这条红线甚至被自动化进了 issue 流程：</p>
+<div class="flow">
+  <div class="node">提 issue</div>
+  <div class="arrow">→</div>
+  <div class="node">自动检查<br>是否用模板/有实质内容</div>
+  <div class="arrow">→</div>
+  <div class="node">不合规<br>评论指出 + 给 2 小时</div>
+  <div class="arrow">→</div>
+  <div class="node">改好则留；<br>否则<strong>自动关闭</strong></div>
+</div>
+<p>注意这套自动检查会因什么而<strong>亮红牌</strong>：没用模板、必填项留空或填占位符、<strong>「AI 生成的长篇大论」</strong>、缺乏有意义的内容——几乎每一条都直指「<strong>体量大但信息密度低</strong>」的噪声。在一个本身就是 AI 编程助手的项目里，这种对「未经消化的 AI 产物」的警惕近乎一种宣言：<strong>工具可以帮你生成，但<em>判断与提炼</em>仍是你的责任，别把这份责任连同原始输出一起甩给维护者</strong>。这正是这一课暗线最锋利的一处体现。</p>
+
+<h2>规范与信任：约定 + vouch</h2>
+<p>具体的编码与提交规范，opencode 写得很细（AGENTS 风格指南 + CONTRIBUTING）。挑最常用的几条列成一张速查表：</p>
+<table class="t">
+  <tr><th>维度</th><th>约定</th><th>例 / 备注</th></tr>
+  <tr><td>分支名</td><td>短、≤3 词、连字符分隔，<strong>无</strong>斜杠/类型前缀</td><td><span class="mono">session-recovery</span>、<span class="mono">fix-scroll-state</span></td></tr>
+  <tr><td>提交 / PR 标题</td><td>约定式：<span class="mono">type(scope): summary</span></td><td>type ∈ feat/fix/docs/chore/refactor/test；scope 如 core/tui/sdk</td></tr>
+  <tr><td>控制流</td><td>避免 <span class="mono">else</span>，早返回；<span class="mono">const</span> 不 <span class="mono">let</span></td><td>不可变优先，三元/早返回代替重赋值</td></tr>
+  <tr><td>错误处理</td><td>能用 <span class="mono">.catch()</span> 就别 <span class="mono">try/catch</span></td><td>避免 <span class="mono">any</span>；优先精确类型</td></tr>
+  <tr><td>导入</td><td><strong>不</strong>别名导入、<strong>不</strong>星号导入</td><td>要命名空间就导出模块自己的命名空间</td></tr>
+  <tr><td>运行时</td><td>能用 Bun API 就用</td><td>如 <span class="mono">Bun.file()</span></td></tr>
+</table>
+<p>这些规范不是凭空立的，它们都指向同一种审美：<strong>代码读起来要像「happy path 一条直线」</strong>——少嵌套（避 else）、少可变状态（避 let）、少例外路径（避 try/catch）、少间接（不别名/星号导入）。规范背后是「让下一个读代码的人省力」，和「贡献流程让审阅者省力」是同构的。最后是 opencode 应对 AI 时代噪声的<strong>终极一招——vouch 信任系统</strong>（信任名单存在 <span class="mono">.github/VOUCHED.td</span>）：</p>
+<div class="vflow">
+  <div class="vnode"><b>Vouched（已背书）</b>：被明确信任的贡献者</div>
+  <div class="vnode"><b>Everyone else（其他所有人）</b>：<strong>无需</strong>背书也能正常开 issue/PR——默认开放，不设墙</div>
+  <div class="vnode"><b>Denounced（已除名）</b>：其 issue/PR <strong>自动关闭</strong>；专门留给「反复提交低质量 AI 贡献、灌水、恶意行为」者，<strong>不</strong>用于分歧或诚实的错误</div>
+</div>
+<p>vouch 系统的精妙在于它的<strong>分寸</strong>：默认对所有人开放（不因你没背书就拒你），只对<strong>反复灌低质量 AI 内容</strong>的人亮红牌，且明确声明「除名不用于意见分歧或诚实的失误」。这是一套既<strong>开放</strong>又<strong>有底线</strong>的信任机制——它不预设你是坏人，但也绝不让少数灌水者拖垮维护者。至此你看清了这一课的全貌：从「测试要在对的地方跑、要测真实实现、要能被他人复现」，到「issue 先行、PR 小而专注、拒绝 AI 长篇」，再到「细致的风格规范 + vouch 信任名单」——<strong>每一条都在同一个方向上用力：在 AI 放大一切的时代，把信号留下，把噪声挡在门外，敬重每一份真正的注意力</strong>。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  这一课讲的是「<strong>把改动验证好、再体面地贡献回去</strong>」的完整链路。<strong>测试</strong>端：Bun 内置 <span class="mono">bun test</span>、<strong>在包目录而非根目录</strong>跑（根目录护栏当场报错）、<strong>测真实实现少用 mock</strong>、并能让审阅者复现。<strong>贡献</strong>端：<strong>issue 先行</strong> → 用模板 → 小而专注的 PR → 约定式标题 → 说清如何验证 → 审阅合并。<strong>规范与信任</strong>端：细致的分支/提交/编码约定，加上 <strong>vouch</strong> 信任名单。把这三端连起来看，你会发现它们共享同一条灵魂——<strong>在 AI 能批量产出的时代，死守信噪比、敬重维护者时间</strong>。这也是一个成熟开源项目最难得的工程文化。
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 实现细节</div>
+  根 <span class="mono">package.json</span>：<span class="mono">test</span>=<span class="mono">echo 'do not run tests from root' &amp;&amp; exit 1</span>（护栏）、<span class="mono">lint</span>=<span class="mono">oxlint</span>、<span class="mono">typecheck</span>=<span class="mono">bun turbo typecheck</span>、<span class="mono">dev</span>=<span class="mono">bun run --cwd packages/opencode --conditions=browser src/index.ts</span>。<span class="mono">packages/opencode</span> 包：<span class="mono">test</span>=<span class="mono">bun test --timeout 30000 --only-failures</span>、<span class="mono">typecheck</span>=<span class="mono">tsgo --noEmit</span>。Issue 模板在 <span class="mono">.github/ISSUE_TEMPLATE/</span>（<span class="mono">bug-report.yml</span>/<span class="mono">feature-request.yml</span>/<span class="mono">question.yml</span>/<span class="mono">config.yml</span>），自动检查不合规给 2 小时窗口。Vouch 名单 <span class="mono">.github/VOUCHED.td</span>，维护者用评论 <span class="mono">vouch</span>/<span class="mono">denounce</span>/<span class="mono">unvouch</span> 管理，自动提交。新增 provider 通常<strong>无需改码</strong>，去 <span class="mono">models.dev</span> 提 PR 即可。默认分支 <span class="mono">dev</span>（本地可能没有 <span class="mono">main</span>，对比用 <span class="mono">origin/dev</span>）。
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>测试：在对的地方、测真东西、能被复现</strong>。Bun 内置 <span class="mono">bun test</span>；<strong>不能在根目录跑</strong>（根 <span class="mono">test</span> 脚本故意报错退出——monorepo 护栏，同 L37/L48/L53「用错即响亮失败」），要 <span class="mono">cd</span> 进包目录。<strong>少用 mock、测真实实现</strong>（别把逻辑抄进测试）；CONTRIBUTING 要求逻辑改动<strong>说清测了什么、审阅者如何复现</strong>。配 <span class="mono">tsgo</span> 类型检查 + <span class="mono">oxlint</span>。</li>
+    <li><strong>贡献：issue 先行，小步快跑</strong>。所有 PR 必须先有 issue（<span class="mono">Fixes #123</span>），用模板（不合规 2 小时后自动关）；分支名短≤3 词无前缀、默认分支 <span class="mono">dev</span>；PR 小而专注、约定式标题、<strong>说明如何验证</strong>。文化红线：<strong>拒绝 AI 长篇大论</strong>，用自己的话简短说清（说不清=PR 太大）——守护维护者注意力（同 L42/L59 信号稀缺）。</li>
+    <li><strong>规范与信任：约定 + vouch</strong>。风格指向「happy path 直线」：避 <span class="mono">else</span>/<span class="mono">let</span>、能 <span class="mono">.catch</span> 不 <span class="mono">try/catch</span>、避 <span class="mono">any</span>、不别名/星号导入、用 Bun API。<strong>vouch 信任名单</strong>（<span class="mono">.github/VOUCHED.td</span>）默认对所有人开放、只对反复灌低质量 AI 内容者除名。<strong>暗线</strong>：整套规范都为「AI 时代死守信噪比、敬重维护者时间」服务。</li>
+  </ul>
+</div>
+""",
+    "en": r"""<p class="lead">Last lesson you learned to <strong>run, build, and debug</strong> opencode. This lesson is the final touch: <strong>how do you verify your change is correct, and how do you contribute it back?</strong>—that is, "testing" and "the contribution process." These two look like one's technical and one's procedural, but by the end you'll find they're threaded by the same hidden line. First, testing: opencode runs tests with Bun's built-in runner (<span class="mono">bun test</span>), 500-plus test files repo-wide, but with a counterintuitive rule—<strong>tests cannot run at the repo root</strong>, where the <span class="mono">test</span> script is deliberately written to "print 'do not run tests from root' and exit with an error." Next, contributing: opencode has an <strong>unusually strict</strong> process—you must open an issue first, PRs must be small and focused, titles must follow conventional commits, there's even an explicit rule <strong>forbidding "AI-generated walls of text,"</strong> and a vouch trust list that can "denounce" repeat spammers.</p>
+<p>There's only one insight worth taking away, but it explains every seemingly-scattered rule above: <strong>opencode's entire testing and contribution norms serve one goal—in an age where AI can mass-produce code and text, <em>fiercely guarding the signal-to-noise ratio and respecting maintainers' time</em></strong>. Savor the unified intent behind these rules: "issue first" guards against duplicate work and lets maintainers head off unfit directions early; "PRs small and focused + explain how you verified" lets reviewers quickly grasp and reproduce your conclusion; "no AI walls of text" and "issues must use a template, vague ones auto-close" filter out <strong>high-volume, low-density</strong> noise; and the vouch list flatly names "repeatedly submitting low-quality AI contributions" as grounds for denouncement. <strong>A project that is itself an AI coding agent nonetheless plants the strictest sign at its contribution gate: please don't dump undigested AI output on us.</strong> This isn't a contradiction, it's clear-headedness—AI is an amplifier, and what it amplifies can be signal or noise; opencode chooses, via its norms, to clamp hard onto the signal end. Understand this hidden line and you understand the "why" of every rule in this lesson.</p>
+
+<div class="card analogy">
+  <div class="tag">📨 Analogy</div>
+  Picture contributing to opencode as <strong>submitting to an academic journal famed for "rigor."</strong> You can't just write on a whim and shove it over: you must <strong>first submit a topic proposal (an issue)</strong>, letting the editor confirm the direction is worthwhile and unclaimed (<strong>issue first</strong>, to avoid duplicate work); the body must be <strong>short and focused, one paper making one point</strong> (<strong>PR small and focused</strong>), and must state <strong>how you experimentally verified the conclusion</strong> (<strong>explain how you tested</strong>) so reviewers can reproduce it; the title must follow the journal's <strong>fixed format</strong> (<strong>conventional commits</strong>). Most crucially, this journal <strong>despises "long, hollow AI-stuffed manuscripts"</strong>—it even maintains an <strong>author reputation list</strong>: solid authors get "vouched," repeat spammers get "denounced" (<strong>the vouch system</strong>). As for <strong>"don't run tests at the root,"</strong> it's like the journal ruling "experimental data must go in the <strong>corresponding section</strong>, not piled on the cover"—pile it in the wrong place and the system gives you an on-the-spot <strong>red-letter error</strong>, never letting you submit it muddled.
+</div>
+
+<h2>Testing: verify your change from the source</h2>
+<p>opencode runs tests with <strong>Bun's built-in test runner</strong>—just <span class="mono">bun test</span>, no extra framework (again "one tool spanning the whole thing," like L62). The repo has 500-plus <span class="mono">*.test.ts</span>. But here's a pitfall every newcomer hits, and an interesting design: <strong>tests can't run at the repo root</strong>. The root <span class="mono">package.json</span>'s <span class="mono">test</span> script is <strong>deliberately</strong> written as a blocking error:</p>
+<div class="cols">
+  <div class="col"><h4>❌ Run at the root</h4><p><span class="mono">bun test</span> (root) → the script is <span class="mono">echo 'do not run tests from root' &amp;&amp; exit 1</span>, <strong>erroring out on the spot</strong>. This is a <strong>deliberate guardrail</strong>.</p></div>
+  <div class="col"><h4>✅ Enter the package, then run</h4><p><span class="mono">cd packages/opencode &amp;&amp; bun test</span>. Because this is a <strong>monorepo</strong>, each package has its own tests and environment, so you must run in the <strong>package directory</strong>.</p></div>
+</div>
+<p>Why set this "don't run at the root" guardrail specifically? Because in a monorepo, running tests at the root is either semantically unclear or stews all packages' tests into one pot, adding only confusion. Rather than let you produce a heap of baffling results, it's better to <strong>block you on the spot with a loud error</strong> and tell you the right posture—exactly the "<strong>let the wrong usage fail immediately and loudly</strong>" seen throughout the book (like L37 throwing on a stale tool call, L48 throwing when the DB is non-empty but lacks the table, L53 throwing when a context is used outside its Provider). A thoughtful project turns "easy-to-hit pitfalls" into "trips-an-alarm-on-contact" ahead of time. The daily trio for verifying your change:</p>
+<div class="cellgroup">
+  <div class="cel"><b>bun test</b><br>run unit tests in the package dir (the opencode package also adds <span class="mono">--timeout 30000 --only-failures</span>)</div>
+  <div class="cel"><b>tsgo --noEmit</b><br>type check (root <span class="mono">bun turbo typecheck</span> runs all packages in batch)</div>
+  <div class="cel"><b>oxlint</b><br>root <span class="mono">bun lint</span>, a blazing-fast Rust-implemented linter</div>
+  <div class="cel"><b>Explain "how you verified"</b><br>CONTRIBUTING requires: non-UI changes must state what was tested and how a reviewer reproduces it</div>
+</div>
+<p>opencode also has a clear stance on "how to write tests" (see the AGENTS style guide): <strong>avoid mocks as much as possible</strong>, <strong>test the real implementation</strong>, rather than copying the logic into the test again. The reasoning is plain—copy the logic into a test and you're really testing "whether you copied it right," not "whether the code is right"; too many mocks easily produce "fake green" (mocks all pass, the real environment crashes). So CONTRIBUTING's "Logic Changes" section repeatedly stresses: <strong>spell out what you tested, and how a reviewer reproduces/confirms your fix</strong>—the endpoint of testing isn't "it passed on my machine" but "<strong>someone else can follow along and confirm it's truly correct</strong>." See, even the small matter of "how to write tests" stands on the same hidden line: <strong>a test is written for <em>whoever will read and trust it in the future</em></strong>, so it must test real things and be reproducible, not fudged just to turn that CI light green. A test that only tests "the logic you copied" or "the mock you built" is self-deception, however bright the green.</p>
+
+<h2>The contribution process: issue first, small steps</h2>
+<p>opencode's contribution process, in one sentence: <strong>every PR must have an issue first</strong> (the Issue First Policy). Not code-first-then-backfill-an-issue, but <strong>open an issue describing the bug/feature first</strong>, so maintainers can triage and avoid duplicate work; a PR without a linked issue may be <strong>closed without review</strong>. In the PR description, link it with <span class="mono">Fixes #123</span>/<span class="mono">Closes #123</span>. The whole process steps through like this:</p>
+<div class="timeline">
+  <div class="tl-item"><div class="tl-dot"></div><b>① Open an issue (with a template)</b>: must use one of Bug report / Feature request / Question, no blank issues; an automated check validates it, and non-compliance gives you <strong>2 hours</strong> to fix or it auto-closes</div>
+  <div class="tl-item"><div class="tl-dot"></div><b>② Claim it</b>: comment if you want to take it, and a maintainer may assign it to you (unless the team's already on it)</div>
+  <div class="tl-item"><div class="tl-dot"></div><b>③ Branch and change</b>: branch names short, ≤3 words, hyphenated, <strong>no</strong> <span class="mono">feat/</span>-style prefix; the default branch is <span class="mono">dev</span></div>
+  <div class="tl-item"><div class="tl-dot"></div><b>④ Open a PR</b>: small and focused, title following conventional commits, <strong>explain how you verified it</strong>; UI changes include before/after screenshots</div>
+  <div class="tl-item"><div class="tl-dot"></div><b>⑤ Review and merge</b>: maintainers review; UI/core product features must pass design review first</div>
+</div>
+<p>Hidden in this process is opencode's most vivid cultural red line—<strong>"No AI-Generated Walls of Text."</strong> CONTRIBUTING says it in black and white: long, hollow AI-generated PR descriptions and issues are <strong>unacceptable and may be ignored</strong>; please use <strong>your own words</strong> to briefly state "what changed and why"; <strong>"if you can't explain it briefly, your PR might be too large."</strong> Even new functionality is required to <strong>open an issue for a design conversation first</strong> and wait for the team's nod, rather than flinging a feature PR directly. These rules look like "setting a bar," but really they <strong>protect a scarce resource: the maintainers' attention for careful reading</strong>—the same wisdom as the "attention is scarce, keep only high signal" recurring in L42/L59, except this time what's guarded is <strong>human</strong> attention. This red line is even automated into the issue process:</p>
+<div class="flow">
+  <div class="node">open issue</div>
+  <div class="arrow">→</div>
+  <div class="node">auto-check<br>template used / has substance</div>
+  <div class="arrow">→</div>
+  <div class="node">non-compliant<br>comment + 2-hour window</div>
+  <div class="arrow">→</div>
+  <div class="node">fixed → kept;<br>else <strong>auto-closed</strong></div>
+</div>
+<p>Note what makes this auto-check <strong>throw a red flag</strong>: not using a template, required fields left empty or filled with placeholder text, <strong>"AI-generated walls of text,"</strong> missing meaningful content—nearly every one points straight at <strong>high-volume, low-density</strong> noise. In a project that is itself an AI coding agent, this wariness toward "undigested AI output" is nearly a manifesto: <strong>the tool can help you generate, but <em>judgment and distillation</em> remain your responsibility; don't fling that responsibility, along with the raw output, at the maintainers</strong>. This is the sharpest expression of the lesson's hidden line.</p>
+
+<h2>Norms and trust: conventions + vouch</h2>
+<p>The concrete coding and commit norms, opencode writes in fine detail (the AGENTS style guide + CONTRIBUTING). Here are the most-used few as a cheat sheet:</p>
+<table class="t">
+  <tr><th>Dimension</th><th>Convention</th><th>Example / note</th></tr>
+  <tr><td>Branch name</td><td>short, ≤3 words, hyphen-separated, <strong>no</strong> slash/type prefix</td><td><span class="mono">session-recovery</span>, <span class="mono">fix-scroll-state</span></td></tr>
+  <tr><td>Commit / PR title</td><td>conventional: <span class="mono">type(scope): summary</span></td><td>type ∈ feat/fix/docs/chore/refactor/test; scope like core/tui/sdk</td></tr>
+  <tr><td>Control flow</td><td>avoid <span class="mono">else</span>, early return; <span class="mono">const</span> not <span class="mono">let</span></td><td>immutable-first, ternary/early-return over reassignment</td></tr>
+  <tr><td>Error handling</td><td>prefer <span class="mono">.catch()</span> over <span class="mono">try/catch</span></td><td>avoid <span class="mono">any</span>; prefer precise types</td></tr>
+  <tr><td>Imports</td><td><strong>no</strong> aliased imports, <strong>no</strong> star imports</td><td>for a namespace, import the module's own exported namespace</td></tr>
+  <tr><td>Runtime</td><td>use Bun APIs when they fit</td><td>e.g. <span class="mono">Bun.file()</span></td></tr>
+</table>
+<p>These norms aren't set arbitrarily; they all point to one aesthetic: <strong>code should read like "the happy path, one straight line"</strong>—less nesting (avoid else), less mutable state (avoid let), fewer exceptional paths (avoid try/catch), less indirection (no aliased/star imports). Behind the norms is "make it easy for the next person reading the code," isomorphic to "the contribution process makes it easy for reviewers." Finally, opencode's <strong>ultimate move against AI-age noise—the vouch trust system</strong> (the trust list lives in <span class="mono">.github/VOUCHED.td</span>):</p>
+<div class="vflow">
+  <div class="vnode"><b>Vouched</b>: explicitly trusted contributors</div>
+  <div class="vnode"><b>Everyone else</b>: can open issues/PRs normally <strong>without</strong> being vouched—open by default, no wall</div>
+  <div class="vnode"><b>Denounced</b>: their issues/PRs <strong>auto-close</strong>; reserved for those who "repeatedly submit low-quality AI contributions, spam, or act in bad faith," <strong>not</strong> for disagreements or honest mistakes</div>
+</div>
+<p>The vouch system's elegance is in its <strong>proportion</strong>: open to everyone by default (it won't reject you for not being vouched), red-flagging only those who <strong>repeatedly pour in low-quality AI content</strong>, while explicitly stating "denouncement is not for disagreements or honest mistakes." It's a trust mechanism both <strong>open</strong> and with a <strong>bottom line</strong>—it doesn't presume you're a bad actor, yet never lets a spamming few drag down the maintainers. By now you see the lesson whole: from "tests must run in the right place, test the real implementation, and be reproducible by others," to "issue first, PRs small and focused, no AI walls," to "meticulous style norms + the vouch trust list"—<strong>every single one pushes in the same direction: in an age where AI amplifies everything, keep the signal, hold the noise at the gate, and respect every bit of genuine attention</strong>.</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ Big picture</div>
+  This lesson covers the full chain of "<strong>verify your change well, then contribute it back gracefully</strong>." On the <strong>testing</strong> end: Bun's built-in <span class="mono">bun test</span>, run <strong>in the package dir, not the root</strong> (the root guardrail errors on the spot), <strong>test the real implementation, few mocks</strong>, and reproducible by reviewers. On the <strong>contribution</strong> end: <strong>issue first</strong> → use a template → a small focused PR → conventional title → explain how you verified → review and merge. On the <strong>norms and trust</strong> end: meticulous branch/commit/coding conventions, plus the <strong>vouch</strong> trust list. Connect these three ends and you find they share one soul—<strong>in an age where AI can mass-produce, fiercely guard the signal-to-noise ratio and respect maintainers' time</strong>. This is the rarest engineering culture of a mature open-source project.
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Implementation details</div>
+  Root <span class="mono">package.json</span>: <span class="mono">test</span>=<span class="mono">echo 'do not run tests from root' &amp;&amp; exit 1</span> (guardrail), <span class="mono">lint</span>=<span class="mono">oxlint</span>, <span class="mono">typecheck</span>=<span class="mono">bun turbo typecheck</span>, <span class="mono">dev</span>=<span class="mono">bun run --cwd packages/opencode --conditions=browser src/index.ts</span>. The <span class="mono">packages/opencode</span> package: <span class="mono">test</span>=<span class="mono">bun test --timeout 30000 --only-failures</span>, <span class="mono">typecheck</span>=<span class="mono">tsgo --noEmit</span>. Issue templates in <span class="mono">.github/ISSUE_TEMPLATE/</span> (<span class="mono">bug-report.yml</span>/<span class="mono">feature-request.yml</span>/<span class="mono">question.yml</span>/<span class="mono">config.yml</span>), the auto-check gives a 2-hour window on non-compliance. The vouch list <span class="mono">.github/VOUCHED.td</span>, maintainers manage it via comments <span class="mono">vouch</span>/<span class="mono">denounce</span>/<span class="mono">unvouch</span>, committed automatically. Adding a provider usually needs <strong>no code change</strong>—just open a PR at <span class="mono">models.dev</span>. The default branch is <span class="mono">dev</span> (locally there may be no <span class="mono">main</span>; diff against <span class="mono">origin/dev</span>).
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li><strong>Testing: in the right place, test real things, reproducible</strong>. Bun's built-in <span class="mono">bun test</span>; <strong>can't run at the root</strong> (the root <span class="mono">test</span> script deliberately errors out—a monorepo guardrail, like L37/L48/L53 "wrong usage fails loudly"), <span class="mono">cd</span> into the package dir. <strong>Few mocks, test the real implementation</strong> (don't copy logic into tests); CONTRIBUTING requires logic changes to <strong>spell out what was tested and how a reviewer reproduces it</strong>. Pair with <span class="mono">tsgo</span> type check + <span class="mono">oxlint</span>.</li>
+    <li><strong>Contributing: issue first, small steps</strong>. Every PR must have an issue first (<span class="mono">Fixes #123</span>), using a template (auto-closes 2 hours after non-compliance); branch names short ≤3 words no prefix, default branch <span class="mono">dev</span>; PRs small and focused, conventional titles, <strong>explain how you verified</strong>. Cultural red line: <strong>reject AI walls of text</strong>, state it briefly in your own words (can't = PR too large)—guarding maintainers' attention (like L42/L59 scarce signal).</li>
+    <li><strong>Norms and trust: conventions + vouch</strong>. Style points toward "the happy path, a straight line": avoid <span class="mono">else</span>/<span class="mono">let</span>, prefer <span class="mono">.catch</span> over <span class="mono">try/catch</span>, avoid <span class="mono">any</span>, no aliased/star imports, use Bun APIs. The <strong>vouch trust list</strong> (<span class="mono">.github/VOUCHED.td</span>) is open to everyone by default, denouncing only those who repeatedly pour in low-quality AI content. <strong>Hidden line</strong>: the whole norm set serves "in the AI age, fiercely guard the signal-to-noise ratio and respect maintainers' time."</li>
+  </ul>
+</div>
+""",
+}
+
 LESSON_64 = wip('术语表与索引', 'Glossary & index')
