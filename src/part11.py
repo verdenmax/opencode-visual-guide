@@ -863,4 +863,203 @@ PtyEnvironment.Service.of({
 </div>
 """,
 }
-LESSON_61 = wip('ACP 与 Location 抽象', 'ACP & the Location model')
+LESSON_61 = {
+    "zh": r"""
+<p class="lead">M11 一路讲来，我们看了 opencode 向外敞开的好几扇门：插件（L57/58）让你挂进它的生命周期、LSP（L59）让它接来语言服务器的大脑、PTY（L60）让它管理真终端。这最后一课，讲的是<strong>最深的一层敞开</strong>——它不再是「给 opencode 加点什么」，而是把 <strong>agent 本身</strong>，变成一个<strong>不绑定特定前端、也不绑定特定位置</strong>的、可被任意驱动、可自由移动的实体。这背后是两个抽象：<strong>ACP</strong>（让 opencode 反过来作为一个「agent 服务器」，被别的编辑器接入）和 <strong>Location</strong>（把「会话」和「它在哪儿跑」彻底解耦的「位置」抽象）。读完这一课，你会看到 opencode 把「向外敞开」做到了一个深刻的层次：连「谁来用这个 agent」「这个 agent 在哪儿干活」，都成了可替换、可移动的。</p>
+<p>这一课有两个最值得带走的洞见。第一，<strong>ACP 是 LSP 的镜像</strong>。还记得 L59 吗——那里 opencode 是 <strong>LSP 客户端</strong>，去<strong>消费</strong>语言服务器的代码智能。而这里反了过来：opencode 实现了 <strong>ACP（Agent Client Protocol，智能体客户端协议）</strong>、把自己变成一个 <strong>ACP 服务器</strong>，被别的编辑器（如 Zed）<strong>消费</strong>——编辑器当「客户端」、opencode 当「agent 后端」。<span class="mono">ACP 之于 agent，正如 LSP 之于语言服务器</span>：都用一套标准协议，把「M 个编辑器 × N 个 agent」的难题塌缩成「M + N」。第二，<strong>Location 把「会话」与「它在哪儿跑」解耦了</strong>。一个 <span class="mono">Location</span> 不过是 <span class="mono">{目录, 工作区, 项目}</span> 这么一份「位置信息」，而 opencode 把工具、权限、文件系统、模型解析全都做成 <strong>Location 作用域</strong>的——于是一个会话<strong>不被钉死在某一个位置</strong>，它能被 <span class="mono">move-session</span> 连同它的文件改动一起<strong>搬到另一个目录</strong>去继续。读懂这两点，你就懂了贯穿这一课的那条主线：<strong>把「是什么」和「在哪里」解耦——agent 不绑定编辑器、会话不绑定目录。</strong></p>
+
+<div class="card analogy">
+  <div class="tag">🔌 生活类比</div>
+  把 <strong>ACP</strong> 想象成<strong>统一的电源插座标准</strong>。有了这套标准，任何电器（编辑器）都能插上任何电源（agent），只要两边都遵守这个插座规格——不必为「Zed 配 opencode」「某编辑器配某 agent」各造一套专用接口。L59 里 opencode 是「电器」（去插语言服务器这个「电源」），而这一课里它成了「电源」（被编辑器这个「电器」插上）。同一套协议，opencode 两头都能站。而 <strong>Location 与 move-session</strong>，则像一台<strong>不绑定某张书桌的笔记本电脑</strong>。你的工作（会话）活在笔记本里，而不是焊死在某张桌子上——你可以<strong>合上电脑、换一张桌子（换一个目录），打开继续干</strong>，连桌上那些没保存的草稿（未提交的文件改动）都能一起带走。<strong>正因为「工作」和「哪张桌子」是分开的，工作才有了「可移动」的自由</strong>；正因为 agent 和「哪个编辑器」是分开的、会话和「哪个目录」是分开的，它们才有了被任意前端驱动、在任意位置流转的自由。
+</div>
+
+<h2>ACP：opencode 反过来做「agent 服务器」</h2>
+<p>L59 里，opencode 戴上「LSP 客户端」的帽子，去消费别人的语言服务器。这一课，它戴上另一顶帽子——<strong>ACP 服务器</strong>。<strong>ACP（Agent Client Protocol）</strong>是一套让「编辑器」和「AI agent」对话的标准协议（正是 Zed 等编辑器接入 AI agent 用的那套）。opencode 实现了它，于是别的编辑器能把 opencode <strong>当成自己的 AI 后端</strong>来驱动。把它和 L59 并排，这对「镜像」就清晰了：</p>
+<div class="cols">
+  <div class="col"><h4>L59：opencode 是 LSP 客户端</h4><p>opencode <strong>消费</strong>语言服务器（typescript-language-server…）的代码智能。它是「编辑器」那一头，去接「语言服务」。</p></div>
+  <div class="col"><h4>L61：opencode 是 ACP 服务器</h4><p>opencode <strong>被</strong>编辑器（Zed…）消费，提供 agent 能力。它是「agent 服务」那一头，被「编辑器」接。</p></div>
+</div>
+<p>opencode 的 ACP 实现（<span class="mono">acp/agent.ts</span>）是一个实现了标准 <span class="mono">ACPAgent</span> 接口的 <span class="mono">Agent</span> 类，它把 agent 的全部能力，翻译成 ACP 协议规定的一组方法：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">initialize / authenticate</div><div class="c-txt">握手、认证——编辑器接上 opencode 的第一步</div></div>
+  <div class="cell"><div class="c-tag">newSession / loadSession / forkSession</div><div class="c-txt">开新会话 / 载入 / 分叉——会话的生命周期管理</div></div>
+  <div class="cell"><div class="c-tag">prompt / cancel</div><div class="c-txt">发提示词 / 取消——和 agent 的核心来回</div></div>
+  <div class="cell"><div class="c-tag">setSessionModel / Mode / ConfigOption</div><div class="c-txt">切模型 / 切模式 / 调选项——编辑器侧的控制</div></div>
+</div>
+<p>这套实现的意义，怎么强调都不为过：<strong>它让 opencode 这颗 agent 内核，挣脱了「只能用 opencode 自家 TUI」的绑定。</strong>一个用惯了 Zed 的开发者，不必离开 Zed、不必学一套新界面，就能在自己最熟的编辑器里，用上 opencode 这颗 agent。而这正是协议的力量——<strong>ACP 把「agent 的能力」和「展示它的前端」彻底切开</strong>：opencode 只管做好一个标准的 ACP 服务器，剩下「用什么编辑器、长什么样」全交给客户端。回想 L56 我们曾说「同一份会话能渲染成 TUI、也能渲染成 run 日志」——那是 opencode <strong>自己</strong>的多副前端；而 ACP 把这个「前端可替换」的范围，扩张到了<strong>整个生态的任意编辑器</strong>。这是「数据与表现分离」在协议层面的终极形态。</p>
+
+<h2>Location：把「会话」与「它在哪儿跑」解耦</h2>
+<p>第二个抽象更底层，也更精妙。<span class="mono">Location</span>（<span class="mono">core/src/location.ts</span>）回答一个看似简单的问题：「<strong>一个会话，到底在哪儿干活？</strong>」它的答案，是一份极简的「位置信息」：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">directory</div><div class="c-txt">工作目录——agent 在哪个目录下读写文件、跑命令</div></div>
+  <div class="cell"><div class="c-tag">workspaceID?</div><div class="c-txt">可选的工作区标识（为未来的集群/远程放置预留）</div></div>
+  <div class="cell"><div class="c-tag">project</div><div class="c-txt">解析出的项目（id + 根目录）——这个目录属于哪个项目</div></div>
+</div>
+<p>这份「位置」看着不起眼，但 opencode 的一个核心设计决定让它分量极重：<strong>工具、权限、文件系统、模型解析、会话运行器（SessionRunner）……全都是「Location 作用域」的。</strong>把这些「跟着 Location 走」的子系统列出来，你就能体会这份解耦有多彻底：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">文件系统</div><div class="c-txt">能读写哪些文件、相对哪个目录解析——随 Location 定</div></div>
+  <div class="cell"><div class="c-tag">权限</div><div class="c-txt">L41 的权限规则在哪个目录上生效——随 Location 定</div></div>
+  <div class="cell"><div class="c-tag">工具注册表</div><div class="c-txt">L37 的工具绑在哪个 Location 上自我登记</div></div>
+  <div class="cell"><div class="c-tag">模型解析 / 运行器</div><div class="c-txt">用哪个模型、SessionRunner 在哪儿跑——皆 Location 作用域</div></div>
+</div>
+<p>也就是说，「能读写哪些文件」「权限规则怎么算」「用哪个模型」这些，都是<strong>相对于一个 Location 来确定的</strong>，而非写死在某个全局状态里。这个决定的深远之处在于：它把<strong>「会话是谁、要干什么」（身份与逻辑）</strong>和<strong>「会话在哪儿跑」（位置）</strong>，变成了<strong>两件正交、可分别替换的事</strong>。一个会话的「灵魂」（它的消息、上下文、意图）不再和某个具体目录焊死——你换一个 Location，同一个会话就能在新的目录下、用新的文件系统视图和权限继续跑。<strong>这正是「把『是什么』和『在哪里』解耦」在系统最底层的落地。</strong></p>
+
+<h2>move-session：会话因此能「搬家」</h2>
+<p>Location 解耦带来的最直接、最能让人「啊哈」的回报，就是 <span class="mono">move-session</span>（<span class="mono">control-plane/move-session.ts</span>）——一个会话能<strong>整体搬到另一个目录</strong>去继续。既然会话不被钉死在原地，「搬家」就成了可能。它的流程很见功力：</p>
+<div class="flow">
+  <div class="f-node">move(会话, 目的目录)<br><small>moveChanges?</small></div>
+  <div class="f-arrow">校验 →</div>
+  <div class="f-node">目的项目须匹配<br><small>否则 ProjectMismatch</small></div>
+  <div class="f-arrow">捕获 →</div>
+  <div class="f-node">用 git 捕获工作改动<br><small>把未提交的改动打包</small></div>
+  <div class="f-arrow">搬运+应用 →</div>
+  <div class="f-node">在目的目录重放改动<br><small>会话在新位置继续</small></div>
+</div>
+<p>这条流水里藏着几处老练的考量。其一，<strong>校验目的地的项目必须匹配</strong>（<span class="mono">DestinationProjectMismatchError</span>）——你不能把一个会话搬到一个<strong>属于完全不同项目</strong>的目录去，那样会话的上下文就全乱了；这道校验守住了「搬家可以，但得搬到同一个项目的另一处」的边界。其二，<strong>可选地连同文件改动一起搬</strong>（<span class="mono">moveChanges</span>）：它用 <strong>git</strong> 在源目录<strong>捕获</strong>会话造成的未提交改动、再在目的目录<strong>应用</strong>（<span class="mono">CaptureChangesError</span>/<span class="mono">ApplyChangesError</span> 守着这两步）——又一次复用 git 这把利器（同 L51 快照），让「搬家」连「桌上的草稿」都不落下。<strong>而这一切之所以可能、之所以不是天方夜谭，根全在上一节那个 Location 解耦上</strong>：正因为会话的逻辑早已和「具体在哪个目录」剥离开，「换一个目录继续」才不过是「给它一个新 Location + 把改动带过去」这么一件自然的事。<strong>一个好的底层抽象（Location），会在你意想不到的上层（move-session）开出花来</strong>——这正是 L60 末尾「积木相扣」那个主题的又一次印证：会话可移动这个看似高级的能力，根本没有专门为它写一套复杂逻辑，它只是「会话本就和位置解耦」这个地基上，自然生长出的一颗果子。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观视角</div>
+  <p>这一课收束 M11——ACP 与 Location，opencode「向外敞开」最深的一层：</p>
+  <ul>
+    <li><strong>ACP=LSP 的镜像</strong>：L59 opencode 是 LSP <strong>客户端</strong>（消费语言服务器）；L61 opencode 实现 <strong>ACP（Agent Client Protocol）</strong>、做 <strong>ACP 服务器</strong>，被编辑器（Zed…）消费当 AI 后端。<span class="mono">acp/agent.ts</span> 的 <span class="mono">Agent</span> 实现 <span class="mono">ACPAgent</span> 接口：initialize/authenticate/newSession/loadSession/forkSession/prompt/cancel/setSessionModel·Mode·ConfigOption。ACP:agent = LSP:语言服务器，把 M 编辑器×N agent 塌缩成 M+N。</li>
+    <li><strong>把 agent 能力与前端切开</strong>：ACP 让 opencode 内核挣脱「只能用自家 TUI」——Zed 用户不离开 Zed 就能用 opencode。是 L56「数据与表现分离」在协议层的终极形态（前端可替换范围扩到整个生态）。</li>
+    <li><strong>Location=「在哪儿跑」抽象</strong>（<span class="mono">location.ts</span>）：<span class="mono">{directory, workspaceID?, project}</span>。工具/权限/文件系统/模型解析/SessionRunner 全 <strong>Location 作用域</strong>——把「会话是谁要干什么」（身份逻辑）与「在哪儿跑」（位置）解耦成正交可替换两件事。</li>
+    <li><strong>move-session=会话可搬家</strong>（<span class="mono">control-plane/move-session.ts</span>）：校验目的项目匹配（ProjectMismatch）→git 捕获工作改动→目的目录重放（可选 moveChanges，复用 git 同 L51）。会话可移动这个高级能力，是 Location 解耦地基上自然生长的果（积木相扣，同 L60）。</li>
+  </ul>
+  <p>贯穿主线：<strong>把「是什么」和「在哪里」解耦</strong>——agent 不绑定编辑器（ACP）、会话不绑定目录（Location/move-session）。把这两条解耦并排，这一课的主旨就一目了然：</p>
+  <div class="cols">
+    <div class="col"><h4>ACP：解耦「agent」与「编辑器」</h4><p>agent 能力不绑定某个前端；任意会 ACP 的编辑器都能驱动 opencode。「谁来用」可替换。</p></div>
+    <div class="col"><h4>Location：解耦「会话」与「目录」</h4><p>会话逻辑不绑定某个位置；换个 Location 就换个文件系统/权限视图。「在哪儿跑」可替换、可移动。</p></div>
+  </div>
+  <p>至此 <strong>M11「扩展与集成」收官</strong>：从插件、LSP、PTY，到 ACP 与 Location，opencode「向外敞开的所有门」讲全了。最后一部分 <strong>M12 转向实战、贡献与速查</strong>：怎么在本地把 opencode 构建调试起来（L62）、怎么测试与给它贡献代码（L63）、以及一份贯通全书的术语表与索引（L64），为整本 opencode 学习指南收尾。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">Location.Info</span> 这个极简的数据类，是「会话与位置解耦」的支点（简化自 <span class="mono">location.ts</span>）：</p>
+  <pre class="code"><span class="cm">// 一份「位置信息」：目录 + 可选工作区 + 解析出的项目</span>
+<span class="kw">class</span> Info <span class="kw">extends</span> Schema.Class(<span class="st">"Location.Info"</span>)({
+  directory: AbsolutePath,                   <span class="cm">// agent 在哪个目录干活</span>
+  workspaceID: optional(WorkspaceV2.ID),     <span class="cm">// 可选（为集群/远程放置预留）</span>
+  project: { id: Project.ID, directory: AbsolutePath },  <span class="cm">// 属于哪个项目</span>
+}) {}
+
+<span class="cm">// Location 作为一个 Effect 服务，按一个 Ref(目录) 解析出来</span>
+<span class="kw">const</span> layer = (ref: Ref) =&gt; Layer.<span class="fn">effect</span>(Service, Effect.<span class="fn">gen</span>(<span class="kw">function*</span>() {
+  <span class="kw">const</span> resolved = <span class="kw">yield*</span> project.<span class="fn">resolve</span>(ref.directory)   <span class="cm">// 目录→项目</span>
+  <span class="kw">return</span> Service.<span class="fn">of</span>({ directory: ref.directory, project: {...}, ... })
+}))</pre>
+  <p>这个类小得不能再小，但它在 opencode 架构里的位置极其关键——<strong>它是一条「接缝」，把一整个会话从「它在哪儿」这件事上剥离了开来。</strong>注意它被实现成一个 Effect 的 <span class="mono">Service</span>（第 2 部分的依赖注入）：工具、权限、文件系统这些子系统，都<strong>通过依赖这个 <span class="mono">Location.Service</span> 来确定自己的作用域</strong>，而非各自去摸一个全局的「当前目录」。这一个小小的设计选择，带来了惊人的杠杆：<strong>因为「位置」是被注入的、而非写死的，所以换一份 Location，整个会话的「文件系统视图、权限边界、能跑的命令」就整体平移到了新位置——而会话的逻辑代码一行都不用改。</strong>这正是依赖注入（M2）最深刻的威力：把一个横切一切的关注点（「在哪儿」）抽成一个可注入的服务，于是「换地方」从「改一大堆硬编码路径」的噩梦，变成了「换一个注入值」的举手之劳。<span class="mono">workspaceID</span> 那个「为未来集群/远程放置预留」的可选字段，更透露了这条接缝的雄心：今天它让会话能在本地不同目录间搬家，明天它就能让会话在<strong>不同机器、不同远程位置</strong>间流转。<strong>一个想透了的底层抽象，不只解决眼前的问题，还为还没到来的未来，悄悄留好了门。</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>ACP=LSP 的镜像</strong>：L59 opencode 是 LSP 客户端（消费语言服务器）；L61 opencode 实现 ACP（Agent Client Protocol）做 ACP 服务器，被编辑器（Zed…）消费当 AI 后端。<span class="mono">acp/agent.ts</span> <span class="mono">Agent</span> 实现 <span class="mono">ACPAgent</span>：initialize/newSession/loadSession/forkSession/prompt/cancel/setSessionModel·Mode。ACP:agent=LSP:语言服务器，M×N 塌缩 M+N。</li>
+    <li><strong>agent 能力与前端切开</strong>：ACP 让 opencode 内核挣脱「只能用自家 TUI」，Zed 用户不离开 Zed 就能用。L56「数据与表现分离」在协议层的终极形态——前端可替换扩到整个生态。</li>
+    <li><strong>Location=「在哪儿跑」抽象</strong>（<span class="mono">location.ts</span>）：<span class="mono">{directory, workspaceID?, project}</span>，实现成 Effect <span class="mono">Service</span>（DI）。工具/权限/文件系统/模型/SessionRunner 全 Location 作用域——把「会话是谁要干什么」与「在哪儿跑」解耦成正交可替换两件事。</li>
+    <li><strong>move-session=会话可搬家</strong>（<span class="mono">control-plane/move-session.ts</span>）：校验目的项目匹配→git 捕获改动→目的目录重放（可选 moveChanges 复用 git 同 L51）。高级能力是 Location 解耦地基上自然生长的果（积木相扣，同 L60）。</li>
+    <li><strong>主线：解耦「是什么」与「在哪里」</strong>——agent 不绑定编辑器（ACP）、会话不绑定目录（Location）。DI 把「在哪儿」抽成可注入服务=换地方只需换注入值、逻辑零改；<span class="mono">workspaceID</span> 为未来跨机器/远程放置留门。M11 收官。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">All through M11 we've seen several doors opencode opens outward: plugins (L57/58) let you hook into its lifecycle, LSP (L59) lets it borrow language servers' brains, PTY (L60) lets it manage real terminals. This final lesson covers <strong>the deepest layer of opening</strong>—it's no longer "add something to opencode" but making <strong>the agent itself</strong> an entity <strong>not bound to a specific frontend, nor to a specific location</strong>, drivable by anyone, freely movable. Behind this are two abstractions: <strong>ACP</strong> (letting opencode, conversely, be an "agent server" that other editors connect to) and <strong>Location</strong> (the "place" abstraction that fully decouples a "session" from "where it runs"). After this lesson, you'll see opencode took "opening outward" to a profound level: even "who uses this agent" and "where this agent works" become replaceable and movable.</p>
+<p>This lesson has two highlights most worth taking away. First, <strong>ACP is the mirror of LSP</strong>. Remember L59—there opencode was an <strong>LSP client</strong>, going to <strong>consume</strong> language servers' code intelligence. Here it's reversed: opencode implements <strong>ACP (Agent Client Protocol)</strong>, making itself an <strong>ACP server</strong> to be <strong>consumed</strong> by other editors (like Zed)—the editor as "client," opencode as "agent backend." <span class="mono">ACP is to agents what LSP is to language servers</span>: both use a standard protocol to collapse the "M editors × N agents" problem into "M + N." Second, <strong>Location decouples a "session" from "where it runs."</strong> A <span class="mono">Location</span> is just a piece of "location info," <span class="mono">{directory, workspace, project}</span>, and opencode makes tools, permissions, the filesystem, model resolution all <strong>Location-scoped</strong>—so a session <strong>isn't nailed to one location</strong>, it can be <span class="mono">move-session</span>'d, along with its file changes, <strong>to another directory</strong> to continue. Grasp these two and you'll understand this lesson's throughline: <strong>decoupling "what" from "where"—the agent isn't bound to the editor, the session isn't bound to the directory.</strong></p>
+
+<div class="card analogy">
+  <div class="tag">🔌 Analogy</div>
+  Picture <strong>ACP</strong> as a <strong>unified power-socket standard</strong>. With this standard, any appliance (editor) can plug into any power source (agent), as long as both follow the socket spec—no need to build a dedicated interface for "Zed with opencode," "some editor with some agent." In L59 opencode was the "appliance" (plugging into language servers, the "power"), and here it becomes the "power" (plugged into by editors, the "appliances"). Same protocol, opencode can stand at either end. And <strong>Location and move-session</strong> are like a <strong>laptop not tied to one desk</strong>. Your work (the session) lives in the laptop, not welded to a desk—you can <strong>close the lid, switch desks (switch directories), open and keep working</strong>, even carrying along the unsaved drafts on the desk (uncommitted file changes). <strong>Precisely because "the work" and "which desk" are separated, the work gains the freedom to be "movable"</strong>; precisely because the agent and "which editor," the session and "which directory," are separated, they gain the freedom to be driven by any frontend and to flow across any location.
+</div>
+
+<h2>ACP: opencode conversely as an "agent server"</h2>
+<p>In L59, opencode wore the "LSP client" hat, going to consume others' language servers. This lesson, it wears another hat—<strong>ACP server</strong>. <strong>ACP (Agent Client Protocol)</strong> is a standard protocol letting "editors" and "AI agents" talk (exactly what editors like Zed use to connect AI agents). opencode implements it, so other editors can drive opencode <strong>as their own AI backend</strong>. Side by side with L59, this "mirror" pair is clear:</p>
+<div class="cols">
+  <div class="col"><h4>L59: opencode is an LSP client</h4><p>opencode <strong>consumes</strong> language servers' (typescript-language-server…) code intelligence. It's the "editor" end, plugging into "language services."</p></div>
+  <div class="col"><h4>L61: opencode is an ACP server</h4><p>opencode <strong>is consumed</strong> by editors (Zed…), providing agent capability. It's the "agent service" end, plugged into by "editors."</p></div>
+</div>
+<p>opencode's ACP implementation (<span class="mono">acp/agent.ts</span>) is an <span class="mono">Agent</span> class implementing the standard <span class="mono">ACPAgent</span> interface, translating the agent's full capabilities into a set of methods ACP prescribes:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">initialize / authenticate</div><div class="c-txt">handshake, auth—the editor's first step attaching to opencode</div></div>
+  <div class="cell"><div class="c-tag">newSession / loadSession / forkSession</div><div class="c-txt">open new session / load / fork—session lifecycle management</div></div>
+  <div class="cell"><div class="c-tag">prompt / cancel</div><div class="c-txt">send a prompt / cancel—the core back-and-forth with the agent</div></div>
+  <div class="cell"><div class="c-tag">setSessionModel / Mode / ConfigOption</div><div class="c-txt">switch model / mode / tweak options—editor-side control</div></div>
+</div>
+<p>The significance of this implementation can't be overstated: <strong>it frees opencode's agent core from the binding of "usable only in opencode's own TUI."</strong> A developer used to Zed needn't leave Zed, needn't learn a new interface, yet can use opencode's agent in their most familiar editor. And this is exactly the power of a protocol—<strong>ACP fully cuts "the agent's capability" from "the frontend showing it"</strong>: opencode just needs to be a good standard ACP server, leaving "which editor, what it looks like" all to the client. Recall L56 where we said "the same session can render as a TUI or as a run log"—that was opencode's <strong>own</strong> multiple frontends; ACP expands this "frontend replaceability" to <strong>any editor in the whole ecosystem</strong>. This is the ultimate form of "data separated from presentation" at the protocol level.</p>
+
+<h2>Location: decoupling "the session" from "where it runs"</h2>
+<p>The second abstraction is lower-level and more exquisite. <span class="mono">Location</span> (<span class="mono">core/src/location.ts</span>) answers a seemingly simple question: "<strong>where exactly does a session work?</strong>" Its answer is a minimal piece of "location info":</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">directory</div><div class="c-txt">the working directory—which directory the agent reads/writes files and runs commands in</div></div>
+  <div class="cell"><div class="c-tag">workspaceID?</div><div class="c-txt">an optional workspace identifier (reserved for future cluster/remote placement)</div></div>
+  <div class="cell"><div class="c-tag">project</div><div class="c-txt">the resolved project (id + root directory)—which project this directory belongs to</div></div>
+</div>
+<p>This "location" looks unremarkable, but a core opencode design decision makes it hugely weighty: <strong>tools, permissions, the filesystem, model resolution, the SessionRunner… are all "Location-scoped."</strong> Listing these subsystems that "go with the Location," you feel how thorough this decoupling is:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">filesystem</div><div class="c-txt">which files can be read/written, relative to which directory—per Location</div></div>
+  <div class="cell"><div class="c-tag">permissions</div><div class="c-txt">which directory L41's permission rules take effect on—per Location</div></div>
+  <div class="cell"><div class="c-tag">tool registry</div><div class="c-txt">L37's tools self-register bound to which Location</div></div>
+  <div class="cell"><div class="c-tag">model resolution / runner</div><div class="c-txt">which model, where the SessionRunner runs—all Location-scoped</div></div>
+</div>
+<p>That is, "which files can be read/written," "how permission rules compute," "which model to use" are all <strong>determined relative to a Location</strong>, not hardcoded into some global state. The profundity of this decision: it turns <strong>"who the session is, what it wants to do" (identity and logic)</strong> and <strong>"where the session runs" (location)</strong> into <strong>two orthogonal, separately-replaceable things</strong>. A session's "soul" (its messages, context, intent) is no longer welded to a specific directory—switch a Location and the same session can keep running under a new directory, with a new filesystem view and permissions. <strong>This is exactly "decoupling 'what' from 'where'" landing at the system's deepest level.</strong></p>
+
+<h2>move-session: so a session can "move house"</h2>
+<p>The most direct, most "aha" payoff of the Location decoupling is <span class="mono">move-session</span> (<span class="mono">control-plane/move-session.ts</span>)—a session can be <strong>moved wholesale to another directory</strong> to continue. Since the session isn't nailed in place, "moving house" becomes possible. Its flow is quite crafty:</p>
+<div class="flow">
+  <div class="f-node">move(session, dest dir)<br><small>moveChanges?</small></div>
+  <div class="f-arrow">validate →</div>
+  <div class="f-node">dest project must match<br><small>else ProjectMismatch</small></div>
+  <div class="f-arrow">capture →</div>
+  <div class="f-node">git-capture working changes<br><small>package uncommitted edits</small></div>
+  <div class="f-arrow">move+apply →</div>
+  <div class="f-node">replay changes at dest<br><small>session continues at new location</small></div>
+</div>
+<p>This flow hides several seasoned considerations. First, <strong>validate the destination's project must match</strong> (<span class="mono">DestinationProjectMismatchError</span>)—you can't move a session to a directory <strong>belonging to a completely different project</strong>, that would scramble the session's context; this validation holds the boundary "moving is fine, but to another spot of the same project." Second, <strong>optionally move the file changes along</strong> (<span class="mono">moveChanges</span>): it uses <strong>git</strong> to <strong>capture</strong> the session's uncommitted changes in the source directory and <strong>apply</strong> them in the destination (<span class="mono">CaptureChangesError</span>/<span class="mono">ApplyChangesError</span> guarding these two steps)—reusing git, that sharp tool, again (like L51 snapshots), so "moving house" doesn't leave even "the drafts on the desk" behind. <strong>And all this is possible, isn't a fantasy, entirely thanks to the Location decoupling of the last section</strong>: precisely because the session's logic was long peeled apart from "which directory it's in," "continue in another directory" is no more than "give it a new Location + bring the changes over," a natural thing. <strong>A good low-level abstraction (Location) blossoms in unexpected upper layers (move-session)</strong>—exactly another proof of L60's closing "blocks interlocking" theme: this seemingly advanced "session is movable" capability needed no complex logic written specially for it, it's just a fruit naturally grown on the foundation of "the session is already decoupled from location."</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson closes M11—ACP and Location, opencode's deepest layer of "opening outward":</p>
+  <ul>
+    <li><strong>ACP = the mirror of LSP</strong>: L59 opencode is an LSP <strong>client</strong> (consumes language servers); L61 opencode implements <strong>ACP (Agent Client Protocol)</strong>, being an <strong>ACP server</strong>, consumed by editors (Zed…) as an AI backend. <span class="mono">acp/agent.ts</span>'s <span class="mono">Agent</span> implements the <span class="mono">ACPAgent</span> interface: initialize/authenticate/newSession/loadSession/forkSession/prompt/cancel/setSessionModel·Mode·ConfigOption. ACP:agent = LSP:language servers, collapsing M editors×N agents into M+N.</li>
+    <li><strong>cutting agent capability from the frontend</strong>: ACP frees opencode's core from "usable only in its own TUI"—a Zed user uses opencode without leaving Zed. The ultimate form of L56's "data separated from presentation" at the protocol level (frontend replaceability expanded to the whole ecosystem).</li>
+    <li><strong>Location = the "where it runs" abstraction</strong> (<span class="mono">location.ts</span>): <span class="mono">{directory, workspaceID?, project}</span>. Tools/permissions/filesystem/model resolution/SessionRunner all <strong>Location-scoped</strong>—decoupling "who the session is, what it wants" (identity logic) from "where it runs" (location) into two orthogonal, replaceable things.</li>
+    <li><strong>move-session = a session can move house</strong> (<span class="mono">control-plane/move-session.ts</span>): validate destination project match (ProjectMismatch)→git-capture working changes→replay at destination (optional moveChanges, reusing git like L51). The advanced "session is movable" capability is a fruit naturally grown on the Location-decoupling foundation (blocks interlocking, like L60).</li>
+  </ul>
+  <p>The throughline: <strong>decoupling "what" from "where"</strong>—the agent isn't bound to the editor (ACP), the session isn't bound to the directory (Location/move-session). Putting these two decouplings side by side, this lesson's thesis is clear at a glance:</p>
+  <div class="cols">
+    <div class="col"><h4>ACP: decouple "agent" from "editor"</h4><p>agent capability isn't bound to a frontend; any ACP-speaking editor can drive opencode. "Who uses it" is replaceable.</p></div>
+    <div class="col"><h4>Location: decouple "session" from "directory"</h4><p>session logic isn't bound to a location; switch a Location and switch the filesystem/permission view. "Where it runs" is replaceable, movable.</p></div>
+  </div>
+  <p>With this, <strong>M11 "Extensibility and integration" wraps up</strong>: from plugins, LSP, PTY, to ACP and Location, "all the doors opencode opens outward" are fully covered. The last part <strong>M12 turns to practice, contribution, and reference</strong>: how to build and debug opencode locally (L62), how to test and contribute code to it (L63), and a glossary and index threading the whole book (L64), closing out the entire opencode learning guide.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p><span class="mono">Location.Info</span>, this minimal data class, is the fulcrum of "decoupling session from location" (simplified from <span class="mono">location.ts</span>):</p>
+  <pre class="code"><span class="cm">// a piece of "location info": directory + optional workspace + resolved project</span>
+<span class="kw">class</span> Info <span class="kw">extends</span> Schema.Class(<span class="st">"Location.Info"</span>)({
+  directory: AbsolutePath,                   <span class="cm">// which directory the agent works in</span>
+  workspaceID: optional(WorkspaceV2.ID),     <span class="cm">// optional (reserved for cluster/remote placement)</span>
+  project: { id: Project.ID, directory: AbsolutePath },  <span class="cm">// which project it belongs to</span>
+}) {}
+
+<span class="cm">// Location is an Effect service, resolved from a Ref(directory)</span>
+<span class="kw">const</span> layer = (ref: Ref) =&gt; Layer.<span class="fn">effect</span>(Service, Effect.<span class="fn">gen</span>(<span class="kw">function*</span>() {
+  <span class="kw">const</span> resolved = <span class="kw">yield*</span> project.<span class="fn">resolve</span>(ref.directory)   <span class="cm">// directory→project</span>
+  <span class="kw">return</span> Service.<span class="fn">of</span>({ directory: ref.directory, project: {...}, ... })
+}))</pre>
+  <p>This class is as tiny as can be, but its place in opencode's architecture is utterly crucial—<strong>it's a "seam" that peels an entire session apart from the matter of "where it is."</strong> Note it's implemented as an Effect <span class="mono">Service</span> (Part 2's dependency injection): subsystems like tools, permissions, the filesystem all <strong>determine their scope by depending on this <span class="mono">Location.Service</span></strong>, rather than each reaching for a global "current directory." This one small design choice brings astonishing leverage: <strong>because "location" is injected, not hardcoded, switching a Location shifts the whole session's "filesystem view, permission boundary, runnable commands" to a new place wholesale—without changing one line of the session's logic code.</strong> This is exactly dependency injection's (M2) most profound power: abstracting a concern that cuts across everything ("where") into an injectable service, so "switching places" turns from the nightmare of "changing a pile of hardcoded paths" into the trivial "swap one injected value." That <span class="mono">workspaceID</span> optional field "reserved for future cluster/remote placement" further reveals this seam's ambition: today it lets a session move house among local directories, tomorrow it can let a session flow across <strong>different machines, different remote locations</strong>. <strong>A well-thought-through low-level abstraction doesn't just solve the problem at hand but quietly leaves a door open for a future not yet arrived.</strong></p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>ACP = the mirror of LSP</strong>: L59 opencode is an LSP client (consumes language servers); L61 opencode implements ACP (Agent Client Protocol) as an ACP server, consumed by editors (Zed…) as an AI backend. <span class="mono">acp/agent.ts</span>'s <span class="mono">Agent</span> implements <span class="mono">ACPAgent</span>: initialize/newSession/loadSession/forkSession/prompt/cancel/setSessionModel·Mode. ACP:agent = LSP:language servers, M×N collapses to M+N.</li>
+    <li><strong>cutting agent capability from the frontend</strong>: ACP frees opencode's core from "usable only in its own TUI," a Zed user uses it without leaving Zed. The ultimate form of L56's "data separated from presentation" at the protocol level—frontend replaceability expanded to the whole ecosystem.</li>
+    <li><strong>Location = the "where it runs" abstraction</strong> (<span class="mono">location.ts</span>): <span class="mono">{directory, workspaceID?, project}</span>, implemented as an Effect <span class="mono">Service</span> (DI). Tools/permissions/filesystem/model/SessionRunner all Location-scoped—decoupling "who the session is, what it wants" from "where it runs" into two orthogonal, replaceable things.</li>
+    <li><strong>move-session = a session can move house</strong> (<span class="mono">control-plane/move-session.ts</span>): validate destination project match→git-capture changes→replay at destination (optional moveChanges reusing git like L51). The advanced capability is a fruit naturally grown on the Location-decoupling foundation (blocks interlocking, like L60).</li>
+    <li><strong>throughline: decouple "what" from "where"</strong>—the agent isn't bound to the editor (ACP), the session isn't bound to the directory (Location). DI abstracts "where" into an injectable service = switching places needs only swapping the injected value, zero logic change; <span class="mono">workspaceID</span> leaves a door open for future cross-machine/remote placement. M11 wraps up.</li>
+  </ul>
+</div>
+""",
+}
