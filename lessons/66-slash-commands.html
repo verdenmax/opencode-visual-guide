@@ -328,8 +328,266 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第十三部分 · 深入专题</span><span class="lang-en">Part 13 · Advanced Topics</span></div>
     <h1><span class="lang-zh">斜杠命令系统</span><span class="lang-en">Slash commands</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《斜杠命令系统》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“斜杠命令系统”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Slash commands" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Slash commands" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh"><p class="lead">你在 opencode 里敲 <span class="mono">/init</span> 或 <span class="mono">/review</span>，按下回车，一段精心写好的长提示词就被发给了模型。这些「斜杠命令」是怎么实现的？翻开 <span class="mono">opencode/src/command/index.ts</span>，你会发现一个出奇简洁、又出奇通用的设计：<strong>一个命令，本质就是一段「参数化的 prompt 模板」</strong>。它有名字、有描述、有一段留了「空」的模板文本，调用时把你给的参数填进空里，就成了发给模型的完整提示词。这件事乍看不起眼，细想却很关键：在一个 AI 编程 agent 里，<strong>「你想让模型干什么」几乎全靠提示词表达</strong>，而把高频、复杂的提示词固化成命令，等于给用户配了一套「常用动作的快捷键」。更妙的是——<strong>自定义命令、MCP 暴露的 prompt、以及 skill，这三种来源完全不同的东西，被塑成了同一种 <span class="mono">Info</span> 形状</strong>，藏在同一个 <span class="mono">get/list</span> 接口后面。你用 <span class="mono">/xxx</span> 的时候，根本感觉不到它来自哪儿。</p>
+<p>这一课最值得带走的洞见有两个。第一，<strong>命令 = 模板 + 占位符</strong>：模板里用 <span class="mono">$ARGUMENTS</span>、<span class="mono">$1/$2</span>、<span class="mono">${path}</span> 这类「空」标记参数位置，<span class="mono">hints()</span> 扫一遍就知道「这个命令吃哪些参数」，调用时把实参填进去——一段死板的 prompt 就变成了一个<strong>可复用、可传参的小工具</strong>。这看似平常，却把「提示词工程」从「每次现敲」升级成了「沉淀成可调用的资产」：一段好提示词写一次，存成命令，全团队 <span class="mono">/它</span> 一下就用上了。第二，也是最点睛的——<strong>三种来源、一套接口</strong>：内置命令（读配置）、MCP 服务器暴露的 prompt、skill，本是三类毫不相干的东西，却被 <span class="mono">Command.layer</span> 统一收集、塑成同一个 <span class="mono">Info</span>（靠一个 <span class="mono">source: "command" | "mcp" | "skill"</span> 字段记出身）。这是全书反复出现的「<strong>统一模子刻同形</strong>」（同 L36 Tool.make、L43 skills、L47 PluginV2）在用户命令层的又一次登场：把异质的东西塑成同形，上层就能一视同仁地用，而所有「它们到底哪不一样」的复杂，都被收进了那个塑形的地方。</p>
+
+<div class="card analogy">
+  <div class="tag">✉️ 生活类比</div>
+  把一个斜杠命令想象成一张<strong>「填空式的信件模板」</strong>。<span class="mono">/review</span> 不是一封写死的信，而是一张<strong>印好骨架、留了空格</strong>的信纸：「你是代码审查员……要审查的输入：<u>＿＿＿</u>」。你调用 <span class="mono">/review 这个 PR</span> 时，就是把「这个 PR」填进那个空格（<span class="mono">$ARGUMENTS</span>），一封完整的信（prompt）就成了，寄给模型。<span class="mono">hints()</span> 就像信纸上<strong>标出来的所有空格</strong>，提醒你「这封信要填几个空、填什么」。而最妙的是<strong>「信纸供应商」有三家</strong>：opencode 自带的（内置命令）、外部 MCP 服务器寄来的（MCP prompt）、技能包带来的（skill）——它们的「进货渠道」天差地别（一个在本地抽屉、一个要打电话叫快递、一个是另一套技能体系），但它们都被做成<strong>同一种规格的信纸</strong>，你从抽屉里抽一张用，根本分不清也不用分清它是哪家产的。一套「抽信纸→填空→寄出」的动作，服务所有来源——这正是「统一模子」省心的地方：你只学一种用法，就用上了三种来源的全部命令。
+</div>
+
+<h2>命令 = 参数化的 prompt 模板</h2>
+<p>命令的数据形状是 <span class="mono">Info</span>（<span class="mono">Schema.Struct</span>）。它把「一个命令是什么」讲得清清楚楚，每个字段都对应命令的一个侧面——名字让你呼叫它、描述让你和命令面板知道它干嘛、模板是它的「正文」、来源记它的出身、参数清单告诉你怎么喂它、可选的 agent/model/subtask 微调它怎么跑：</p>
+<div class="cellgroup">
+  <div class="cel"><b>name</b><br>命令名，如 <span class="mono">init</span>、<span class="mono">review</span>（你敲的 <span class="mono">/xxx</span>）</div>
+  <div class="cel"><b>description</b><br>一句话说明，如「review changes [commit\|branch\|pr]」</div>
+  <div class="cel"><b>template</b><br><span class="mono">Promise&lt;string&gt; | string</span>：模板正文（MCP 来的是 lazy promise）</div>
+  <div class="cel"><b>source</b><br><span class="mono">"command" | "mcp" | "skill"</span>：这命令的出身</div>
+  <div class="cel"><b>hints</b><br><span class="mono">string[]</span>：模板里的参数槽（<span class="mono">$1</span>/<span class="mono">$ARGUMENTS</span>…）</div>
+  <div class="cel"><b>agent? / model? / subtask?</b><br>可选：用哪个 agent/模型跑、是否作为子任务</div>
+</div>
+<p>「参数化」靠的是模板里的<strong>占位符</strong>，以及 <span class="mono">hints()</span> 这个小函数。<span class="mono">hints(template)</span> 做的事极简单却很聪明：用正则 <span class="mono">/\$\d+/g</span> 扫出模板里所有 <span class="mono">$1</span>、<span class="mono">$2</span> 这类<strong>编号占位符</strong>（去重、排序），再看有没有 <span class="mono">$ARGUMENTS</span>（「把整串参数塞这」），合起来就是这个命令的「<strong>参数清单</strong>」。换句话说，命令系统<strong>不需要你额外声明「我有几个参数」</strong>——它直接从模板正文里「读」出来：你在模板哪里写了 <span class="mono">$1</span>、哪里写了 <span class="mono">$ARGUMENTS</span>，参数清单就是什么。这是一种「<strong>让数据自己说清楚自己</strong>」的省心设计。它扫描的过程像这样：</p>
+<div class="trace">
+  <div class="step"><span class="n">1</span> 拿到模板正文，如 <span class="mono">"Diff $1 against $2. Focus: $ARGUMENTS"</span></div>
+  <div class="step"><span class="n">2</span> <span class="mono">match(/\$\d+/g)</span> 扫出 <span class="mono">["$1","$2"]</span>，去重 + 排序</div>
+  <div class="step"><span class="n">3</span> <span class="mono">includes("$ARGUMENTS")</span> 为真，追加 <span class="mono">"$ARGUMENTS"</span></div>
+  <div class="step"><span class="n">4</span> 得 <span class="mono">hints = ["$1","$2","$ARGUMENTS"]</span>——这命令的参数清单</div>
+</div>
+<p>调用时，把你敲的实参替换进这些位置，模板就「活」成了一段具体 prompt。看真实的两个内置命令：<span class="mono">init</span>（「guided AGENTS.md setup」，模板 <span class="mono">initialize.txt</span> 里 <span class="mono">$ARGUMENTS</span> 收你给的关注点、<span class="mono">${path}</span> 被换成 worktree 路径）；<span class="mono">review</span>（模板 <span class="mono">review.txt</span> 开头「Input: <span class="mono">$ARGUMENTS</span>」，且 <span class="mono">subtask: true</span> 表示当子任务跑）。这两个模板都是几十上百行精心打磨的提示词——把它们做成命令，意味着这份打磨<strong>只需做一次</strong>，之后人人 <span class="mono">/review</span> 一下就复用了团队沉淀的「怎么审代码」的最佳实践。对比一下「写死的 prompt」和「参数化命令」的差别：</p>
+<div class="cols">
+  <div class="col"><h4>写死的 prompt</h4><p>每次审查代码都重敲一长段「你是代码审查员……」，换个对象就得整段重写。重复、易错、不可复用，团队里每个人还各写各的。</p></div>
+  <div class="col"><h4>参数化命令</h4><p>把那段长 prompt 存成模板、留个 <span class="mono">$ARGUMENTS</span> 空；以后 <span class="mono">/review &lt;任意对象&gt;</span> 一行调用，模板自动填好。一次写好，处处复用，全团队共享同一套。</p></div>
+</div>
+
+<h2>三源归一：一套接口，三种出身</h2>
+<p>命令系统真正的精彩，在 <span class="mono">Command.layer</span>。它在构建时 <span class="mono">yield*</span> 了三个服务——<span class="mono">Config.Service</span>、<span class="mono">MCP.Service</span>、<span class="mono">Skill.Service</span>——然后把来自这<strong>三个完全不同来源</strong>的命令，统统塑成同一个 <span class="mono">Record&lt;string, Info&gt;</span>。注意这三个来源本身有多不一样：内置命令是<strong>本地配置和 <span class="mono">.txt</span> 文件</strong>里读出来的；MCP prompt 是<strong>外部进程经协议远程暴露</strong>的、取它的正文甚至要发网络请求；skill 又是<strong>另一套</strong>「名字常驻、正文按需」的机制（L43）。它们的获取方式、生命周期、数据来源全不同——可一旦塑成 <span class="mono">Info</span>，在命令系统眼里就<strong>没有区别</strong>了：</p>
+<div class="vflow">
+  <div class="vnode"><b>内置 / 配置命令</b>（<span class="mono">source:"command"</span>）：如 <span class="mono">init</span>、<span class="mono">review</span>，模板来自 <span class="mono">.txt</span> 文件或用户配置</div>
+  <div class="vnode"><b>MCP prompt</b>（<span class="mono">source:"mcp"</span>）：外部 MCP 服务器（L46）暴露的 prompt，被裹成命令——因为是远程解析，<span class="mono">template</span> 是个 <strong>lazy promise</strong>（源码注释明说："lazy promises from MCP prompt resolution"）</div>
+  <div class="vnode"><b>skill</b>（<span class="mono">source:"skill"</span>）：技能（L43）也作为一种命令来源接入</div>
+</div>
+<p>三类异质的东西，最后都长成同一个 <span class="mono">Info</span>，只用一个 <span class="mono">source</span> 字段记着「我从哪来」。上层（命令面板、调用逻辑）于是<strong>一视同仁</strong>：它不关心一个命令是内置的、MCP 的还是 skill 的，只管 <span class="mono">get(name)</span> 拿到一个 <span class="mono">Info</span>、填好模板、跑起来。这正是 <span class="mono">template</span> 的类型要写成 <span class="mono">Promise&lt;string&gt; | string</span> 的原因——它得同时容纳「本地就是字符串」和「MCP 远程要 await」两种形态。为什么这种「三源归一」值得专门拿出来讲？因为它体现了一个深刻的设计权衡：<strong>异质性总要有人消化，问题只是在哪一层消化</strong>。如果不归一，上层每处用命令的地方都要写「如果是内置就这样、如果是 MCP 就那样、如果是 skill 又另一样」的分叉，复杂度会像藤蔓一样爬满整个上层。而 <span class="mono">Command.layer</span> 选择<strong>在「塑形」这一处把差异一次性吃掉</strong>——把三种来源都翻译成同一个 <span class="mono">Info</span>，于是上层每一处都干净。把「来源的差异」收进一个字段、把「共同的形状」抽成一个 <span class="mono">Info</span>，<strong>异质塑同形</strong>，是这套设计能如此干净的根。你会发现这和 L36 的 <span class="mono">Tool.make</span>（各种工具塑成同一个工具形状）、L47 的 <span class="mono">PluginV2</span>（各家 provider 塑成同一个插件形状）是<strong>一模一样的招式</strong>，只是这次塑的是「命令」。</p>
+
+<h2>执行与事件：跑起来，并留下痕迹</h2>
+<p><span class="mono">Service</span> 接口极小，只有两个方法：<span class="mono">get(name)</span>（按名取一个命令）和 <span class="mono">list()</span>（列全部命令，供命令面板 L56 摊开）。「接口小」本身就是一种设计美德——把异质来源的复杂全压在 <span class="mono">layer</span> 的构建里，暴露给外界的却只是「按名取、列全部」这两件最朴素的事。一个命令被执行时，模板填好实参成 prompt、按 <span class="mono">agent</span>/<span class="mono">model</span> 覆盖选好模型、若 <span class="mono">subtask:true</span> 就作为子任务跑（不污染主对话，跑完把结果带回）；并发出一个 <span class="mono">command.executed</span> 事件（记下「哪个命令、什么参数被执行了」）——这条事件正好流进 L65 讲的事件体系，可被持久化、被其他设备同步看到。也就是说，「你执行了哪些命令」本身也是会话历史的一部分，可回放、可在网页端同步看到。把整条路径走一遍：</p>
+<div class="flow">
+  <div class="node">你敲 <span class="mono">/review PR#42</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><span class="mono">get("review")</span><br>拿到 Info</div>
+  <div class="arrow">→</div>
+  <div class="node">填占位符<br><span class="mono">$ARGUMENTS</span>→PR#42</div>
+  <div class="arrow">→</div>
+  <div class="node">成完整 prompt<br>(按 subtask/agent 跑)</div>
+  <div class="arrow">→</div>
+  <div class="node">发 <span class="mono">command.executed</span><br>事件留痕</div>
+</div>
+<p>占位符的语义也值得收个表，方便你日后写自己的命令模板：</p>
+<table class="t">
+  <tr><th>占位符</th><th>含义</th><th>来源</th></tr>
+  <tr><td><span class="mono">$ARGUMENTS</span></td><td>把整串参数原样塞进来</td><td><span class="mono">hints</span> 检测 <span class="mono">includes("$ARGUMENTS")</span></td></tr>
+  <tr><td><span class="mono">$1 / $2 / …</span></td><td>第 N 个位置参数</td><td><span class="mono">hints</span> 用 <span class="mono">/\$\d+/g</span> 扫出、去重排序</td></tr>
+  <tr><td><span class="mono">${path}</span></td><td>当前 worktree 路径（构建模板时替换）</td><td>内置命令 <span class="mono">template</span> getter 里 <span class="mono">.replace</span></td></tr>
+</table>
+<p>顺带辨析一点常见疑惑：<span class="mono">$1/$ARGUMENTS</span> 是<strong>调用时</strong>才填的「用户参数」（由 <span class="mono">hints</span> 列出、等你敲实参），而 <span class="mono">${path}</span> 是<strong>构建模板时</strong>就由内置命令的 <span class="mono">template</span> getter 用 <span class="mono">.replace("${path}", ctx.worktree)</span> 替换好的「上下文」——一个等用户、一个等环境，时机不同。理解这点，你写自己的命令模板时就不会把「该让用户填的」和「系统自动给的」搞混。</p>
+<p>到这你就看清了斜杠命令的全貌：它不是一堆散落的硬编码功能，而是<strong>一个「参数化 prompt 模板」的统一抽象</strong>——模板留空、<span class="mono">hints</span> 列空、调用时填空；并把内置/MCP/skill 三种异质来源塑成同一个 <span class="mono">Info</span>，藏在一个 <span class="mono">get/list</span> 接口后。它是 L43 skills「名字常驻、正文按需」、L46 MCP「动态接入外部工具」、L36「统一模子」这些主题在<strong>用户最常摸到的「斜杠命令」</strong>这一面的交汇。回头看，这一课其实给了你一个观察 opencode（乃至任何好系统）的透镜：<strong>当一个系统要把「很多种不同的东西」用「一种统一的方式」呈现给用户时，去找那个「塑形点」——差异在哪被吃掉、同形在哪被定义</strong>。找到它，你就找到了这个系统把复杂藏在哪、把简单留给谁的答案。斜杠命令的塑形点，就是 <span class="mono">Command.layer</span> 那寥寥几行「收三源、塑一形」。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观图景</div>
+  斜杠命令 = <strong>参数化的 prompt 模板</strong>。数据形状是 <span class="mono">Info</span>{name, description, template(<span class="mono">Promise&lt;string&gt;|string</span>), source, hints, agent?/model?/subtask?}；<span class="mono">hints(template)</span> 扫 <span class="mono">$\d+</span>/<span class="mono">$ARGUMENTS</span> 得参数清单；调用 = 取 <span class="mono">Info</span> → 填占位符 → 成 prompt → 跑（可作 subtask、可指定 agent/model）→ 发 <span class="mono">command.executed</span> 事件（流进 L65）。最点睛处是 <span class="mono">Command.layer</span> 把<strong>三种来源</strong>（内置/config、MCP prompt、skill）统一收集、塑成同一个 <span class="mono">Info</span>，靠 <span class="mono">source</span> 字段记出身，上层一视同仁——这是「统一模子刻同形」（同 L36/L43/L47）在用户命令层的体现：<strong>把异质塑成同形，复杂度就被收进了那个「塑形」的地方，上层于是干净。</strong>读 opencode 任何「把多种东西统一呈现」的子系统时，都可以问一句：塑形点在哪？答案往往就是那个系统最值得学的一行。
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 实现细节</div>
+  <span class="mono">opencode/src/command/index.ts</span>：<span class="mono">Info = Schema.Struct({name?, agent?, model?, source?:Schema.Literals(["command","mcp","skill"]), template:Schema.Unknown, subtask?, hints:Schema.Array(String)})</span>；<span class="mono">type Info</span> 把 template 收窄成 <span class="mono">Promise&lt;string&gt;|string</span>（注释："Some command templates are lazy promises from MCP prompt resolution"）。<span class="mono">hints(template)</span>：<span class="mono">template.match(/\$\d+/g)</span> 去重排序 + 检测 <span class="mono">includes("$ARGUMENTS")</span>。<span class="mono">Default={INIT:"init", REVIEW:"review"}</span>，模板 <span class="mono">import PROMPT_INITIALIZE from "./template/initialize.txt"</span> / <span class="mono">PROMPT_REVIEW from "./template/review.txt"</span>，内置命令 <span class="mono">get template()</span> 里 <span class="mono">.replace("${path}", ctx.worktree)</span>，<span class="mono">review</span> 带 <span class="mono">subtask:true</span>。<span class="mono">Service</span>(<span class="mono">Context.Service…("@opencode/Command")</span>) 接口 <span class="mono">get/list</span>；<span class="mono">layer = Layer.effect</span> 中 <span class="mono">yield* Config.Service / MCP.Service / Skill.Service</span> 收集三源。<span class="mono">Event.executed</span> type <span class="mono">"command.executed"</span>。整套设计的妙处在于：<span class="mono">layer</span> 把三种来源的差异（本地读 config、MCP 远程 lazy promise、skill 体系）在<strong>构建期一次性吃掉</strong>，对外只暴露 <span class="mono">get/list</span> 两个极简方法，外加一个 <span class="mono">source</span> 字段留作出身标记——异质塑同形的复杂度，被牢牢锁在了 <span class="mono">layer</span> 里。
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>命令 = 参数化 prompt 模板</strong>：<span class="mono">Info</span>{name, description, template, source, hints, agent?/model?/subtask?}。模板用 <span class="mono">$ARGUMENTS</span>/<span class="mono">$1</span>/<span class="mono">${path}</span> 留空；<span class="mono">hints(template)</span> 用 <span class="mono">/\$\d+/g</span>+<span class="mono">includes("$ARGUMENTS")</span> 扫出参数清单（让数据自己说清自己有几个参数）；调用时填空成 prompt。把死板 prompt 变成可复用、可传参、可全团队共享的小工具。</li>
+    <li><strong>三源归一（最点睛）</strong>：<span class="mono">Command.layer</span> <span class="mono">yield*</span> <span class="mono">Config/MCP/Skill</span> 三服务，把<strong>内置命令 / MCP prompt / skill</strong> 三种异质来源统一塑成同一个 <span class="mono">Info</span>，用 <span class="mono">source:"command"\|"mcp"\|"skill"</span> 记出身。MCP 远程解析故 <span class="mono">template</span> 是 <span class="mono">Promise&lt;string&gt;|string</span>。上层 <span class="mono">get/list</span> 一视同仁——「统一模子刻同形」（同 L36/L43/L47）。</li>
+    <li><strong>执行与留痕</strong>：取 <span class="mono">Info</span>→填占位符→成 prompt→跑（可 <span class="mono">subtask</span>、可指定 <span class="mono">agent/model</span>）→发 <span class="mono">command.executed</span> 事件（流进 L65 事件体系，可持久化/多端同步）。<span class="mono">list()</span> 供命令面板（L56）摊开。</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 自测 · 想一想为什么这么设计</h2>
+<div class="quiz">
+  <div class="qn">1. 课里说「一个斜杠命令，本质就是……」。最准确的是哪个？</div>
+  <ol class="opts">
+    <li>一个写死的、不能传参的固定提示词</li>
+    <li>一条直接操作数据库的 SQL 语句</li>
+    <li>一个编译成机器码的二进制可执行文件</li>
+    <li>一段<strong>参数化的 prompt 模板</strong>：模板用 <span class="mono">$ARGUMENTS</span>/<span class="mono">$1</span>/<span class="mono">${path}</span> 留「空」，<span class="mono">hints()</span> 用 <span class="mono">/\$\d+/g</span>+检测 <span class="mono">$ARGUMENTS</span> 从模板正文「读」出参数清单，调用时把实参填空成完整 prompt</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：D</strong>。命令的数据形状是 <span class="mono">Info</span>{name, description, template, source, hints, agent?/model?/subtask?}。「参数化」靠模板里的占位符 + <span class="mono">hints(template)</span>：后者用正则 <span class="mono">/\$\d+/g</span> 扫出 <span class="mono">$1/$2</span>（去重排序）、再检测 <span class="mono">includes("$ARGUMENTS")</span>，<strong>直接从模板正文读出参数清单</strong>——你不用额外声明有几个参数。调用时把实参填进这些「空」，死板 prompt 就成了可复用、可传参、全团队共享的小工具。所以它不是二进制、不是 SQL，更<strong>不是</strong>「写死不能传参」（恰恰相反，参数化正是它的精髓）。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. <span class="mono">Command.layer</span> 在构建时 <span class="mono">yield*</span> 了 <span class="mono">Config/MCP/Skill</span> 三个服务。这体现了什么设计、解决了什么？</div>
+  <ol class="opts">
+    <li><strong>三源归一 / 统一模子刻同形</strong>：把内置命令、MCP prompt、skill 三种异质来源统一塑成同一个 <span class="mono">Info</span>（用 <span class="mono">source</span> 字段记出身），差异在 <span class="mono">layer</span> 构建期一次性吃掉，上层 <span class="mono">get/list</span> 一视同仁——同 L36 Tool.make、L47 PluginV2</li>
+    <li>仅仅是为了日志，记录命令来自哪个服务</li>
+    <li>让三个服务互相竞争，谁先返回用谁的命令</li>
+    <li>把命令系统拆成三个完全独立、互不知情的子系统</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。三种来源本身天差地别：内置命令读本地 config/<span class="mono">.txt</span>；MCP prompt 是外部进程远程暴露的（取正文要 await，故 <span class="mono">template</span> 是 <span class="mono">Promise&lt;string&gt;|string</span>）；skill 又是「名字常驻、正文按需」的另一套（L43）。但 <span class="mono">Command.layer</span> 把它们<strong>统一塑成同一个 <span class="mono">Info</span></strong>，只用一个 <span class="mono">source</span> 字段记出身——异质性在「塑形」这一处被一次性消化，上层每处用命令都干净（只 <span class="mono">get/list</span>）。这正是全书「统一模子刻同形」：同 L36 各种工具塑成 Tool、L47 各家 provider 塑成插件。所以不是「竞争」「互不知情」，<span class="mono">source</span> 也<strong>不止</strong>用于日志（它支撑的是「异质塑同形」这件事本身）。</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. 命令模板里的 <span class="mono">$ARGUMENTS</span> 和 <span class="mono">${path}</span> 有什么本质区别？</div>
+  <ol class="opts">
+    <li><span class="mono">$ARGUMENTS</span>/<span class="mono">$1</span> 是<strong>调用时</strong>才填的「用户参数」（由 <span class="mono">hints</span> 列出、等你敲实参）；<span class="mono">${path}</span> 是<strong>构建模板时</strong>就由内置命令 <span class="mono">template</span> getter 用 <span class="mono">.replace("${path}", ctx.worktree)</span> 替换好的「上下文」——一个等用户、一个等环境，时机不同</li>
+    <li><span class="mono">${path}</span> 会被发到 MCP 服务器解析</li>
+    <li>两者完全一样，只是写法不同</li>
+    <li><span class="mono">$ARGUMENTS</span> 是系统自动填的，<span class="mono">${path}</span> 要用户手动填</li>
+  </ol>
+  <details class="accordion">
+    <summary>看答案与解析 <span class="hint">点击展开</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>答案：A</strong>。二者时机正相反。<span class="mono">$ARGUMENTS</span>/<span class="mono">$1</span> 由 <span class="mono">hints</span> 从模板扫出、列为「参数槽」，<strong>等你调用时敲实参</strong>才填——是「用户参数」。<span class="mono">${path}</span> 则是内置命令的 <span class="mono">template</span> getter 在<strong>构建模板那一刻</strong>就 <span class="mono">.replace("${path}", ctx.worktree)</span> 换成当前 worktree 路径——是「环境上下文」，用户根本不经手。所以第三个选项把谁填的搞反了（恰是 ${path} 系统填、$ARGUMENTS 等用户），「完全一样」「发给 MCP」也都错。理解这点，写命令模板时就不会混淆「该让用户填的」与「系统自动给的」。</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 发散思考（没有标准答案，动手或动脑想想）</div>
+  <ul>
+    <li>课里把斜杠命令的核心提炼为「<strong>把异质塑成同形</strong>」——内置命令、MCP prompt、skill 三种来源天差地别，却被 <span class="mono">Command.layer</span> 统一塑成同一个 <span class="mono">Info</span>，并说这和 L36 Tool.make、L47 PluginV2 是「一模一样的招式」。请你谈谈你对这个反复出现的「统一模子刻同形」模式的理解：它把「异质性的复杂度」收到了哪里、又给上层换来了什么？再举 2–3 个你熟悉的、用「统一抽象/统一接口」把多种异质实现藏在背后的例子（如文件系统的 VFS、数据库驱动接口、操作系统设备抽象、前端的虚拟 DOM 等），并谈谈这种「找一个塑形点、在那把差异一次性吃掉」的设计什么时候值得做、什么时候会过度抽象。</li>
+    <li>课里说，把高频复杂的提示词固化成命令，等于把「提示词工程」从「每次现敲」升级成「沉淀成可调用的资产」——一段好提示词写一次（如 <span class="mono">review.txt</span>），全团队 <span class="mono">/review</span> 就复用了。请你谈谈在 AI agent 时代，「<strong>把提示词当成可版本化、可复用、可共享的工程资产</strong>」这件事的价值：它和传统「把常用脚本/函数沉淀成库」有何异同？再结合 <span class="mono">command.executed</span> 事件会流进 L65 事件体系（即「你执行了哪些命令」也是可回放、可多端同步的会话历史），谈谈「让用户的高层操作也成为一等公民的事件」对可观测性、可复现性、协作有什么好处。</li>
+  </ul>
+</div>
+</div></div>
+  <div class="lang-en"><p class="lead">You type <span class="mono">/init</span> or <span class="mono">/review</span> in opencode, hit enter, and a carefully-written long prompt gets sent to the model. How are these "slash commands" implemented? Open <span class="mono">opencode/src/command/index.ts</span> and you find a surprisingly simple, surprisingly general design: <strong>a command is essentially a "parameterized prompt template."</strong> It has a name, a description, and template text with "blanks"; on invocation you fill your arguments into the blanks and it becomes the full prompt sent to the model. This looks unremarkable but is key on reflection: in an AI coding agent, <strong>"what you want the model to do" is expressed almost entirely through prompts</strong>, and crystallizing high-frequency, complex prompts into commands gives users a set of "shortcuts for common actions." Better still—<strong>custom commands, prompts exposed by MCP, and skills—three things of completely different origins—are shaped into the same <span class="mono">Info</span></strong>, hidden behind one <span class="mono">get/list</span> interface. When you use <span class="mono">/xxx</span>, you can't tell where it came from.</p>
+<p>There are two insights worth taking away. First, <strong>command = template + placeholders</strong>: the template marks parameter positions with "blanks" like <span class="mono">$ARGUMENTS</span>, <span class="mono">$1/$2</span>, <span class="mono">${path}</span>, <span class="mono">hints()</span> scans once to know "which parameters this command takes," and on invocation you fill the actuals in—a rigid prompt becomes a <strong>reusable, parameterizable little tool</strong>. This seems ordinary but upgrades "prompt engineering" from "retyped each time" to "crystallized into a callable asset": write a good prompt once, save it as a command, and the whole team <span class="mono">/it</span> to use it. Second, the real gem—<strong>three sources, one interface</strong>: built-in commands (read config), prompts exposed by MCP servers, and skills are three unrelated things, yet <span class="mono">Command.layer</span> gathers and shapes them into the same <span class="mono">Info</span> (a <span class="mono">source: "command" | "mcp" | "skill"</span> field records origin). This is the book's recurring "<strong>one mold stamps the same shape</strong>" (like L36 Tool.make, L43 skills, L47 PluginV2) appearing again at the user-command layer: shape heterogeneous things into one form and the upper layer uses them uniformly, while all the "how are they different" complexity is absorbed into that shaping spot.</p>
+
+<div class="card analogy">
+  <div class="tag">✉️ Analogy</div>
+  Picture a slash command as a <strong>"fill-in-the-blank letter template."</strong> <span class="mono">/review</span> isn't a fixed letter but stationery with the <strong>skeleton printed and blanks left</strong>: "You are a code reviewer… input to review: <u>＿＿＿</u>." Invoking <span class="mono">/review this PR</span> fills "this PR" into that blank (<span class="mono">$ARGUMENTS</span>), and a complete letter (prompt) is ready to mail to the model. <span class="mono">hints()</span> is like <strong>all the marked blanks</strong> on the stationery, reminding you "how many blanks this letter has, what to fill." The beauty is there are <strong>three "stationery suppliers"</strong>: opencode's own (built-in commands), ones mailed from external MCP servers (MCP prompts), ones from skill packs (skills)—their "supply channels" differ wildly (one in a local drawer, one a phone-order courier, one another skill system), yet all are made into <strong>the same-spec stationery</strong>; you pull a sheet from the drawer and can't (and needn't) tell who made it. One "pull stationery → fill blanks → mail" routine serves all sources—that's the ease of "one mold": learn one usage and you get every command from all three sources.
+</div>
+
+<h2>Command = a parameterized prompt template</h2>
+<p>A command's data shape is <span class="mono">Info</span> (a <span class="mono">Schema.Struct</span>). It spells out "what a command is" clearly, each field a facet of the command—the name lets you call it, the description tells you and the command palette what it does, the template is its "body," the source records its origin, the hints tell you how to feed it, the optional agent/model/subtask tweak how it runs:</p>
+<div class="cellgroup">
+  <div class="cel"><b>name</b><br>command name, e.g. <span class="mono">init</span>, <span class="mono">review</span> (the <span class="mono">/xxx</span> you type)</div>
+  <div class="cel"><b>description</b><br>one-line blurb, e.g. "review changes [commit\|branch\|pr]"</div>
+  <div class="cel"><b>template</b><br><span class="mono">Promise&lt;string&gt; | string</span>: the template body (MCP's is a lazy promise)</div>
+  <div class="cel"><b>source</b><br><span class="mono">"command" | "mcp" | "skill"</span>: this command's origin</div>
+  <div class="cel"><b>hints</b><br><span class="mono">string[]</span>: the template's parameter slots (<span class="mono">$1</span>/<span class="mono">$ARGUMENTS</span>…)</div>
+  <div class="cel"><b>agent? / model? / subtask?</b><br>optional: which agent/model to run, whether as a subtask</div>
+</div>
+<p>"Parameterization" relies on <strong>placeholders</strong> in the template plus the little <span class="mono">hints()</span> function. <span class="mono">hints(template)</span> does something dead-simple yet clever: regex <span class="mono">/\$\d+/g</span> scans all <span class="mono">$1</span>, <span class="mono">$2</span>-style <strong>numbered placeholders</strong> (deduped, sorted), then checks for <span class="mono">$ARGUMENTS</span> ("stuff the whole argument string here"); together that's the command's "<strong>parameter list</strong>." In other words, the command system <strong>needs no extra declaration of "how many parameters I have"</strong>—it "reads" them straight from the template body: wherever you wrote <span class="mono">$1</span> or <span class="mono">$ARGUMENTS</span> in the template, that's the parameter list. A worry-free design of "<strong>letting the data describe itself</strong>." Its scan goes like this:</p>
+<div class="trace">
+  <div class="step"><span class="n">1</span> take the template body, e.g. <span class="mono">"Diff $1 against $2. Focus: $ARGUMENTS"</span></div>
+  <div class="step"><span class="n">2</span> <span class="mono">match(/\$\d+/g)</span> finds <span class="mono">["$1","$2"]</span>, dedup + sort</div>
+  <div class="step"><span class="n">3</span> <span class="mono">includes("$ARGUMENTS")</span> is true, append <span class="mono">"$ARGUMENTS"</span></div>
+  <div class="step"><span class="n">4</span> get <span class="mono">hints = ["$1","$2","$ARGUMENTS"]</span>—this command's parameter list</div>
+</div>
+<p>On invocation, your actuals replace these positions and the template "comes alive" into a concrete prompt. Look at the two real built-in commands: <span class="mono">init</span> ("guided AGENTS.md setup," with <span class="mono">$ARGUMENTS</span> in <span class="mono">initialize.txt</span> taking your focus, <span class="mono">${path}</span> replaced by the worktree path); <span class="mono">review</span> (<span class="mono">review.txt</span> opening "Input: <span class="mono">$ARGUMENTS</span>," and <span class="mono">subtask: true</span> meaning run as a subtask). Both templates are dozens-to-hundreds of lines of polished prompt—making them commands means that polish is <strong>done once</strong>, after which anyone <span class="mono">/review</span>s to reuse the team's accumulated best practice of "how to review code." Compare "hardcoded prompt" vs "parameterized command":</p>
+<div class="cols">
+  <div class="col"><h4>Hardcoded prompt</h4><p>Retype a long "You are a code reviewer…" every review; switch targets and rewrite the whole thing. Repetitive, error-prone, non-reusable, and everyone on the team writes their own.</p></div>
+  <div class="col"><h4>Parameterized command</h4><p>Save that long prompt as a template with a <span class="mono">$ARGUMENTS</span> blank; later <span class="mono">/review &lt;any target&gt;</span> in one line, the template auto-fills. Write once, reuse everywhere, whole team shares one.</p></div>
+</div>
+
+<h2>Three sources, one form: one interface, three origins</h2>
+<p>The command system's real brilliance is in <span class="mono">Command.layer</span>. At construction it <span class="mono">yield*</span>s three services—<span class="mono">Config.Service</span>, <span class="mono">MCP.Service</span>, <span class="mono">Skill.Service</span>—then shapes commands from these <strong>three completely different sources</strong> all into the same <span class="mono">Record&lt;string, Info&gt;</span>. Note how different these sources are: built-in commands are read from <strong>local config and <span class="mono">.txt</span> files</strong>; MCP prompts are <strong>remotely exposed by an external process over a protocol</strong>, fetching their body may even require a network request; skills are <strong>yet another</strong> "name-resident, body-on-demand" mechanism (L43). Their fetch methods, lifecycles, and data origins all differ—yet once shaped into <span class="mono">Info</span>, in the command system's eyes there's <strong>no difference</strong>:</p>
+<div class="vflow">
+  <div class="vnode"><b>built-in / config commands</b> (<span class="mono">source:"command"</span>): e.g. <span class="mono">init</span>, <span class="mono">review</span>, templates from <span class="mono">.txt</span> files or user config</div>
+  <div class="vnode"><b>MCP prompts</b> (<span class="mono">source:"mcp"</span>): prompts exposed by an external MCP server (L46), wrapped as commands—because it's remote resolution, <span class="mono">template</span> is a <strong>lazy promise</strong> (the source comment says "lazy promises from MCP prompt resolution")</div>
+  <div class="vnode"><b>skill</b> (<span class="mono">source:"skill"</span>): skills (L43) also plug in as a command source</div>
+</div>
+<p>Three heterogeneous things all grow into the same <span class="mono">Info</span>, with only a <span class="mono">source</span> field noting "where I came from." So the upper layer (command palette, invocation logic) treats them <strong>uniformly</strong>: it doesn't care whether a command is built-in, MCP, or skill, just <span class="mono">get(name)</span> for an <span class="mono">Info</span>, fill the template, run it. This is exactly why <span class="mono">template</span>'s type is <span class="mono">Promise&lt;string&gt; | string</span>—it must hold both "locally a string" and "MCP remote needs await." Why is this "three sources, one form" worth singling out? Because it embodies a deep trade-off: <strong>heterogeneity must be digested somewhere, the only question is which layer</strong>. Without unifying, every upper-layer use of a command would branch "if built-in do this, if MCP do that, if skill another way," complexity creeping like vines over the whole upper layer. <span class="mono">Command.layer</span> chooses to <strong>eat the difference once at the "shaping" spot</strong>—translating all three sources into one <span class="mono">Info</span>, so every upper-layer site is clean. Tucking "source differences" into one field and abstracting "the common shape" into one <span class="mono">Info</span>, <strong>shaping the heterogeneous into one form</strong>, is the root of this design's cleanness. You'll find this is the <strong>exact same move</strong> as L36's <span class="mono">Tool.make</span> (various tools into one tool shape) and L47's <span class="mono">PluginV2</span> (each provider into one plugin shape), only this time it's "commands" being shaped.</p>
+
+<h2>Execution &amp; events: run it, and leave a trace</h2>
+<p>The <span class="mono">Service</span> interface is tiny, just two methods: <span class="mono">get(name)</span> (fetch a command by name) and <span class="mono">list()</span> (list all commands, for the command palette L56 to lay out). "A small interface" is itself a design virtue—pressing all the heterogeneous-source complexity into <span class="mono">layer</span>'s construction, exposing only the plainest "fetch by name, list all." When a command runs, the template fills actuals into a prompt, the model is chosen per <span class="mono">agent</span>/<span class="mono">model</span> overrides, and if <span class="mono">subtask:true</span> it runs as a subtask (not polluting the main conversation, bringing results back when done); and a <span class="mono">command.executed</span> event fires (recording "which command, what arguments ran")—this event flows right into L65's event system, persistable and seen via sync on other devices. That is, "which commands you ran" is itself part of session history, replayable and visible on the web. Trace the whole path:</p>
+<div class="flow">
+  <div class="node">you type <span class="mono">/review PR#42</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><span class="mono">get("review")</span><br>fetch the Info</div>
+  <div class="arrow">→</div>
+  <div class="node">fill placeholders<br><span class="mono">$ARGUMENTS</span>→PR#42</div>
+  <div class="arrow">→</div>
+  <div class="node">becomes full prompt<br>(run per subtask/agent)</div>
+  <div class="arrow">→</div>
+  <div class="node">emit <span class="mono">command.executed</span><br>event leaves a trace</div>
+</div>
+<p>The placeholder semantics are worth a small table too, handy when you write your own command templates:</p>
+<table class="t">
+  <tr><th>Placeholder</th><th>Meaning</th><th>Source</th></tr>
+  <tr><td><span class="mono">$ARGUMENTS</span></td><td>stuff the whole argument string in verbatim</td><td><span class="mono">hints</span> detects <span class="mono">includes("$ARGUMENTS")</span></td></tr>
+  <tr><td><span class="mono">$1 / $2 / …</span></td><td>the Nth positional argument</td><td><span class="mono">hints</span> scans via <span class="mono">/\$\d+/g</span>, dedup+sort</td></tr>
+  <tr><td><span class="mono">${path}</span></td><td>current worktree path (replaced at template build)</td><td>built-in command <span class="mono">template</span> getter's <span class="mono">.replace</span></td></tr>
+</table>
+<p>One common confusion worth clearing: <span class="mono">$1/$ARGUMENTS</span> are <strong>filled at invocation</strong> "user arguments" (listed by <span class="mono">hints</span>, waiting for your actuals), while <span class="mono">${path}</span> is "context" <strong>already replaced at template-build time</strong> by the built-in command's <span class="mono">template</span> getter via <span class="mono">.replace("${path}", ctx.worktree)</span>—one waits on the user, one on the environment, different timing. Grasp this and writing your own command templates won't mix up "what the user should fill" with "what the system auto-supplies."</p>
+<p>By now you see the slash command whole: not a pile of scattered hardcoded features, but <strong>one unified abstraction of a "parameterized prompt template"</strong>—template leaves blanks, <span class="mono">hints</span> lists blanks, invocation fills blanks; and the built-in/MCP/skill heterogeneous sources are shaped into one <span class="mono">Info</span>, hidden behind a <span class="mono">get/list</span> interface. It's the meeting point of L43 skills' "name-resident, body-on-demand," L46 MCP's "dynamically plug in external tools," and L36's "one mold" themes, on the side of "<strong>slash commands</strong>" that users touch most. In hindsight this lesson gives you a lens for observing opencode (and any good system): <strong>when a system presents "many different things" to the user in "one unified way," find the "shaping spot"—where the difference is eaten, where the common form is defined</strong>. Find it and you've found where the system hides its complexity and who it leaves the simplicity to. The slash command's shaping spot is those few lines of <span class="mono">Command.layer</span>'s "gather three sources, shape one form."</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ Big picture</div>
+  Slash command = <strong>a parameterized prompt template</strong>. Its data shape is <span class="mono">Info</span>{name, description, template(<span class="mono">Promise&lt;string&gt;|string</span>), source, hints, agent?/model?/subtask?}; <span class="mono">hints(template)</span> scans <span class="mono">$\d+</span>/<span class="mono">$ARGUMENTS</span> for the parameter list; invoke = fetch <span class="mono">Info</span> → fill placeholders → become prompt → run (can be a subtask, can specify agent/model) → emit <span class="mono">command.executed</span> (flows into L65). The gem is <span class="mono">Command.layer</span> gathering <strong>three sources</strong> (built-in/config, MCP prompt, skill) and shaping them into one <span class="mono">Info</span>, with the <span class="mono">source</span> field noting origin, the upper layer uniform—"one mold stamps the same shape" (like L36/L43/L47) at the user-command layer: <strong>shape the heterogeneous into one form, and complexity is tucked into that "shaping" spot, so the upper layer is clean.</strong> Reading any opencode subsystem that "presents many things uniformly," you can ask: where's the shaping spot? The answer is often that system's most worth-learning line.
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Implementation details</div>
+  <span class="mono">opencode/src/command/index.ts</span>: <span class="mono">Info = Schema.Struct({name?, agent?, model?, source?:Schema.Literals(["command","mcp","skill"]), template:Schema.Unknown, subtask?, hints:Schema.Array(String)})</span>; <span class="mono">type Info</span> narrows template to <span class="mono">Promise&lt;string&gt;|string</span> (comment: "Some command templates are lazy promises from MCP prompt resolution"). <span class="mono">hints(template)</span>: <span class="mono">template.match(/\$\d+/g)</span> dedup+sort + check <span class="mono">includes("$ARGUMENTS")</span>. <span class="mono">Default={INIT:"init", REVIEW:"review"}</span>, templates <span class="mono">import PROMPT_INITIALIZE from "./template/initialize.txt"</span> / <span class="mono">PROMPT_REVIEW from "./template/review.txt"</span>, built-in commands' <span class="mono">get template()</span> does <span class="mono">.replace("${path}", ctx.worktree)</span>, <span class="mono">review</span> has <span class="mono">subtask:true</span>. <span class="mono">Service</span>(<span class="mono">Context.Service…("@opencode/Command")</span>) interface <span class="mono">get/list</span>; <span class="mono">layer = Layer.effect</span> with <span class="mono">yield* Config.Service / MCP.Service / Skill.Service</span> gathering three sources. <span class="mono">Event.executed</span> type <span class="mono">"command.executed"</span>. The beauty: <span class="mono">layer</span> eats the three sources' differences (local config read, MCP remote lazy promise, skill system) <strong>once at construction</strong>, exposing only the two minimal <span class="mono">get/list</span> methods plus a <span class="mono">source</span> origin tag—the heterogeneous-into-one-form complexity is locked firmly inside <span class="mono">layer</span>.
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key points</div>
+  <ul>
+    <li><strong>Command = parameterized prompt template</strong>: <span class="mono">Info</span>{name, description, template, source, hints, agent?/model?/subtask?}. The template leaves blanks with <span class="mono">$ARGUMENTS</span>/<span class="mono">$1</span>/<span class="mono">${path}</span>; <span class="mono">hints(template)</span> scans the parameter list via <span class="mono">/\$\d+/g</span>+<span class="mono">includes("$ARGUMENTS")</span> (letting the data state its own parameter count); invocation fills blanks into a prompt. Turns a rigid prompt into a reusable, parameterizable, team-shareable little tool.</li>
+    <li><strong>Three sources, one form (the gem)</strong>: <span class="mono">Command.layer</span> <span class="mono">yield*</span>s <span class="mono">Config/MCP/Skill</span> services, shaping <strong>built-in commands / MCP prompts / skills</strong>—three heterogeneous sources—into one <span class="mono">Info</span>, with <span class="mono">source:"command"\|"mcp"\|"skill"</span> noting origin. MCP is remote-resolved so <span class="mono">template</span> is <span class="mono">Promise&lt;string&gt;|string</span>. The upper layer's <span class="mono">get/list</span> treats them uniformly—"one mold stamps the same shape" (like L36/L43/L47).</li>
+    <li><strong>Execution &amp; trace</strong>: fetch <span class="mono">Info</span>→fill placeholders→become prompt→run (can be a <span class="mono">subtask</span>, can specify <span class="mono">agent/model</span>)→emit <span class="mono">command.executed</span> event (flows into L65's event system, persistable/sync-able across devices). <span class="mono">list()</span> feeds the command palette (L56).</li>
+  </ul>
+</div>
+<div class="selftest">
+<h2>🧪 Self-test - think about the design</h2>
+<div class="quiz">
+  <div class="qn">1. The lesson says "a slash command is essentially…" Which is most accurate?</div>
+  <ol class="opts">
+    <li>A hardcoded, non-parameterizable fixed prompt</li>
+    <li>A SQL statement that directly manipulates the database</li>
+    <li>A binary executable compiled to machine code</li>
+    <li>A <strong>parameterized prompt template</strong>: the template leaves "blanks" with <span class="mono">$ARGUMENTS</span>/<span class="mono">$1</span>/<span class="mono">${path}</span>, <span class="mono">hints()</span> "reads" the parameter list from the template body via <span class="mono">/\$\d+/g</span>+checking <span class="mono">$ARGUMENTS</span>, and invocation fills actuals into a full prompt</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: D</strong>. A command's data shape is <span class="mono">Info</span>{name, description, template, source, hints, agent?/model?/subtask?}. "Parameterization" relies on template placeholders + <span class="mono">hints(template)</span>: the latter scans <span class="mono">$1/$2</span> via regex <span class="mono">/\$\d+/g</span> (dedup+sort), then checks <span class="mono">includes("$ARGUMENTS")</span>, <strong>reading the parameter list straight from the template body</strong>—you needn't separately declare how many parameters. Invocation fills actuals into these "blanks," turning a rigid prompt into a reusable, parameterizable, team-shareable tool. So it's not a binary, not SQL, and <strong>not</strong> "hardcoded, non-parameterizable" (the opposite—parameterization is its essence).</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">2. <span class="mono">Command.layer</span> <span class="mono">yield*</span>s the <span class="mono">Config/MCP/Skill</span> services at construction. What design does this embody, and what does it solve?</div>
+  <ol class="opts">
+    <li><strong>Three sources, one form / one mold stamps the same shape</strong>: it shapes built-in commands, MCP prompts, and skills—three heterogeneous sources—into one <span class="mono">Info</span> (with <span class="mono">source</span> noting origin), the difference eaten once at <span class="mono">layer</span> construction, the upper layer's <span class="mono">get/list</span> treating them uniformly—like L36 Tool.make, L47 PluginV2</li>
+    <li>Merely for logging which service a command came from</li>
+    <li>Making the three services compete, using whichever returns first</li>
+    <li>Splitting the command system into three fully independent, mutually-unaware subsystems</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. The three sources differ wildly: built-in reads local config/<span class="mono">.txt</span>; MCP prompts are remotely exposed by an external process (fetching the body needs await, so <span class="mono">template</span> is <span class="mono">Promise&lt;string&gt;|string</span>); skills are another "name-resident, body-on-demand" system (L43). But <span class="mono">Command.layer</span> <strong>shapes them all into one <span class="mono">Info</span></strong>, using only a <span class="mono">source</span> field for origin—heterogeneity digested once at the "shaping" spot, every upper-layer command use clean (just <span class="mono">get/list</span>). This is the book's "one mold stamps the same shape": like L36 shaping tools into Tool, L47 shaping providers into plugins. So it's not "competition" or "mutually unaware," and <span class="mono">source</span> is <strong>not just</strong> logging (it underpins the very "heterogeneous into one form").</div></div></div>
+  </details>
+</div>
+<div class="quiz">
+  <div class="qn">3. What's the essential difference between <span class="mono">$ARGUMENTS</span> and <span class="mono">${path}</span> in a command template?</div>
+  <ol class="opts">
+    <li><span class="mono">$ARGUMENTS</span>/<span class="mono">$1</span> are "user arguments" filled <strong>at invocation</strong> (listed by <span class="mono">hints</span>, awaiting your actuals); <span class="mono">${path}</span> is "context" <strong>already replaced at template-build time</strong> by the built-in command's <span class="mono">template</span> getter via <span class="mono">.replace("${path}", ctx.worktree)</span>—one waits on the user, one on the environment, different timing</li>
+    <li><span class="mono">${path}</span> is sent to an MCP server to resolve</li>
+    <li>They are identical, just written differently</li>
+    <li><span class="mono">$ARGUMENTS</span> is auto-filled by the system, <span class="mono">${path}</span> must be filled by the user</li>
+  </ol>
+  <details class="accordion">
+    <summary>Show answer &amp; explanation <span class="hint">click to expand</span></summary>
+    <div class="acc-body"><div class="qa"><div class="a"><strong>Answer: A</strong>. Their timing is opposite. <span class="mono">$ARGUMENTS</span>/<span class="mono">$1</span> are scanned from the template by <span class="mono">hints</span> as "parameter slots," filled only <strong>when you type actuals at invocation</strong>—"user arguments." <span class="mono">${path}</span> is replaced to the current worktree path by the built-in command's <span class="mono">template</span> getter <strong>at the moment of building the template</strong> via <span class="mono">.replace("${path}", ctx.worktree)</span>—"environment context," never touched by the user. So the third option reverses who fills what (it's <span class="mono">${path}</span> the system fills, <span class="mono">$ARGUMENTS</span> awaiting the user); "identical" and "sent to MCP" are also wrong. Grasp this and writing command templates won't confuse "what the user should fill" with "what the system auto-supplies."</div></div></div>
+  </details>
+</div>
+<div class="card spark">
+  <div class="tag">💭 Open questions (no single right answer - just think or try)</div>
+  <ul>
+    <li>The lesson distills slash commands' core as "<strong>shape the heterogeneous into one form</strong>"—built-in commands, MCP prompts, skills differ wildly yet <span class="mono">Command.layer</span> shapes them into one <span class="mono">Info</span>, calling it "the exact same move" as L36 Tool.make, L47 PluginV2. Discuss your understanding of this recurring "one mold stamps the same shape" pattern: where does it tuck "the complexity of heterogeneity," and what does it buy the upper layer? Give 2–3 examples you know of hiding multiple heterogeneous implementations behind "one abstraction/interface" (e.g. a filesystem's VFS, database driver interfaces, OS device abstraction, the frontend virtual DOM), and discuss when this "find a shaping spot and eat the difference there once" design is worth doing vs when it over-abstracts.</li>
+    <li>The lesson says crystallizing high-frequency complex prompts into commands upgrades "prompt engineering" from "retyped each time" to "crystallized into a callable asset"—write a good prompt once (like <span class="mono">review.txt</span>) and the whole team <span class="mono">/review</span>s to reuse it. Discuss the value, in the AI-agent era, of "<strong>treating prompts as versionable, reusable, shareable engineering assets</strong>": how is it similar to/different from the traditional "crystallize common scripts/functions into a library"? Then, given that <span class="mono">command.executed</span> flows into L65's event system (i.e. "which commands you ran" is also replayable, multi-device-syncable session history), discuss what "making users' high-level actions first-class events too" buys for observability, reproducibility, and collaboration.</li>
+  </ul>
+</div>
+</div></div>
   <div class="footnav"><a class="prev" href="65-event-sourcing-sync.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">EventV2 持久事件溯源与单写入同步</span><span class="lang-en">Event sourcing &amp; single-writer sync</span></div></a><a class="next" href="67-http-recorder.html"><div class="dir"><span class="lang-zh">下一课 →</span><span class="lang-en">Next →</span></div><div class="ttl"><span class="lang-zh">http-recorder 磁带录放测试</span><span class="lang-en">http-recorder tape testing</span></div></a></div>
 </div>
 <script>
