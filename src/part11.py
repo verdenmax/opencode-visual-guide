@@ -455,6 +455,209 @@ LESSON_58 = {
 </div>
 """,
 }
-LESSON_59 = wip('LSP 集成', 'LSP integration')
+LESSON_59 = {
+    "zh": r"""
+<p class="lead">前两课讲的插件，是 opencode 向第三方敞开的「通用之门」。这一课讲一种更<strong>专门</strong>的集成，它解决 agent 编码时一个致命的软肋：<strong>它在「盲打」</strong>。想想看，一个 agent 改一行 TypeScript，它怎么知道自己有没有把类型改崩？它想跳到某个函数的定义，靠 grep 猜一个名字、撞运气。而你——一个人类开发者——身边有 IDE 时刻盯着：红色波浪线告诉你哪行编译不过、Ctrl-点击就跳到定义、悬停就看到类型。这一课讲的 <strong>LSP 集成</strong>，就是把这套「IDE 的大脑」装到 agent 身上，让它从「盲打」变成「<strong>边写边看着红线写</strong>」。</p>
+<p>这一课有两个最值得带走的洞见。第一，<strong>opencode 不自己造「代码智能」，而是借来整个 IDE 生态的大脑</strong>。它说的是 <strong>LSP（Language Server Protocol，语言服务器协议）</strong>——VS Code、Neovim 等编辑器共用的那套标准协议；于是它能直接跑<strong>和 VS Code 一模一样的语言服务器</strong>（typescript-language-server、gopls、pyright……）。每种语言的理解何其复杂，opencode 一种都不自己实现，全交给那些千锤百炼的语言服务器。第二，<strong>代码智能有「被动」与「主动」两副面孔</strong>：被动的是<strong>诊断（diagnostics）</strong>——agent 改完一个文件，opencode 自动把语言服务器报出的编译错误喂给它，于是 agent <strong>能看见自己刚犯的错</strong>、当即修正；主动的是 <strong>lsp 工具</strong>——agent 能主动调它去精确地「跳定义、找引用、看类型」，而非靠 grep 瞎猜。读懂这两点，你就懂了「为什么 opencode 改起代码来，不像在猜，而像一个手边开着 IDE 的人」。</p>
+
+<div class="card analogy">
+  <div class="tag">👓 生活类比</div>
+  把 LSP 集成想象成 agent <strong>终于戴上了一副眼镜</strong>。在此之前，agent 写代码像是<strong>闭着眼睛在键盘上敲</strong>——它能打出字，却看不见屏幕上自己刚制造的一片红色波浪线。装上 LSP 这副「眼镜」后，每改完一处，它眼前立刻浮现出和你 IDE 里<strong>一模一样的反馈</strong>：「第 12 行：类型 string 不能赋给 number」「第 30 行：找不到名字 foo」。它看得见自己的错，于是能像你一样<strong>改了再看、看了再改</strong>，直到红线全消。而那个 <strong>lsp 工具</strong>，则像给了它 IDE 里的 <strong>Ctrl-点击</strong>和<strong>悬停提示</strong>：想知道某个函数定义在哪？不必满仓库 grep 一个名字、再从一堆同名里猜——直接问语言服务器，它<strong>精确地</strong>指给你看。<strong>一个能看见红线、能精确跳转的 agent，和一个盲打的 agent，编码质量是天壤之别</strong>——而这副眼镜，opencode 不是自己磨的，是接来了整个编辑器世界共用的那副。
+</div>
+
+<h2>LSP：借来整个 IDE 生态的大脑</h2>
+<p>要给 agent「代码智能」，最笨的办法是自己为每种语言写一套理解器——但那意味着重新实现 TypeScript 编译器、Go 的类型检查器、Python 的分析器……一种语言就是一个天坑。opencode 的聪明之处，是它根本不碰这个坑，而是站到了一个早已解决此问题的巨人肩上：<strong>LSP</strong>。LSP 当初被发明出来，正是为了解一道「<strong>M × N</strong>」的难题——<span class="mono">M</span> 种编辑器要支持 <span class="mono">N</span> 种语言，若各自对接就是 M×N 套适配；而 LSP 定一套标准协议，编辑器和语言各自只对接协议，难题就塌缩成了「<strong>M + N</strong>」。opencode 做的，就是<strong>把自己当成又一个「编辑器」</strong>接进这套协议：</p>
+<div class="layers">
+  <div class="layer"><span class="l-tag">opencode（LSP 客户端）</span><span class="l-desc">opencode 把自己当一个编辑器，说标准 LSP——<span class="mono">lsp/client.ts</span></span></div>
+  <div class="layer"><span class="l-tag">JSON-RPC 连接</span><span class="l-desc">客户端与服务器之间的标准通信（didOpen / 请求 / 通知）</span></div>
+  <div class="layer"><span class="l-tag">语言服务器（独立进程）</span><span class="l-desc">typescript-language-server / gopls / pyright…—和 VS Code 跑的同一批</span></div>
+</div>
+<p>opencode 是 <strong>LSP 客户端</strong>，真正懂语言的是那些<strong>独立进程</strong>的语言服务器，两者通过 JSON-RPC 对话。而 <span class="mono">lsp/server.ts</span> 里维护着一张<strong>「认识的语言服务器」注册表</strong>：每种语言一条目，记着它的 <span class="mono">id</span>、负责哪些<strong>文件扩展名</strong>、以及怎么<strong>找到或装上</strong>那个服务器的二进制。</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">typescript</div><div class="c-txt">.ts/.tsx/.js…→typescript-language-server</div></div>
+  <div class="cell"><div class="c-tag">gopls</div><div class="c-txt">.go→gopls（没装就 <span class="mono">go install</span>）</div></div>
+  <div class="cell"><div class="c-tag">pyright / rust / eslint…</div><div class="c-txt">各语言/工具各一条目，按扩展名匹配</div></div>
+  <div class="cell"><div class="c-tag">biome / oxlint / vue / deno…</div><div class="c-txt">连各种 linter / 框架专用服务器也收录在册</div></div>
+</div>
+<p>于是当 agent 碰一个 <span class="mono">.go</span> 文件，opencode 就按注册表找到 gopls（必要时自动装）、把它作为子进程拉起、用 LSP 和它对话。<strong>这是全书反复出现的「复用成熟工具」智慧的又一次、也是最壮观的一次登场</strong>——L39 复用 Ripgrep、L51 复用 git，而这里复用的，是<strong>整个语言服务器生态</strong>，是无数人为「让编辑器懂代码」积累了十几年的全部成果。opencode 一行语言分析代码都不必写，就让 agent 拥有了和顶级 IDE 同源的代码理解力。</p>
+
+<h2>诊断：让 agent 看见自己刚犯的错</h2>
+<p>代码智能的第一副面孔，是<strong>诊断（diagnostics）</strong>——也是对 agent 最关键的那一副。它是<strong>被动、自动</strong>的：agent 不必开口问，opencode 会在它改完文件后，主动把「这文件现在有哪些编译错误」端到它面前。整条反馈回路是这样转的：</p>
+<div class="flow">
+  <div class="f-node">agent 改了文件<br><small>write/edit 工具</small></div>
+  <div class="f-arrow">通知 →</div>
+  <div class="f-node">告诉语言服务器<br><small>didChange</small></div>
+  <div class="f-arrow">分析 →</div>
+  <div class="f-node">服务器推回诊断<br><small>publishDiagnostics</small></div>
+  <div class="f-arrow">格式化 →</div>
+  <div class="f-node">喂给 agent<br><small>&lt;diagnostics&gt; 文本块</small></div>
+</div>
+<p>这条回路的「最后一公里」——把语言服务器吐出的诊断<strong>整理成 agent 读得懂的样子</strong>——藏在朴素的 <span class="mono">diagnostic.ts</span> 里，几个小决定却很见功力。把一条原始诊断变成最终喂给 agent 的文本，走的是这样几步：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">过滤：只留 <span class="mono">severity===1</span> 的 ERROR，丢掉 warn/info/hint 噪音</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">封顶：每文件最多 20 条，超出附一句「... and N more」</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">格式：<span class="mono">pretty</span> 把每条格成 <span class="mono">ERROR [行:列] 消息</span>（行列 +1 对齐编辑器 1-based）</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">包裹：<span class="mono">&lt;diagnostics file="..."&gt;…&lt;/diagnostics&gt;</span>，无错误则返回空串</span></div>
+</div>
+<p>这几个小决定却很见功力：<span class="mono">pretty</span> 把一条诊断格成 <span class="mono">ERROR [行:列] 消息</span> 这样一行（行列都 +1，对齐编辑器里人眼看到的 1-based 坐标）；<span class="mono">report</span> 则做了三件克制的事——<strong>只留 ERROR</strong>（severity 1，过滤掉一堆 warning/hint 的噪音）、<strong>每文件最多 20 条</strong>（超出只提示「还有 N 条」）、用 <span class="mono">&lt;diagnostics file="..."&gt;</span> 标签包好。为什么这么克制？因为这些诊断要<strong>占用模型宝贵的上下文</strong>（呼应 L42 有界输出的同一种焦虑）：把几百条 warning 一股脑塞给模型，既烧 token 又会淹没真正要命的那几个编译错误。<strong>只报错误、且有界</strong>，是在「让 agent 看见问题」和「别撑爆它的注意力」之间的精准拿捏。而这一整套机制的意义，怎么强调都不为过：<strong>它把 agent 从一个「写完就不知死活」的盲改者，变成了一个能即时收到「你这下改对了/改崩了」反馈的、会自我纠错的编码者</strong>——这正是 M4 那个 agent 循环最需要的高质量反馈信号。</p>
+
+<h2>lsp 工具：让 agent 主动问「这是什么」</h2>
+<p>代码智能的第二副面孔，是 <span class="mono">lsp</span> <strong>工具</strong>（<span class="mono">tool/lsp.ts</span>）——它是<strong>主动、按需</strong>的：agent 想精确理解某处代码时，主动调这个工具去问语言服务器。它把 IDE 里你最常用的那些「代码导航」能力，做成了一个工具的几个操作：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">goToDefinition / goToImplementation</div><div class="c-txt">跳到定义 / 实现——「这个符号到底定义在哪？」</div></div>
+  <div class="cell"><div class="c-tag">findReferences</div><div class="c-txt">找所有引用——「改它会牵连到哪些地方？」</div></div>
+  <div class="cell"><div class="c-tag">hover</div><div class="c-txt">悬停看类型/文档——「这个变量是什么类型？」</div></div>
+  <div class="cell"><div class="c-tag">documentSymbol / workspaceSymbol</div><div class="c-txt">列文件/全工程符号——「这文件里有哪些函数类？」</div></div>
+  <div class="cell"><div class="c-tag">callHierarchy（incoming/outgoing）</div><div class="c-txt">调用层级——「谁调用了它/它调用了谁？」</div></div>
+</div>
+<p>这些操作的参数也很「IDE 味」：<span class="mono">filePath</span> + <span class="mono">line</span> + <span class="mono">character</span>（行列都<strong>从 1 开始</strong>，正是你在编辑器里看到的坐标）。它和诊断恰好是「<strong>一被动、一主动</strong>」的互补：诊断是 opencode <strong>塞</strong>给 agent 的（「你改崩了这几处」），lsp 工具是 agent <strong>主动拉</strong>的（「我想知道这个函数定义在哪」）。把这两副面孔并排，代码智能的全貌就清晰了：</p>
+<div class="cols">
+  <div class="col"><h4>诊断（被动 · 自动）</h4><p>opencode 主动塞给 agent。触发=改完文件。内容=编译错误。价值=即时「红线」反馈，让 agent 看见自己刚犯的错、当即纠正。无需 agent 开口。</p></div>
+  <div class="col"><h4>lsp 工具（主动 · 按需）</h4><p>agent 主动调用去问。触发=想理解某处代码。内容=跳定义/找引用/看类型/列符号。价值=语义级精确导航，替代 grep 瞎猜。</p></div>
+</div>
+<p>这种主动查询为什么珍贵？因为 agent 此前理解代码，靠的多是 <span class="mono">grep</span> 一个名字——但同名的符号可能有十几个，grep 分不清哪个是真正的定义、更给不出类型。而 lsp 工具直接问语言服务器，拿到的是<strong>语义级的精确答案</strong>：这个 <span class="mono">foo</span> 就是定义在那个文件那一行、它的类型就是这个、引用它的就是这十处。<strong>从「文本级的猜」升级到「语义级的知」</strong>——这让 agent 在大型陌生代码库里的导航，第一次有了和人类用 IDE 时相近的精度。把诊断（被动看见错）和 lsp 工具（主动查清楚）合起来，opencode 就给了 agent 一双完整的「<strong>会看红线、能精确跳转</strong>」的开发者之眼。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观视角</div>
+  <p>这一课讲清了 opencode 如何用 LSP 给 agent 装上「代码智能」：</p>
+  <ul>
+    <li><strong>借来整个 IDE 生态的大脑</strong>：opencode 不自造代码理解，而是说标准 <strong>LSP</strong> 协议、跑和 VS Code 同源的语言服务器（typescript-language-server/gopls/pyright…）。LSP 把「M 编辑器 × N 语言」难题塌缩成「M + N」；opencode 把自己当又一个「编辑器」接进去。<span class="mono">lsp/client.ts</span>=LSP 客户端，语言服务器=独立进程，JSON-RPC 对话；<span class="mono">lsp/server.ts</span>=按扩展名匹配的语言服务器注册表（找/装二进制）。复用成熟生态最壮观一例（同 L39 Ripgrep、L51 git）。</li>
+    <li><strong>诊断（被动·自动）</strong>：agent 改文件→didChange→服务器 publishDiagnostics→<span class="mono">diagnostic.ts</span> 的 <span class="mono">report</span> 格式化（<span class="mono">pretty</span>=ERROR[行:列]消息、行列 1-based；<strong>只留 ERROR</strong>、每文件<strong>≤20 条</strong>、<span class="mono">&lt;diagnostics&gt;</span> 包裹）→喂 agent。有界=别撑爆上下文（呼应 L42）。让 agent 看见自己刚犯的错、即时自我纠错（喂给 M4 循环的高质量反馈）。</li>
+    <li><strong>lsp 工具（主动·按需）</strong>（<span class="mono">tool/lsp.ts</span>）：9 个操作=goToDefinition/findReferences/hover/documentSymbol/workspaceSymbol/goToImplementation/callHierarchy…；参数 filePath+line+character（1-based）。agent 主动问语言服务器，拿语义级精确答案，而非 grep 文本级猜。</li>
+    <li><strong>一被动一主动，互补成「开发者之眼」</strong>：诊断是 opencode 塞给 agent（你改崩了），lsp 工具是 agent 主动拉（这是什么）。从「文本级的猜」升级到「语义级的知」，让 agent 在大型代码库导航有了近人类 IDE 的精度。</li>
+  </ul>
+  <p>LSP 给了 agent「看懂代码」的眼睛。M11 还剩两课讲更底层的集成：L60 讲 <strong>PTY 与 shell</strong>——终端进程怎么被管理、环境变量怎么层层叠加（正接 L58 的 shell.env 钩子），L61 讲 <strong>ACP 与 Location 抽象</strong>——opencode 怎么作为一个 ACP server 被别的编辑器接入、会话怎么跨「位置」移动。讲完这两课，M11「扩展与集成」就收官。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">diagnostic.ts</span> 的 <span class="mono">report</span>，把「怎么把诊断恰到好处地喂给模型」写得朴素而克制（简化自源码）：</p>
+  <pre class="code"><span class="kw">const</span> MAX_PER_FILE = <span class="nu">20</span>
+
+<span class="kw">export function</span> <span class="fn">report</span>(file, issues) {
+  <span class="kw">const</span> errors = issues.<span class="fn">filter</span>((i) =&gt; i.severity === <span class="nu">1</span>)   <span class="cm">// ← 只留 ERROR，滤掉 warn/hint 噪音</span>
+  <span class="kw">if</span> (errors.length === <span class="nu">0</span>) <span class="kw">return</span> <span class="st">""</span>                  <span class="cm">// 没错误就什么都不说</span>
+  <span class="kw">const</span> limited = errors.<span class="fn">slice</span>(<span class="nu">0</span>, MAX_PER_FILE)         <span class="cm">// ← 每文件最多 20 条</span>
+  <span class="kw">const</span> more = errors.length - MAX_PER_FILE
+  <span class="kw">return</span> <span class="st">`&lt;diagnostics file="${'$'}{file}"&gt;\n`</span> +
+    limited.<span class="fn">map</span>(pretty).<span class="fn">join</span>(<span class="st">"\n"</span>) +                  <span class="cm">// pretty: ERROR [行:列] 消息</span>
+    (more &gt; <span class="nu">0</span> ? <span class="st">`\n... and ${'$'}{more} more`</span> : <span class="st">""</span>) + <span class="st">`\n&lt;/diagnostics&gt;`</span>
+}</pre>
+  <p>这二十来行代码里，藏着一个常被新手忽略、却对 agent 体验至关重要的判断：<strong>什么该说、什么不该说。</strong>一个朴素的实现可能会把语言服务器吐出的<strong>所有</strong>诊断（错误、警告、提示、风格建议）一股脑塞给模型——结果是灾难：模型的上下文被几百条「这里少个分号」「建议用 const」的噪音淹没，真正会导致编译失败的那三条 ERROR 反而被埋了。<span class="mono">report</span> 做了三层克制：<strong>只报 ERROR</strong>（agent 当下最该管的是「能不能编译过」，warning 多是风格偏好，可以稍后再说）、<strong>每文件封顶 20 条</strong>（一个文件错到 20 条以上，再多列也没意义，先修这些）、<strong>没错误就返回空字符串</strong>（一个字都不浪费）。这背后是一个深刻的产品直觉：<strong>给 agent 的反馈，不是越多越好，而是越「准」越好。</strong>信息过载和信息缺失一样有害——前者淹没重点、烧光上下文，后者让 agent 盲目。<span class="mono">report</span> 这二十行的全部用心，就是在这两者之间，为「agent 此刻最需要知道什么」找到那个恰到好处的量。这和 L42 有界工具输出是同一种对「模型注意力稀缺」的敬畏，只不过这次稀缺的对象，是那几条<strong>真正要命</strong>的编译错误。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>LSP=借来整个 IDE 生态的大脑</strong>：opencode 不自造代码理解，说标准 LSP 协议、跑和 VS Code 同源的语言服务器（typescript-language-server/gopls/pyright…）。LSP 把「M 编辑器×N 语言」塌缩成「M+N」，opencode 当又一个「编辑器」接入。客户端(<span class="mono">lsp/client.ts</span>)↔JSON-RPC↔语言服务器(独立进程)；<span class="mono">server.ts</span>=按扩展名匹配的注册表。复用成熟生态最壮观一例（同 L39/L51）。</li>
+    <li><strong>诊断（被动·自动）</strong>：改文件→didChange→服务器 publishDiagnostics→<span class="mono">diagnostic.report</span> 格式化→喂 agent。<span class="mono">pretty</span>=ERROR[行:列]消息(1-based)；只留 ERROR、每文件≤20、<span class="mono">&lt;diagnostics&gt;</span> 包裹。有界=别撑爆上下文（呼应 L42）。让 agent 看见自己刚犯的错、即时自我纠错（喂 M4 循环）。</li>
+    <li><strong>lsp 工具（主动·按需）</strong>（<span class="mono">tool/lsp.ts</span>）：9 操作 goToDefinition/findReferences/hover/documentSymbol/workspaceSymbol/goToImplementation/callHierarchy；参数 filePath+line+character(1-based)。主动问服务器拿语义级精确答案，而非 grep 文本级猜。</li>
+    <li><strong>一被动一主动=「开发者之眼」</strong>：诊断 opencode 塞给 agent(你改崩了)、lsp 工具 agent 主动拉(这是什么)。从「文本级猜」升级到「语义级知」，大库导航近人类 IDE 精度。</li>
+    <li><strong>给 agent 的反馈越准越好，非越多越好</strong>：<span class="mono">report</span> 只报 ERROR、封顶 20、无错返空——信息过载与缺失同样有害。对「模型注意力稀缺」的敬畏（同 L42），这次稀缺对象是真正要命的编译错误。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">The plugins of the last two lessons are opencode's "general door" open to third parties. This lesson covers a more <strong>specialized</strong> integration, solving a fatal weakness when an agent codes: <strong>it's "typing blind."</strong> Think about it—an agent changes a line of TypeScript, how does it know whether it broke the types? It wants to jump to some function's definition, and grep-guesses a name, trusting luck. But you—a human developer—have an IDE watching at all times: red squiggles tell you which line won't compile, Ctrl-click jumps to the definition, hover shows the type. This lesson's <strong>LSP integration</strong> installs this "IDE brain" onto the agent, turning it from "typing blind" into "<strong>writing while watching the red lines</strong>."</p>
+<p>This lesson has two highlights most worth taking away. First, <strong>opencode doesn't build its own "code intelligence" but borrows the whole IDE ecosystem's brain</strong>. It speaks <strong>LSP (Language Server Protocol)</strong>—the standard protocol shared by editors like VS Code, Neovim; so it can run <strong>the exact same language servers as VS Code</strong> (typescript-language-server, gopls, pyright…). However complex understanding each language is, opencode implements not one itself, handing it all to those battle-hardened language servers. Second, <strong>code intelligence has two faces, "passive" and "active"</strong>: the passive is <strong>diagnostics</strong>—after the agent edits a file, opencode automatically feeds it the compile errors the language server reports, so the agent <strong>can see the mistake it just made</strong> and fix it at once; the active is the <strong>lsp tool</strong>—the agent can actively call it to precisely "jump to definition, find references, see types" rather than grep-guessing. Grasp these two and you'll understand "why opencode, when changing code, doesn't seem to be guessing but like someone with an IDE open at hand."</p>
+
+<div class="card analogy">
+  <div class="tag">👓 Analogy</div>
+  Picture LSP integration as the agent <strong>finally putting on a pair of glasses</strong>. Before this, the agent wrote code like <strong>tapping the keyboard with its eyes closed</strong>—it could type characters but couldn't see the patch of red squiggles it just created on screen. With these LSP "glasses" on, after each edit, the exact same feedback as in your IDE immediately appears before it: "line 12: type string is not assignable to number," "line 30: cannot find name foo." It sees its own errors, so it can, like you, <strong>edit then look, look then edit</strong>, until the red lines are all gone. And that <strong>lsp tool</strong> is like giving it the IDE's <strong>Ctrl-click</strong> and <strong>hover tooltip</strong>: want to know where some function is defined? No need to grep a name across the whole repo and guess among a pile of same-names—just ask the language server, which <strong>precisely</strong> points it out. <strong>An agent that can see red lines and jump precisely versus one typing blind is a world apart in coding quality</strong>—and these glasses opencode didn't grind itself, it borrowed the pair the whole editor world shares.
+</div>
+
+<h2>LSP: borrowing the whole IDE ecosystem's brain</h2>
+<p>To give an agent "code intelligence," the dumbest way is to write your own understander for each language—but that means reimplementing the TypeScript compiler, Go's type checker, Python's analyzer… each language a bottomless pit. opencode's cleverness is not touching this pit at all but standing on the shoulders of a giant that long solved this: <strong>LSP</strong>. LSP was invented precisely to solve an "<strong>M × N</strong>" problem—<span class="mono">M</span> editors needing to support <span class="mono">N</span> languages, each pairing up being M×N adapters; while LSP defines one standard protocol, editors and languages each only pair with the protocol, and the problem collapses to "<strong>M + N</strong>." What opencode does is <strong>treat itself as yet another "editor"</strong> plugging into this protocol:</p>
+<div class="layers">
+  <div class="layer"><span class="l-tag">opencode (LSP client)</span><span class="l-desc">opencode treats itself as an editor, speaks standard LSP—<span class="mono">lsp/client.ts</span></span></div>
+  <div class="layer"><span class="l-tag">JSON-RPC connection</span><span class="l-desc">standard communication between client and server (didOpen / requests / notifications)</span></div>
+  <div class="layer"><span class="l-tag">language server (separate process)</span><span class="l-desc">typescript-language-server / gopls / pyright…—the same batch VS Code runs</span></div>
+</div>
+<p>opencode is the <strong>LSP client</strong>, what truly understands the language is those <strong>separate-process</strong> language servers, the two talking via JSON-RPC. And <span class="mono">lsp/server.ts</span> maintains a <strong>"known language servers" registry</strong>: one entry per language, recording its <span class="mono">id</span>, which <strong>file extensions</strong> it handles, and how to <strong>find or install</strong> that server's binary.</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">typescript</div><div class="c-txt">.ts/.tsx/.js…→typescript-language-server</div></div>
+  <div class="cell"><div class="c-tag">gopls</div><div class="c-txt">.go→gopls (if absent, <span class="mono">go install</span>)</div></div>
+  <div class="cell"><div class="c-tag">pyright / rust / eslint…</div><div class="c-txt">one entry per language/tool, matched by extension</div></div>
+  <div class="cell"><div class="c-tag">biome / oxlint / vue / deno…</div><div class="c-txt">even various linters / framework-specific servers are on the books</div></div>
+</div>
+<p>So when the agent touches a <span class="mono">.go</span> file, opencode finds gopls per the registry (auto-installing if needed), spawns it as a child process, and talks LSP with it. <strong>This is another—and the most spectacular—appearance of the book's recurring "reuse a mature tool" wisdom</strong>—L39 reused Ripgrep, L51 reused git, and here what's reused is <strong>the entire language-server ecosystem</strong>, all the fruits countless people accumulated over a decade-plus to "make editors understand code." opencode needn't write one line of language-analysis code, yet gives the agent code understanding from the same source as a top IDE.</p>
+
+<h2>Diagnostics: letting the agent see the mistake it just made</h2>
+<p>Code intelligence's first face is <strong>diagnostics</strong>—also the most crucial one for the agent. It's <strong>passive, automatic</strong>: the agent needn't ask, opencode proactively delivers "what compile errors this file now has" after it edits a file. The whole feedback loop turns like this:</p>
+<div class="flow">
+  <div class="f-node">agent edits a file<br><small>write/edit tool</small></div>
+  <div class="f-arrow">notify →</div>
+  <div class="f-node">tell the language server<br><small>didChange</small></div>
+  <div class="f-arrow">analyze →</div>
+  <div class="f-node">server pushes diagnostics back<br><small>publishDiagnostics</small></div>
+  <div class="f-arrow">format →</div>
+  <div class="f-node">feed to the agent<br><small>&lt;diagnostics&gt; text block</small></div>
+</div>
+<p>This loop's "last mile"—<strong>tidying the diagnostics the language server spits into something the agent can read</strong>—hides in the plain <span class="mono">diagnostic.ts</span>, a few small decisions yet quite crafty. Turning a raw diagnostic into the final text fed to the agent goes through these steps:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">filter: keep only <span class="mono">severity===1</span> ERRORs, drop warn/info/hint noise</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">cap: at most 20 per file, append "... and N more" if over</span></div>
+  <div class="t-row"><span class="t-num">3</span><span class="t-txt">format: <span class="mono">pretty</span> shapes each into <span class="mono">ERROR [line:col] message</span> (line/col +1 to match the editor's 1-based)</span></div>
+  <div class="t-row"><span class="t-num">4</span><span class="t-txt">wrap: <span class="mono">&lt;diagnostics file="..."&gt;…&lt;/diagnostics&gt;</span>, return empty string if no errors</span></div>
+</div>
+<p>These small decisions are quite crafty: <span class="mono">pretty</span> shapes a diagnostic into a line like <span class="mono">ERROR [line:col] message</span> (line and col both +1, matching the 1-based coordinates a human sees in the editor); <span class="mono">report</span> does three restrained things—<strong>keep only ERROR</strong> (severity 1, filtering out a pile of warning/hint noise), <strong>at most 20 per file</strong> (over that just hint "N more"), and wrap with the <span class="mono">&lt;diagnostics file="..."&gt;</span> tag. Why so restrained? Because these diagnostics will <strong>occupy the model's precious context</strong> (echoing L42 bounded output's same anxiety): stuffing hundreds of warnings into the model both burns tokens and drowns the few truly fatal compile errors. <strong>Report only errors, and bounded</strong>, is the precise calibration between "letting the agent see problems" and "not overflowing its attention." And the significance of this whole mechanism can't be overstated: <strong>it turns the agent from a blind editor who "doesn't know its fate after writing" into a self-correcting coder who instantly receives "you got it right / broke it"</strong>—exactly the high-quality feedback signal that M4's agent loop most needs.</p>
+
+<h2>The lsp tool: letting the agent actively ask "what is this"</h2>
+<p>Code intelligence's second face is the <span class="mono">lsp</span> <strong>tool</strong> (<span class="mono">tool/lsp.ts</span>)—it's <strong>active, on-demand</strong>: when the agent wants to precisely understand some code, it actively calls this tool to ask the language server. It turns those "code navigation" abilities you most use in an IDE into a tool's several operations:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">goToDefinition / goToImplementation</div><div class="c-txt">jump to definition / implementation—"where exactly is this symbol defined?"</div></div>
+  <div class="cell"><div class="c-tag">findReferences</div><div class="c-txt">find all references—"what places will changing it affect?"</div></div>
+  <div class="cell"><div class="c-tag">hover</div><div class="c-txt">hover to see type/docs—"what type is this variable?"</div></div>
+  <div class="cell"><div class="c-tag">documentSymbol / workspaceSymbol</div><div class="c-txt">list file/whole-project symbols—"what functions and classes are in this file?"</div></div>
+  <div class="cell"><div class="c-tag">callHierarchy (incoming/outgoing)</div><div class="c-txt">call hierarchy—"who calls it / what does it call?"</div></div>
+</div>
+<p>These operations' parameters are very "IDE-flavored" too: <span class="mono">filePath</span> + <span class="mono">line</span> + <span class="mono">character</span> (line and col both <strong>start at 1</strong>, exactly the coordinates you see in the editor). It and diagnostics are exactly a "<strong>one passive, one active</strong>" complement: diagnostics are <strong>pushed</strong> by opencode to the agent ("you broke these spots"), the lsp tool is <strong>actively pulled</strong> by the agent ("I want to know where this function is defined"). Putting the two faces side by side, code intelligence's full picture is clear:</p>
+<div class="cols">
+  <div class="col"><h4>diagnostics (passive · automatic)</h4><p>opencode proactively pushes to the agent. Trigger = after editing a file. Content = compile errors. Value = instant "red line" feedback, letting the agent see its just-made mistake and correct at once. No need for the agent to ask.</p></div>
+  <div class="col"><h4>lsp tool (active · on-demand)</h4><p>the agent actively calls to ask. Trigger = wanting to understand some code. Content = jump-def/find-refs/see-type/list-symbols. Value = semantic-level precise navigation, replacing grep-guessing.</p></div>
+</div>
+<p>Why is this active querying precious? Because the agent previously understood code mostly by <span class="mono">grep</span>-ing a name—but a same-named symbol may have a dozen, grep can't tell which is the real definition, much less give the type. The lsp tool asks the language server directly, getting a <strong>semantic-level precise answer</strong>: this <span class="mono">foo</span> is defined in that file at that line, its type is this, the ones referencing it are these ten spots. <strong>Upgrading from "text-level guessing" to "semantic-level knowing"</strong>—this gives the agent's navigation in a large unfamiliar codebase, for the first time, precision close to a human using an IDE. Combining diagnostics (passively seeing errors) and the lsp tool (actively asking clearly), opencode gives the agent a complete pair of developer's eyes that "<strong>can see red lines and jump precisely</strong>."</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson clarifies how opencode installs "code intelligence" onto the agent with LSP:</p>
+  <ul>
+    <li><strong>borrowing the whole IDE ecosystem's brain</strong>: opencode doesn't build its own code understanding but speaks standard <strong>LSP</strong> and runs the same-source language servers as VS Code (typescript-language-server/gopls/pyright…). LSP collapses the "M editors × N languages" problem to "M + N"; opencode plugs in as yet another "editor." <span class="mono">lsp/client.ts</span> = LSP client, language servers = separate processes, JSON-RPC dialogue; <span class="mono">lsp/server.ts</span> = a by-extension registry of language servers (find/install the binary). The most spectacular case of reusing a mature ecosystem (like L39 Ripgrep, L51 git).</li>
+    <li><strong>diagnostics (passive · automatic)</strong>: agent edits file→didChange→server publishDiagnostics→<span class="mono">diagnostic.ts</span>'s <span class="mono">report</span> formats (<span class="mono">pretty</span>=ERROR[line:col] message, 1-based; <strong>keep only ERROR</strong>, <strong>≤20 per file</strong>, <span class="mono">&lt;diagnostics&gt;</span> wrap)→feed the agent. Bounded = don't overflow context (echoing L42). Lets the agent see its just-made mistake, self-correct instantly (high-quality feedback feeding M4's loop).</li>
+    <li><strong>lsp tool (active · on-demand)</strong> (<span class="mono">tool/lsp.ts</span>): 9 operations = goToDefinition/findReferences/hover/documentSymbol/workspaceSymbol/goToImplementation/callHierarchy…; params filePath+line+character (1-based). The agent actively asks the language server for semantic-level precise answers, not grep text-level guessing.</li>
+    <li><strong>one passive one active, complementing into "developer's eyes"</strong>: diagnostics opencode pushes to the agent (you broke it), the lsp tool the agent actively pulls (what is this). Upgrading from "text-level guessing" to "semantic-level knowing," giving the agent's large-codebase navigation precision close to a human IDE.</li>
+  </ul>
+  <p>LSP gives the agent eyes to "understand code." M11 has two lessons left on lower-level integrations: L60 covers <strong>PTY and shell</strong>—how terminal processes are managed, how env vars stack layer by layer (connecting L58's shell.env hook), L61 covers <strong>ACP and the Location model</strong>—how opencode, as an ACP server, gets connected by other editors, how sessions move across "locations." After these two, M11 "Extensibility and integration" wraps up.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p><span class="mono">diagnostic.ts</span>'s <span class="mono">report</span> writes "how to feed diagnostics to the model just right" plainly and with restraint (simplified from source):</p>
+  <pre class="code"><span class="kw">const</span> MAX_PER_FILE = <span class="nu">20</span>
+
+<span class="kw">export function</span> <span class="fn">report</span>(file, issues) {
+  <span class="kw">const</span> errors = issues.<span class="fn">filter</span>((i) =&gt; i.severity === <span class="nu">1</span>)   <span class="cm">// ← keep only ERROR, filter warn/hint noise</span>
+  <span class="kw">if</span> (errors.length === <span class="nu">0</span>) <span class="kw">return</span> <span class="st">""</span>                  <span class="cm">// no errors, say nothing</span>
+  <span class="kw">const</span> limited = errors.<span class="fn">slice</span>(<span class="nu">0</span>, MAX_PER_FILE)         <span class="cm">// ← at most 20 per file</span>
+  <span class="kw">const</span> more = errors.length - MAX_PER_FILE
+  <span class="kw">return</span> <span class="st">`&lt;diagnostics file="${'$'}{file}"&gt;\n`</span> +
+    limited.<span class="fn">map</span>(pretty).<span class="fn">join</span>(<span class="st">"\n"</span>) +                  <span class="cm">// pretty: ERROR [line:col] message</span>
+    (more &gt; <span class="nu">0</span> ? <span class="st">`\n... and ${'$'}{more} more`</span> : <span class="st">""</span>) + <span class="st">`\n&lt;/diagnostics&gt;`</span>
+}</pre>
+  <p>In these twenty-odd lines hides a judgment often overlooked by beginners yet crucial to the agent experience: <strong>what to say and what not to.</strong> A naive implementation might stuff <strong>all</strong> the diagnostics the language server spits (errors, warnings, hints, style suggestions) into the model—a disaster: the model's context is drowned in hundreds of "missing semicolon here," "suggest const" noise, while the three ERRORs truly causing compile failure get buried. <span class="mono">report</span> does three layers of restraint: <strong>report only ERROR</strong> (what the agent should care about now is "does it compile," warnings are mostly style preferences, can wait), <strong>cap at 20 per file</strong> (a file erroring over 20 times, listing more is pointless, fix these first), <strong>return an empty string if no errors</strong> (don't waste a single word). Behind this is a profound product intuition: <strong>feedback to the agent isn't better the more, but better the more "precise."</strong> Information overload is as harmful as information absence—the former drowns the focus and burns context, the latter leaves the agent blind. The whole care of <span class="mono">report</span>'s twenty lines is finding, between these two, the just-right amount for "what the agent most needs to know right now." This is the same reverence for "the model's scarce attention" as L42's bounded tool output, only this time the scarce object is the few <strong>truly fatal</strong> compile errors.</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>LSP = borrowing the whole IDE ecosystem's brain</strong>: opencode doesn't build its own code understanding, speaks standard LSP and runs same-source language servers as VS Code (typescript-language-server/gopls/pyright…). LSP collapses "M editors × N languages" to "M+N," opencode plugs in as another "editor." client (<span class="mono">lsp/client.ts</span>)↔JSON-RPC↔language server (separate process); <span class="mono">server.ts</span> = a by-extension registry. The most spectacular case of reusing a mature ecosystem (like L39/L51).</li>
+    <li><strong>diagnostics (passive · automatic)</strong>: edit file→didChange→server publishDiagnostics→<span class="mono">diagnostic.report</span> formats→feed agent. <span class="mono">pretty</span>=ERROR[line:col] message (1-based); keep only ERROR, ≤20 per file, <span class="mono">&lt;diagnostics&gt;</span> wrap. Bounded = don't overflow context (echoing L42). Lets the agent see its just-made mistake, self-correct instantly (feeding M4's loop).</li>
+    <li><strong>lsp tool (active · on-demand)</strong> (<span class="mono">tool/lsp.ts</span>): 9 operations goToDefinition/findReferences/hover/documentSymbol/workspaceSymbol/goToImplementation/callHierarchy; params filePath+line+character (1-based). Actively asks the server for semantic-level precise answers, not grep text-level guessing.</li>
+    <li><strong>one passive one active = "developer's eyes"</strong>: diagnostics opencode pushes to the agent (you broke it), the lsp tool the agent actively pulls (what is this). Upgrading from "text-level guessing" to "semantic-level knowing," large-codebase navigation with near-human IDE precision.</li>
+    <li><strong>feedback to the agent better the more precise, not the more</strong>: <span class="mono">report</span> reports only ERROR, caps at 20, returns empty if no errors—information overload and absence are equally harmful. Reverence for "the model's scarce attention" (like L42), this time the scarce object being the truly fatal compile errors.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_60 = wip('PTY 与 shell', 'PTY & shell')
 LESSON_61 = wip('ACP 与 Location 抽象', 'ACP & the Location model')
