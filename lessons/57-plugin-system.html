@@ -383,14 +383,14 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="f-arrow">调用 →</div>
   <div class="f-node">Plugin(input)→Hooks<br><small>钩子挂进生命周期</small></div>
 </div>
-<p>加载器的稳健，藏在它把这条链拆成的<strong>几个可重试阶段</strong>里：</p>
+<p>加载器的稳健，藏在它把这条链拆成的<strong>几个清晰阶段</strong>里：</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">install</span><span class="t-txt">若是 npm 包，先把它装下来（网络/版本可能失败→可重试）</span></div>
   <div class="t-row"><span class="t-num">entry</span><span class="t-txt">找到模块的导入入口</span></div>
   <div class="t-row"><span class="t-num">compatibility</span><span class="t-txt">检查版本兼容性</span></div>
   <div class="t-row"><span class="t-num">load</span><span class="t-txt">真正 <span class="mono">import</span> 模块、拿到 Plugin 函数</span></div>
 </div>
-<p>每一阶段都可能因网络、版本等原因失败，加载器对可重试的失败分阶段重试、并统一汇报。最后 <span class="mono">loadExternal</span> 把配置里所有插件<strong>并行</strong>解析加载。这种「分阶段、可重试、并行」的设计，是因为插件加载触及了 opencode 最不可控的边界——<strong>第三方代码 + 网络安装</strong>：包可能没装上、入口可能找不到、版本可能不兼容。把这条易错的链拆成清晰的阶段、每段独立重试与报错，就是在「向外敞开」与「自身稳健」之间的务实平衡——<strong>敞开大门迎接第三方，但绝不让一个装不上的插件拖垮整个启动。</strong></p>
+<p>这几步里真正会<strong>重试</strong>的只有 <span class="mono">install</span>（装 npm 包，网络/版本最易抖动）；<span class="mono">loader.ts</span> 的 <span class="mono">isRetryableResolveError</span> 对非 install 阶段一律返回 false，失败就直接透明上报。最后 <span class="mono">loadExternal</span> 把配置里所有插件<strong>并行</strong>解析加载。这种「分阶段、可重试、并行」的设计，是因为插件加载触及了 opencode 最不可控的边界——<strong>第三方代码 + 网络安装</strong>：包可能没装上、入口可能找不到、版本可能不兼容。把这条易错的链拆成清晰的阶段、每段独立重试与报错，就是在「向外敞开」与「自身稳健」之间的务实平衡——<strong>敞开大门迎接第三方，但绝不让一个装不上的插件拖垮整个启动。</strong></p>
 <p>说到这里，你可能想起 L47 那个内置的 provider 插件系统（<span class="mono">PluginV2.define</span>）。它俩什么关系？并排一看就清楚：</p>
 <div class="cols">
   <div class="col"><h4>内部 PluginV2（L47）</h4><p>opencode <strong>自己</strong>用来接三十多家模型 provider 的内部机制；<span class="mono">PluginV2.define({id, effect→钩子})</span>，编进 opencode 源码。面向「opencode 的内核开发者」。</p></div>
@@ -551,14 +551,14 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="f-arrow">call →</div>
   <div class="f-node">Plugin(input)→Hooks<br><small>hooks hung into lifecycle</small></div>
 </div>
-<p>The loader's robustness hides in the <strong>several retryable stages</strong> it splits this chain into:</p>
+<p>The loader's robustness hides in the <strong>several clear stages</strong> it splits this chain into:</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">install</span><span class="t-txt">if an npm package, install it first (network/version may fail→retryable)</span></div>
   <div class="t-row"><span class="t-num">entry</span><span class="t-txt">find the module's import entry</span></div>
   <div class="t-row"><span class="t-num">compatibility</span><span class="t-txt">check version compatibility</span></div>
   <div class="t-row"><span class="t-num">load</span><span class="t-txt">actually <span class="mono">import</span> the module, get the Plugin function</span></div>
 </div>
-<p>Each stage may fail for network, version, etc. reasons; the loader retries retryable failures per stage and reports uniformly. Finally <span class="mono">loadExternal</span> resolves and loads all configured plugins <strong>in parallel</strong>. This "staged, retryable, parallel" design is because plugin loading touches opencode's least-controllable boundary—<strong>third-party code + network install</strong>: the package may not install, the entry may not be found, the version may not be compatible. Splitting this error-prone chain into clear stages, each independently retried and reported, is the pragmatic balance between "opening outward" and "staying robust"—<strong>open the door to welcome third parties, but never let one un-installable plugin drag down the whole startup.</strong></p>
+<p>Of these, only <span class="mono">install</span> is retried (installing an npm package — network/version flakiness); <span class="mono">loader.ts</span>'s <span class="mono">isRetryableResolveError</span> returns false for any non-install stage, so other failures surface immediately. Finally <span class="mono">loadExternal</span> resolves and loads all configured plugins <strong>in parallel</strong>. This "staged, retryable, parallel" design is because plugin loading touches opencode's least-controllable boundary—<strong>third-party code + network install</strong>: the package may not install, the entry may not be found, the version may not be compatible. Splitting this error-prone chain into clear stages, each independently retried and reported, is the pragmatic balance between "opening outward" and "staying robust"—<strong>open the door to welcome third parties, but never let one un-installable plugin drag down the whole startup.</strong></p>
 <p>Speaking of which, you may recall L47's built-in provider plugin system (<span class="mono">PluginV2.define</span>). How do they relate? Side by side it's clear:</p>
 <div class="cols">
   <div class="col"><h4>internal PluginV2 (L47)</h4><p>the internal mechanism opencode uses <strong>itself</strong> to connect thirty-some model providers; <span class="mono">PluginV2.define({id, effect→hooks})</span>, compiled into opencode's source. For "opencode's core developers."</p></div>
@@ -579,7 +579,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <li><strong>plugin = a function returning a hook table</strong> (<span class="mono">@opencode-ai/plugin</span>'s <span class="mono">Plugin = (input, options?) =&gt; Promise&lt;Hooks&gt;</span>): no class, no inheritance, no boilerplate, an async function takes <span class="mono">PluginInput</span>, returns <span class="mono">Hooks</span>. The example plugin registers a custom tool in a few lines.</li>
     <li><strong>PluginInput = a generous toolbox</strong>: <span class="mono">client</span> (opencode SDK client, the plugin can call opencode's API back), project/directory/worktree, <span class="mono">$</span> (Bun shell to run commands), serverUrl, experimental_workspace. Giving the plugin "host API + shell" = it can sense and drive opencode, and reach the outside.</li>
     <li><strong>Hooks = lifecycle plug-in points</strong>: event/config, auth/provider, chat.message/params/headers, tool.execute.before/after(+definition), permission.ask—fill cells on demand. Isomorphic with L47's built-in <span class="mono">PluginV2.define</span> returning a hook table.</li>
-    <li><strong>config-driven + dynamic loading</strong> (<span class="mono">plugin/loader.ts</span>): config <span class="mono">plugin:[...]</span> (npm name/local path)→loader resolve (install/entry/compatibility/load four retryable stages)→import→<span class="mono">Plugin(input)</span>→hook up Hooks; <span class="mono">loadExternal</span> loads in parallel. Staged retry = open outward yet stay robust.</li>
+    <li><strong>config-driven + dynamic loading</strong> (<span class="mono">plugin/loader.ts</span>): config <span class="mono">plugin:[...]</span> (npm name/local path)→loader resolve (install/entry/compatibility/load stages; only install retried)→import→<span class="mono">Plugin(input)</span>→hook up Hooks; <span class="mono">loadExternal</span> loads in parallel. Staged retry = open outward yet stay robust.</li>
   </ul>
   <p>The door is open—you now know what a plugin "is, how to write, how it's loaded." But exactly <strong>when each hook in that <span class="mono">Hooks</span> table fires, what it can change, how it's typically used</strong> is still an outline. The next lesson (L58) <strong>details these hooks one by one</strong>: how auth/provider connect models, how chat.* rewrites requests, how tool.* wraps tools, how permission.ask sets policy—fully lighting up this "plugin plug-in-point map." Further on, L59 covers LSP integration, L60 PTY/shell, L61 ACP and the Location model.</p>
 </div>
@@ -611,7 +611,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <li><strong>plugin = a function returning a hook table</strong>: <span class="mono">Plugin = (input: PluginInput, options?) =&gt; Promise&lt;Hooks&gt;</span> (<span class="mono">@opencode-ai/plugin</span>). No class, no inheritance, no boilerplate, async function in, Hooks out. The example registers a custom tool in a few lines. Barrier so low that "if you can write a function you can write a plugin."</li>
     <li><strong>PluginInput = a generous toolbox</strong>: <span class="mono">client</span> (opencode SDK client→the plugin can call opencode's API back), project/directory/worktree, <span class="mono">$</span> (Bun shell), serverUrl. Giving the plugin "host API + shell" = it can sense + drive opencode + reach the outside, not just passive hooks.</li>
     <li><strong>Hooks = lifecycle plug-in points</strong>: event/config, auth/provider, chat.message/params/headers, tool.execute.before/after(+definition), permission.ask—one table, fill cells on demand. Isomorphic with L47's <span class="mono">PluginV2.define</span> (opencode connects models internally, extensions externally, same mechanism).</li>
-    <li><strong>config-driven + dynamic loading</strong> (<span class="mono">plugin/loader.ts</span>): config <span class="mono">plugin:[...]</span> (npm name/local path)→resolve (install/entry/compatibility/load four retryable stages)→import→<span class="mono">Plugin(input)</span>→hook up Hooks; <span class="mono">loadExternal</span> in parallel. Staged retry = open outward (third-party code + network install) yet not dragged down by one bad plugin.</li>
+    <li><strong>config-driven + dynamic loading</strong> (<span class="mono">plugin/loader.ts</span>): config <span class="mono">plugin:[...]</span> (npm name/local path)→resolve (install/entry/compatibility/load stages; only install retried)→import→<span class="mono">Plugin(input)</span>→hook up Hooks; <span class="mono">loadExternal</span> in parallel. Staged retry = open outward (third-party code + network install) yet not dragged down by one bad plugin.</li>
     <li><strong>a minimal contract holds up a complete ecosystem</strong>: a plugin need only answer two questions—"what can you give me" (PluginInput) + "when do you want to step in" (Hooks), the rest is plain JS/TS. Low barrier and high power aren't contradictory. Echoes the book's "the strongest abstraction is often the plainest" (L36/L47/L53).</li>
   </ul>
 </div>

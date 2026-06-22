@@ -402,7 +402,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
 
 <div class="card detail">
   <div class="tag">🔬 源码细节</div>
-  <p>plan agent 的权限定义，把「只读规划」写成了几条声明（简化自 opencode 的 agent 定义）：</p>
+  <p>plan agent 的权限定义，把「只读规划」写成了几条声明（简化自 opencode 的 agent 定义；注意这段用的是<strong>运行期</strong> agent 的字段名 <span class="mono">permission</span>/<span class="mono">native</span>，与前面 <span class="mono">AgentV2.Info</span> schema 里的 <span class="mono">permissions</span>/<span class="mono">system</span> 是<strong>同一概念的两种写法</strong>）：</p>
   <pre class="code"><span class="cm">// plan：在默认权限上叠加，核心是禁掉所有 edit</span>
 plan: {
   name: <span class="st">"plan"</span>,
@@ -554,7 +554,7 @@ plan: {
 
 <div class="card detail">
   <div class="tag">🔬 Source Detail</div>
-  <p>The plan agent's permission definition writes "read-only planning" as a few declarations (simplified from opencode's agent definition):</p>
+  <p>The plan agent's permission definition writes "read-only planning" as a few declarations (simplified from opencode's agent definition; note this snippet uses the <strong>runtime</strong> agent's field names <span class="mono">permission</span>/<span class="mono">native</span>, the <strong>same concepts in a different representation</strong> from <span class="mono">AgentV2.Info</span>'s <span class="mono">permissions</span>/<span class="mono">system</span>):</p>
   <pre class="code"><span class="cm">// plan: layered on default permissions, the core is denying all edit</span>
 plan: {
   name: <span class="st">"plan"</span>,

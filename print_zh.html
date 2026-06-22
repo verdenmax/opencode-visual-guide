@@ -1809,6 +1809,7 @@ Effect.<span class="fn">raceFirst</span>(FiberSet.<span class="fn">join</span>(t
   fetch: (request: Request) =&gt; <span class="fn">handler</span>(request, HttpApiApp.context),
 }</pre>
 <p>这个 <span class="mono">webHandler</span> 是把所有路由组拼装起来后得到的<strong>总处理器</strong>：一个请求进来，它按路径分发到对应的组、对应的 handler，跑完再把结果编码成 <span class="mono">Response</span>。注意它的形态是标准的 <span class="mono">(request) =&gt; Response</span>——正因为这么"标准"，它既能架在真正的网络服务器上（<span class="mono">NodeHttpServer</span>），也能被<strong>塞进一个进程内的 worker</strong> 直接调用。还记得第 3 课富 TUI 那套"零网络 RPC"吗？底层调的就是这同一个 <span class="mono">fetch</span> 形态的 handler。<strong>一个 handler，两种传输</strong>，根就在这里。</p>
+<p>顺带点破一个结构：这些组并非平铺成一坨，而是<strong>分三层装配</strong>——<span class="mono">RootHttpApi</span>（控制面/全局）、<span class="mono">InstanceHttpApi</span>（每个工作区实例自己的那批组）、外加 <span class="mono">EventApi</span>，最后合成一个 <span class="mono">OpenCodeHttpApi</span>（见 <span class="mono">routes/instance/httpapi/api.ts</span>）。<span class="mono">routes/instance/</span> 这个路径本身就在喊话：路由是<strong>按实例</strong>组织的——这正是第 11 课「按实例/工作区过滤事件」的结构由来。</p>
 <div class="layers">
   <div class="layer l-app"><div class="lh"><span class="badge">客户端</span><span class="name">TUI / web / Slack…</span></div><div class="ld">发 HTTP Request（或进程内 RPC）</div></div>
   <div class="layer l-part"><div class="lh"><span class="badge">总处理器</span><span class="name">webHandler</span></div><div class="ld">(request) =&gt; Response，按路径分发</div></div>
@@ -3319,6 +3320,7 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
 <span class="kw">return</span> { definitions: ..., settle: ... }   <span class="cm">// 只有"亮得出来"的，才进 definitions</span></pre>
 <p>这一步的分量，怎么强调都不过分。模型能调什么工具，<strong>不是模型说了算，是权限说了算</strong>。一个被权限「完全禁用」的工具，根本<strong>不会出现在亮给模型的清单里</strong>——模型连它的存在都不知道，自然无从调起。这比「模型调了、我们再拦」要干净得多：<strong>最好的拦截，是让那个选项压根不出现</strong>。这又是全书反复出现的那个思路——把约束做进「形状」里，而不是事后补救。materialize 产出的 <span class="mono">definitions</span>，就是这一轮模型眼中「世界上存在哪些工具」的<strong>完整且唯一</strong>的真相。</p>
 <p>这里还藏着一个微妙却重要的点：权限过滤发生在 <span class="mono">materialize</span> 这个<strong>每轮都会重跑</strong>的环节，而不是一次性写死在某处。这意味着权限是<strong>动态、随上下文生效</strong>的——同一个工具，在权限收紧的语境下这一轮就可能不出现，在放开的语境下又重新亮出来。把「亮哪些工具」做成每轮按当前权限重算的结果，而非启动时定死的清单，agent 才谈得上「在不同 agent、不同场景下，能力边界随之伸缩」（第 45 课的 agent 会用到这点）。<strong>权限不是一道一次性的闸门，而是每轮重新校准的视野。</strong></p>
+<p>不过要分清一个层次：materialize 这道过滤是<strong>目录可见性</strong>——把「整体禁用」的工具从清单里抹掉；它<strong>不等于</strong>「逐次调用的授权」。一个工具只要还留在清单里，真正调用它时，仍要在 <span class="mono">settle</span> 处过第 41 课那道 allow/ask/deny 闸门。<span class="mono">tool/AGENTS.md</span> 把这点说得很直白：「definition filtering 是目录可见性，不是执行授权」。两道关卡，各管一段。</p>
 <div class="cellgroup">
   <div class="cell"><div class="k">definitions</div><div class="v">亮给模型的工具清单——已按权限筛过，禁用的不出现</div></div>
   <div class="cell"><div class="k">settle(call)</div><div class="v">执行单次调用，产出 Settlement（result / output / outputPaths）</div></div>
@@ -4421,7 +4423,7 @@ load: () =&gt; Effect.<span class="fn">gen</span>(<span class="kw">function</spa
 <p>看这张「投影器登记表」，你会更直观地体会那种「一视同仁」：模型的文字、工具的调用、内心的思考、环境的变化——在投影器眼里，<strong>全是「一种会话事件，投影成历史里的一笔」</strong>。它不关心这笔事件的来路是模型、是工具、还是系统对环境的观察；它只机械地、统一地把每种事件，按 seq 投影成历史里对应的那条消息或 part。这种「来源各异、待遇划一」的均质感，正是第 19 课「事件 → 投影」那套抽象的威力所在：<strong>只要你能把一件事表达成一个带 seq 的事件，它就能自动、原位地、可重放地，出现在模型读到的历史里。</strong>上下文更新，不过是又一个证明这套抽象有多通用的例子。</p>
 
 <h2>安全边界：何时注入</h2>
-<p>还有一个同样关键、却容易被忽略的问题：上下文变了，这条更新是<strong>什么时候</strong>被塞进历史的？你可能直觉地以为「源一变就立刻推」——但 opencode 偏偏<strong>不这么做</strong>。它的规矩是：<strong>变化被「懒惰地」采样、只在「安全的 provider-turn 边界」上才被采纳，绝不在源变化的当下异步推送。</strong>所谓<strong>安全 provider-turn 边界</strong>，源码的定义很精确：<strong>就在一次 provider 调用之前、且在「持久输入已提单、必要的工具已结清」之后</strong>的那个点。</p>
+<p>还有一个同样关键、却容易被忽略的问题：上下文变了，这条更新是<strong>什么时候</strong>被塞进历史的？你可能直觉地以为「源一变就立刻推」——但 opencode 偏偏<strong>不这么做</strong>。它的规矩是：<strong>变化被「懒惰地」采样、只在「安全的 provider-turn 边界」上才被采纳，绝不在源变化的当下异步推送。</strong>所谓<strong>安全 provider-turn 边界</strong>，在源码里其实是个很精确的位置：<strong>就在一次 provider 调用之前、且在「持久输入已提单、必要的工具已结清」之后</strong>的那个点（即 <span class="mono">runner/llm.ts</span> 里 prepare 被调用的时机）。</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">边界</span><span class="t-txt">一次 provider 调用即将开始（第 17 课循环的每一轮起点）</span></div>
   <div class="t-row"><span class="t-num">先</span><span class="t-txt">先落定：刚提单的用户输入、已结清的工具结果（第 15、17 课）</span></div>
@@ -4931,7 +4933,7 @@ SystemContext.<span class="fn">make</span>({
 <span class="kw">export const</span> stream = LLMClient.stream      <span class="cm">// 流式：吐 LLMEvent 流（第 17 课在用）</span>
 <span class="kw">export const</span> generate = LLMClient.generate  <span class="cm">// 一次性</span>
 <span class="kw">export const</span> request = (input) =&gt; <span class="kw">new</span> LLMRequest({ ... })  <span class="cm">// 规范化请求</span></pre>
-  <p>注意 LLM 层是一个<strong>独立的包</strong>（<span class="mono">packages/llm</span>），不在 <span class="mono">packages/core</span> 里。这个物理上的分包，本身就是「翻译墙」的一道<strong>实体边界</strong>：协议、供应商、各家方言的所有细节，都被关在这个包内；core 只 <span class="mono">import</span> 它暴露的 <span class="mono">LLM.stream</span>/<span class="mono">request</span> 等少数几个干净入口。<strong>把脏活关进一个独立包，连依赖关系都替你昭示了「谁该知道方言、谁不该」。</strong>这是「关注点分离」做到包一级的彻底。一个简单的判断法则随之而来：<strong>凡是「这家供应商怎么怎么样」的知识，都只该住在这个包里；一旦它泄漏进了 core，就是一处需要警惕的设计破窗。</strong>这条法则，往后第 33-35 课讲路由、缓存、模型解析时还会反复用到。</p>
+  <p>注意 LLM 层是一个<strong>独立的包</strong> <span class="mono">@opencode-ai/llm</span>（<span class="mono">packages/llm</span>）——它与放 V2 内核、模型目录的 <span class="mono">packages/core</span> 是<strong>并列</strong>的两个包，而非藏在 core 里。这个物理上的分包，本身就是「翻译墙」的一道<strong>实体边界</strong>：协议、供应商、各家方言的所有细节，都被关在这个包内；core 只 <span class="mono">import</span> 它暴露的 <span class="mono">LLM.stream</span>/<span class="mono">request</span> 等少数几个干净入口。<strong>把脏活关进一个独立包，连依赖关系都替你昭示了「谁该知道方言、谁不该」。</strong>这是「关注点分离」做到包一级的彻底。一个简单的判断法则随之而来：<strong>凡是「这家供应商怎么怎么样」的知识，都只该住在这个包里；一旦它泄漏进了 core，就是一处需要警惕的设计破窗。</strong>这条法则，往后第 33-35 课讲路由、缓存、模型解析时还会反复用到。</p>
 </div>
 
 <div class="card key">
@@ -5942,7 +5944,7 @@ Route.<span class="fn">make</span>({
 </div>
 
 <h2>models.dev：一本不写死在代码里的「模型大全」</h2>
-<p>第一个关键设计：opencode <strong>不在源码里硬编码任何模型的事实</strong>。「claude-sonnet 支持 20 万 token 上下文」「gpt 输入每百万 token 多少钱」这类信息，是会随厂商发版<strong>不断变化</strong>的——若写死在代码里，每次模型更新都得改代码发版，苦不堪言。opencode 的解法是去拉取 <strong>models.dev</strong>：一个社区维护的、覆盖几乎所有 LLM 的<strong>公开模型目录</strong>。<span class="mono">models-dev.ts</span> 里的 <span class="mono">Model</span> schema，就定义了每个模型被追踪的事实：</p>
+<p>第一个关键设计：opencode <strong>不在源码里硬编码任何模型的事实</strong>。「claude-sonnet 支持 20 万 token 上下文」「gpt 输入每百万 token 多少钱」这类信息，是会随厂商发版<strong>不断变化</strong>的——若写死在代码里，每次模型更新都得改代码发版，苦不堪言。opencode 的解法是去拉取 <strong>models.dev</strong>：一个社区维护的、覆盖几乎所有 LLM 的<strong>公开模型目录</strong>。<span class="mono">packages/core/src/models-dev.ts</span> 里的 <span class="mono">Model</span> schema，就定义了每个模型被追踪的事实：</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">能力</div><div class="c-txt">attachment / reasoning / temperature / tool_call：支不支持附件、推理、调温、工具</div></div>
   <div class="cell"><div class="c-tag">cost</div><div class="c-txt">输入/输出/缓存读/缓存写 的单价（第 34 课算账用的就是它！）</div></div>
@@ -5961,13 +5963,13 @@ Route.<span class="fn">make</span>({
 <p><strong>把易变的事实外置到一个会自我更新的目录</strong>，这样新模型一上线，opencode 往往一行代码都不用改就能认得它——这和第 31 课「OpenAI 兼容白嫖生态」是同一种「把变化挡在代码之外」的智慧，只不过那次挡的是「协议的变化」，这次挡的是「模型事实的变化」。再往深想一层，这其实是一种<strong>责任的转移</strong>：模型的价格、上限、能力，本该由「最了解它们、且最频繁更新它们」的人来维护——而那不是 opencode 的开发者，是 models.dev 这个社区。opencode 只负责「消费」这份目录，把「维护事实」的脏活累活，交给了一个专门做这件事的上游。<strong>不重复造轮子，也不重复维护事实</strong>，这是更高一层的复用。</p>
 
 <h2>catalog：从「模型名」到「一条配好的 Route」</h2>
-<p>拉下来的 models.dev 目录是<strong>原始数据</strong>，要真正能用，还得变成一个<strong>可快速查询的内存结构</strong>——这就是 <span class="mono">catalog.ts</span>（CatalogV2）干的事。它把目录组织成一张两层的表：</p>
+<p>拉下来的 models.dev 目录是<strong>原始数据</strong>，要真正能用，还得变成一个<strong>可快速查询的内存结构</strong>——这就是 <span class="mono">packages/core/src/catalog.ts</span>（CatalogV2）干的事。它把目录组织成一张两层的表：</p>
 <div class="flow">
   <div class="f-node">模型名<br><small>anthropic/claude-sonnet</small></div>
   <div class="f-arrow">拆 →</div>
   <div class="f-node">providerID + modelID</div>
   <div class="f-arrow">catalog 查 →</div>
-  <div class="f-node">ModelInfo<br><small>能力/成本/上限/走哪条 Route</small></div>
+  <div class="f-node">ModelInfo<br><small>能力/成本/上限/形态</small></div>
   <div class="f-arrow">→</div>
   <div class="f-node">配好的 Route<br><small>第 33 课那几个正交件</small></div>
 </div>
@@ -5976,7 +5978,7 @@ Route.<span class="fn">make</span>({
   <div class="col"><h4>ProviderNotFoundError</h4><p>连供应商都没找到（比如模型名拼错了 provider 段）。第一层查找就失败。</p></div>
   <div class="col"><h4>ModelNotFoundError</h4><p>供应商有，但它名下没有这个模型。第二层查找失败，错误里带上 providerID + modelID。</p></div>
 </div>
-<p>注意这种设计的体贴：它<strong>不是返回一个含糊的 null 让上层去猜</strong>「到底哪一步出了错」，而是明确告诉你「是供应商没找到，还是供应商有、但这个模型没找到」。两种失败的修复方式截然不同——前者你得检查 provider 名、后者你得检查 model 名——把它们用不同的错误类型分开，上层就能给出精准的提示。这种把失败<strong>分得清清楚楚</strong>的设计，呼应了整本书反复出现的「让错误自己说清自己是谁」。这一步解析的产物 <span class="mono">ModelInfo</span>，正握着「这个模型该走哪条 Route」的钥匙——而 Route，就是第 33 课那几个正交件的组合。<strong>至此，一个用户输入的模型名，终于接上了一条从协议到传输、配置完整的链路。</strong></p>
+<p>注意这种设计的体贴：它<strong>不是返回一个含糊的 null 让上层去猜</strong>「到底哪一步出了错」，而是明确告诉你「是供应商没找到，还是供应商有、但这个模型没找到」。两种失败的修复方式截然不同——前者你得检查 provider 名、后者你得检查 model 名——把它们用不同的错误类型分开，上层就能给出精准的提示。这种把失败<strong>分得清清楚楚</strong>的设计，呼应了整本书反复出现的「让错误自己说清自己是谁」。这一步解析的产物 <span class="mono">ModelInfo</span> 只装<strong>模型事实</strong>（能力、成本、上限、形态），并<strong>不</strong>包含 Route 本身；真正的 Route 是<strong>另一步</strong>由各家的 provider 门面（<span class="mono">packages/llm/src/providers/*.ts</span>）按这些事实加配置拼出来的——也就是第 33 课那几个正交件的组合。<strong>至此，一个用户输入的模型名，终于接上了一条从协议到传输、配置完整的链路。</strong></p>
 
 <h2>Copilot：复用 OpenAI 协议，自带一套门禁</h2>
 <p>压轴的，是 GitHub Copilot 这个<strong>特殊供应商</strong>。它特殊在哪？翻开 <span class="mono">packages/llm/src/providers/github-copilot.ts</span>，第一眼你就会看到它 import 了 <span class="mono">OpenAIChat</span> 和 <span class="mono">OpenAIResponses</span> 两个协议模块，并<strong>直接复用它们现成的 <span class="mono">.route</span></strong>（第 31 课的 Chat 与 Responses）——连协议带整条 Route 整个拿来用！这意味着「请求怎么编码、响应怎么解码、字节怎么分帧」，Copilot 一个字都不用重写。那它到底「特殊」在哪？特殊在<strong>认证</strong>：</p>
@@ -6031,7 +6033,7 @@ Route.<span class="fn">make</span>({
   <div class="tag">🎯 本课要点</div>
   <ul>
     <li><strong>models.dev = 外置的社区模型目录</strong>（<span class="mono">models-dev.ts</span> 经 HTTP 拉取、缓存、发 <span class="mono">models-dev.refreshed</span>）：每个 Model 记录能力（attachment/reasoning/tool_call…）、<span class="mono">cost</span>（输入/输出/缓存读写单价，第 34 课算账的数据源）、<span class="mono">limit</span>（上下文/输入/输出上限）、modalities。把易变的模型事实挡在代码之外，新模型常常零改动即可识别。</li>
-    <li><strong>catalog（<span class="mono">catalog.ts</span> CatalogV2）= 解析器</strong>：<span class="mono">providers: Map&lt;ProviderID, {provider, models: Map&lt;ModelID, ModelInfo&gt;}&gt;</span>。模型名经两次字典查找 → ModelInfo（含走哪条 Route）；查不到给类型化的 <span class="mono">ProviderNotFoundError</span> / <span class="mono">ModelNotFoundError</span>。</li>
+    <li><strong>catalog（<span class="mono">catalog.ts</span> CatalogV2）= 解析器</strong>：<span class="mono">providers: Map&lt;ProviderID, {provider, models: Map&lt;ModelID, ModelInfo&gt;}&gt;</span>。模型名经两次字典查找 → ModelInfo（能力/成本/上限等<strong>模型事实</strong>，不含 Route）；查不到给类型化的 <span class="mono">ProviderNotFoundError</span> / <span class="mono">ModelNotFoundError</span>。</li>
     <li><strong>解析全链路</strong>：模型名 → 拆 providerID+modelID → catalog 查到 ModelInfo → 第 33 课的积木式 Route → 可发起 stream。</li>
     <li><strong>Copilot = 积木式架构的终极演示</strong>（<span class="mono">packages/llm/src/providers/github-copilot.ts</span>）：<strong>直接复用 OpenAI 的 Route</strong>（<span class="mono">OpenAIChat.route</span>/<span class="mono">OpenAIResponses.route</span>，零重写），只用 <span class="mono">.with(...)</span> 覆盖 <span class="mono">endpoint</span>（Copilot baseURL）和 <span class="mono">auth</span>（<span class="mono">AuthOptions.bearer</span>，token 由 GitHub OAuth 换取）两件。</li>
     <li><strong>差异是配置、不是分支</strong>：Copilot 与 OpenAI 的不同收敛成「换 headers + baseURL」的配置差异，而非协议代码里的 <span class="mono">if (isCopilot)</span>。正因 auth 早被设计成独立的一件，「先换证再进门」的特殊认证才能不惊动协议层。M6 闭环至此合龙，下一站 M7 工具系统。</li>
@@ -7521,7 +7523,7 @@ Ruleset = Rule[]</pre>
 
 <div class="card detail">
   <div class="tag">🔬 源码细节</div>
-  <p>plan agent 的权限定义，把「只读规划」写成了几条声明（简化自 opencode 的 agent 定义）：</p>
+  <p>plan agent 的权限定义，把「只读规划」写成了几条声明（简化自 opencode 的 agent 定义；注意这段用的是<strong>运行期</strong> agent 的字段名 <span class="mono">permission</span>/<span class="mono">native</span>，与前面 <span class="mono">AgentV2.Info</span> schema 里的 <span class="mono">permissions</span>/<span class="mono">system</span> 是<strong>同一概念的两种写法</strong>）：</p>
   <pre class="code"><span class="cm">// plan：在默认权限上叠加，核心是禁掉所有 edit</span>
 plan: {
   name: <span class="st">"plan"</span>,
@@ -7967,7 +7969,7 @@ sdks.<span class="fn">set</span>(sdkKey, sdk)               <span class="cm">// 
   <div class="tl-item"><div class="tl-time">20260127</div><div class="tl-text">familiar_lady_ursula（初始）</div></div>
   <div class="tl-item"><div class="tl-time">20260312</div><div class="tl-text">session_message_cursor</div></div>
   <div class="tl-item"><div class="tl-time">20260428</div><div class="tl-text">add_session_path（+path 列）</div></div>
-  <div class="tl-item"><div class="tl-time">20260603</div><div class="tl-text">session_input_inbox（V2 输入箱）</div></div>
+  <div class="tl-item"><div class="tl-time">20260604</div><div class="tl-text">event_sourced_session_input（V2 输入箱）</div></div>
   <div class="tl-item"><div class="tl-time">20260612</div><div class="tl-text">project_dir_strategy（最新）</div></div>
 </div>
 <p>除了这一串「增量」迁移，drizzle-kit 还维护一份特殊的 <span class="mono">schema.gen.ts</span>——它是当前<strong>完整 schema 的「快照」</strong>：一口气 <span class="mono">CREATE TABLE</span> 出所有表的最新结构（两百多行）。增量链 + 完整快照，正是下面「双路径」迁移的两件武器。值得一提的是，<span class="mono">schema.gen.ts</span> 并不是手写维护的，而是 drizzle-kit 随着每次 schema 变更<strong>自动重新生成</strong>的——它永远等于「把所有增量迁移依次跑完后得到的最终结构」。于是同一套表结构有了两种等价表述：一条是<strong>历史视角</strong>的增量链（一笔笔怎么改过来的），一份是<strong>当下视角</strong>的完整快照（现在长什么样）。新库要的是后者（一步到位），老库要的是前者里它还缺的那几笔——双路径之所以成立，正因这两种表述被同时维护、且保证一致。</p>
@@ -8763,7 +8765,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
 </div>
 
 <h2>Provider 金字塔：嵌套即依赖</h2>
-<p><span class="mono">app.tsx</span> 的 <span class="mono">render()</span> 里，那一长串 Provider 大致按这个顺序从外到内嵌套（外层先就位、内层才能用上）：</p>
+<p><span class="mono">app.tsx</span> 的 <span class="mono">render()</span> 里，那一长串 Provider 大致按这个顺序从外到内嵌套（外层先就位、内层才能用上）。下面这张图只画<strong>依赖 SDK 的那条主链</strong>；另有 Route、Toast、KV 等<strong>不</strong>依赖 SDK 的 provider，其实裹在比 SDK 更外层，为聚焦从略：</p>
 <div class="layers">
   <div class="layer"><span class="l-tag">ExitProvider / ErrorBoundary</span><span class="l-desc">最外层：退出钩子、错误边界（兜底崩溃）</span></div>
   <div class="layer"><span class="l-tag">SDKProvider</span><span class="l-desc">和服务器的连接（SDK 客户端 + SSE 事件流）——一切数据的源头</span></div>
@@ -8773,7 +8775,7 @@ sqliteTable(<span class="st">"session_input"</span>, {
   <div class="layer"><span class="l-tag">Dialog / Frecency / PromptHistory…</span><span class="l-desc">对话框、常用度、prompt 历史等交互状态</span></div>
   <div class="layer"><span class="l-tag">&lt;App/&gt;</span><span class="l-desc">最里层：真正的界面，头顶所有 Provider 的服务任它取用</span></div>
 </div>
-<p>这个嵌套顺序<strong>绝非随意</strong>——它是一张<strong>依赖关系图</strong>的拓扑排序。看 <span class="mono">project.tsx</span> 就明白了：<span class="mono">ProjectProvider</span> 的 <span class="mono">init</span> 函数第一行就是 <span class="mono">const sdk = useSDK()</span>——它要用 SDK 去拉项目信息。既然 <span class="mono">useSDK()</span> 只能在 <span class="mono">SDKProvider</span> 内部用，那 <span class="mono">ProjectProvider</span> 就<strong>必须</strong>被 <span class="mono">SDKProvider</span> 包在里头。同理，<span class="mono">RouteProvider</span> 的 <span class="mono">init</span> 用了 <span class="mono">useTuiStartup()</span>；而 <span class="mono">SyncProvider</span> 与 <span class="mono">DataProvider</span> 的 <span class="mono">init</span> 都通过 <span class="mono">useEvent()</span>（其内部又调 <span class="mono">useSDK()</span>）<strong>各自独立地</strong>消费 SDK 的事件流——两者都依赖 SDK、故都在 SDKProvider 之内（它俩彼此并不依赖，<span class="mono">Sync→Data</span> 的相邻只是惯例排序）……<strong>每一处「内层 init 调用外层的 use」，都在这座金字塔里钉下一条「谁必须在谁外面」的硬约束</strong>。于是这座塔从下到上，恰好是一条「越基础越靠外、越上层越靠内」的依赖链：连接（SDK）→ 项目 → 数据同步 → 主题 → 交互状态 → 界面。这种「用嵌套顺序表达依赖」的手法，其实比一份显式的依赖声明更巧妙：你<strong>无需另写一张「谁依赖谁」的表</strong>，依赖关系就<strong>物理地</strong>体现在代码的缩进层级里——外层一定先于内层就位，内层天然能用上外层的一切。读 <span class="mono">app.tsx</span> 那段嵌套，从上往下读一遍，就等于把整个 App 的「服务依赖图」从地基到屋顶走了一遍。一个新人想搞懂「TUI 启动时各种服务按什么顺序就位」，不必翻文档，看这一段 JSX 的嵌套顺序即可——<strong>结构本身就是文档</strong>。</p>
+<p>这个嵌套顺序<strong>绝非随意</strong>——它是一张<strong>依赖关系图</strong>的拓扑排序。看 <span class="mono">project.tsx</span> 就明白了：<span class="mono">ProjectProvider</span> 的 <span class="mono">init</span> 函数第一行就是 <span class="mono">const sdk = useSDK()</span>——它要用 SDK 去拉项目信息。既然 <span class="mono">useSDK()</span> 只能在 <span class="mono">SDKProvider</span> 内部用，那 <span class="mono">ProjectProvider</span> 就<strong>必须</strong>被 <span class="mono">SDKProvider</span> 包在里头。同理，<span class="mono">RouteProvider</span> 的 <span class="mono">init</span> 只用 <span class="mono">useTuiStartup()</span>、<strong>并不</strong>依赖 SDK，所以它<strong>反而裹在 <span class="mono">SDKProvider</span> 之外</strong>（同在外层的还有 Toast、KV 等）；而 <span class="mono">SyncProvider</span> 与 <span class="mono">DataProvider</span> 的 <span class="mono">init</span> 都通过 <span class="mono">useEvent()</span>（其内部又调 <span class="mono">useSDK()</span>）<strong>各自独立地</strong>消费 SDK 的事件流——两者都依赖 SDK、故都在 SDKProvider 之内（它俩彼此并不依赖，<span class="mono">Sync→Data</span> 的相邻只是惯例排序）……<strong>每一处「内层 init 调用外层的 use」，都在这座金字塔里钉下一条「谁必须在谁外面」的硬约束</strong>。于是这座塔从下到上，恰好是一条「越基础越靠外、越上层越靠内」的依赖链：连接（SDK）→ 项目 → 数据同步 → 主题 → 交互状态 → 界面。这种「用嵌套顺序表达依赖」的手法，其实比一份显式的依赖声明更巧妙：你<strong>无需另写一张「谁依赖谁」的表</strong>，依赖关系就<strong>物理地</strong>体现在代码的缩进层级里——外层一定先于内层就位，内层天然能用上外层的一切。读 <span class="mono">app.tsx</span> 那段嵌套，从上往下读一遍，就等于把整个 App 的「服务依赖图」从地基到屋顶走了一遍。一个新人想搞懂「TUI 启动时各种服务按什么顺序就位」，不必翻文档，看这一段 JSX 的嵌套顺序即可——<strong>结构本身就是文档</strong>。</p>
 
 <h2>同一个模子：createSimpleContext</h2>
 <p>二十多个 Provider，没有一个是从零手写的——它们全用一个叫 <span class="mono">createSimpleContext</span> 的小助手（<span class="mono">context/helper.tsx</span>）刻出来。与其让每个 context 各写一遍「建 context、写 Provider、写 use 钩子」的样板（还很容易在某一处忘了判空、忘了门控），不如把这套样板封进一个工具、让所有 context 都从同一个模子里出来。这个助手把「SolidJS 的 context 三件套」封成一行：</p>
@@ -9451,14 +9453,14 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
   <div class="f-arrow">调用 →</div>
   <div class="f-node">Plugin(input)→Hooks<br><small>钩子挂进生命周期</small></div>
 </div>
-<p>加载器的稳健，藏在它把这条链拆成的<strong>几个可重试阶段</strong>里：</p>
+<p>加载器的稳健，藏在它把这条链拆成的<strong>几个清晰阶段</strong>里：</p>
 <div class="trace">
   <div class="t-row"><span class="t-num">install</span><span class="t-txt">若是 npm 包，先把它装下来（网络/版本可能失败→可重试）</span></div>
   <div class="t-row"><span class="t-num">entry</span><span class="t-txt">找到模块的导入入口</span></div>
   <div class="t-row"><span class="t-num">compatibility</span><span class="t-txt">检查版本兼容性</span></div>
   <div class="t-row"><span class="t-num">load</span><span class="t-txt">真正 <span class="mono">import</span> 模块、拿到 Plugin 函数</span></div>
 </div>
-<p>每一阶段都可能因网络、版本等原因失败，加载器对可重试的失败分阶段重试、并统一汇报。最后 <span class="mono">loadExternal</span> 把配置里所有插件<strong>并行</strong>解析加载。这种「分阶段、可重试、并行」的设计，是因为插件加载触及了 opencode 最不可控的边界——<strong>第三方代码 + 网络安装</strong>：包可能没装上、入口可能找不到、版本可能不兼容。把这条易错的链拆成清晰的阶段、每段独立重试与报错，就是在「向外敞开」与「自身稳健」之间的务实平衡——<strong>敞开大门迎接第三方，但绝不让一个装不上的插件拖垮整个启动。</strong></p>
+<p>这几步里真正会<strong>重试</strong>的只有 <span class="mono">install</span>（装 npm 包，网络/版本最易抖动）；<span class="mono">loader.ts</span> 的 <span class="mono">isRetryableResolveError</span> 对非 install 阶段一律返回 false，失败就直接透明上报。最后 <span class="mono">loadExternal</span> 把配置里所有插件<strong>并行</strong>解析加载。这种「分阶段、可重试、并行」的设计，是因为插件加载触及了 opencode 最不可控的边界——<strong>第三方代码 + 网络安装</strong>：包可能没装上、入口可能找不到、版本可能不兼容。把这条易错的链拆成清晰的阶段、每段独立重试与报错，就是在「向外敞开」与「自身稳健」之间的务实平衡——<strong>敞开大门迎接第三方，但绝不让一个装不上的插件拖垮整个启动。</strong></p>
 <p>说到这里，你可能想起 L47 那个内置的 provider 插件系统（<span class="mono">PluginV2.define</span>）。它俩什么关系？并排一看就清楚：</p>
 <div class="cols">
   <div class="col"><h4>内部 PluginV2（L47）</h4><p>opencode <strong>自己</strong>用来接三十多家模型 provider 的内部机制；<span class="mono">PluginV2.define({id, effect→钩子})</span>，编进 opencode 源码。面向「opencode 的内核开发者」。</p></div>
@@ -10532,7 +10534,7 @@ PtyEnvironment.Service.of({
 </section>
 <section class="lesson-print">
 <h1>EventV2 持久事件溯源与单写入同步</h1>
-<p class="lead">第 11 课讲事件总线时，我们看的是<strong>传输</strong>那一层：服务器经 SSE 把事件<strong>推</strong>给客户端。但有个更深的问题一直没碰：这些事件<strong>怎么被持久化、怎么定序、怎么让多台设备最终看到同一份会话？</strong>这就是 <span class="mono">EventV2</span>——opencode 的<strong>持久事件溯源 + 单写入同步</strong>底座（<span class="mono">core/src/event.ts</span>、<span class="mono">event/sql.ts</span>、<span class="mono">opencode/src/sync/README.md</span>）。它也正是第 19 课「投影历史」脚下那块地基：投影器之所以能从事件投出一份干净的读模型，前提是事件本身<strong>有持久的、全序的编号</strong>。它还回答了一个很实际的产品问题：你在终端里开着一个会话，又想在网页或手机上<strong>看到同一个会话的实时进展</strong>——这份「多端看到同一份会话」的能力，底层靠的就是本课讲的事件日志与同步。这一课，我们就把第 11 课只讲了「传输」、第 19 课只讲了「投影」之间那块缺失的拼图补上。</p>
+<p class="lead">第 11 课讲事件总线时，我们看的是<strong>传输</strong>那一层：服务器经 SSE 把事件<strong>推</strong>给客户端。但有个更深的问题一直没碰：这些事件<strong>怎么被持久化、怎么定序、怎么让多台设备最终看到同一份会话？</strong>这就是 <span class="mono">EventV2</span>——opencode 的<strong>持久事件溯源 + 单写入同步</strong>底座（<span class="mono">core/src/event.ts</span>、<span class="mono">event/sql.ts</span>、<span class="mono">opencode/src/sync/README.md</span>）。它也正是第 19 课「投影历史」脚下那块地基：投影器之所以能从事件投出一份干净的读模型，前提是事件本身<strong>有持久的、（每个会话各自一条的）全序编号</strong>。它还回答了一个很实际的产品问题：你在终端里开着一个会话，又想在网页或手机上<strong>看到同一个会话的实时进展</strong>——这份「多端看到同一份会话」的能力，底层靠的就是本课讲的事件日志与同步。这一课，我们就把第 11 课只讲了「传输」、第 19 课只讲了「投影」之间那块缺失的拼图补上。</p>
 <p>这一课最值得带走的洞见只有一个，但它优雅得让人会心一笑：<strong>因为 opencode 规定「<em>同一个会话只允许一台设备写</em>」，整个同步系统就被极大地简化了</strong>。源码 <span class="mono">sync/README.md</span> 把话说得很直白——"<strong>只有一台设备能写，我们就不需要任何复杂的分布式时钟或因果排序</strong>"。多设备协作里最难的那部分（两个人同时改、到底谁先谁后、怎么合并）被一个设计决定直接绕开了：既然只有一个写入者，那就<strong>用一个简单的、单调递增的序号 <span class="mono">seq</span>（每生成一个事件就 +1）来给出全序</strong>。其他设备要「同步」，无非是<strong>拿到事件日志、从自己上次的位置往后重放</strong>，放完就和写入者一字不差。读懂这条「<strong>用约束换简单</strong>」的思路，你就懂了为什么 opencode 能用几张朴素的表，做到多端一致——而不必背上一套分布式共识的重担。这是工程里一种反复奏效却常被忽略的智慧：<strong>与其去解一个难题，不如换一个不产生这个难题的设计</strong>。多写入者的一致性是难题，那就只留一个写入者；这一让，整套系统就从「需要博士论文」变成了「一个计数器加一本流水账」。</p>
 
 <div class="card analogy">
@@ -10828,7 +10830,7 @@ PtyEnvironment.Service.of({
 </div>
 
 <h2>脱敏与落地：磁带为何能安全入库</h2>
-<p>录制时如果原样把请求存下来，你的 API key、<span class="mono">Authorization</span> 头就会被写进磁带文件——一旦提交进 git，等于把密钥泄露了。<span class="mono">http-recorder</span> 用 <strong>脱敏（redaction）</strong>解决这点：<span class="mono">redaction.ts</span> 定义 <span class="mono">REDACTED = "[REDACTED]"</span>，以及一组默认要盖掉的敏感头/查询参数（<span class="mono">DEFAULT_REDACT_HEADERS</span> 含 <span class="mono">authorization</span>、<span class="mono">x-api-key</span>、<span class="mono">x-goog-api-key</span> 等；<span class="mono">DEFAULT_REDACT_QUERY</span> 同理）——录的时候，这些字段被替换成 <span class="mono">[REDACTED]</span> 再落盘。注意 <span class="mono">RedactOptions</span> 的措辞是「<strong>叠加式（additive）</strong>」：默认清单是个安全底线，你可以在它之上再加要盖的字段，而不必从零写一份——这是把「安全的默认」和「可定制」叠在一起的典型做法（呼应 L60 PTY 环境「可定制在中间、不可妥协在最后」）。于是磁带既保留了「请求长什么样」（够用来匹配），又<strong>不含任何真实秘密</strong>，可以放心提交进仓库、当作测试 fixture 长期复用。整条<strong>录制</strong>路径是这样：</p>
+<p>录制时如果原样把请求存下来，你的 API key、<span class="mono">Authorization</span> 头就会被写进磁带文件——一旦提交进 git，等于把密钥泄露了。<span class="mono">http-recorder</span> 用 <strong>脱敏（redaction）</strong>解决这点：<span class="mono">redaction.ts</span> 定义 <span class="mono">REDACTED = "[REDACTED]"</span>，以及一组默认要盖掉的敏感头/查询参数（<span class="mono">DEFAULT_REDACT_HEADERS</span> 含 <span class="mono">authorization</span>、<span class="mono">x-api-key</span>、<span class="mono">x-goog-api-key</span> 等；<span class="mono">DEFAULT_REDACT_QUERY</span> 同理；此外 <span class="mono">SECRET_PATTERNS</span> 正则 + <span class="mono">envSecrets()</span> 还会扫掉<strong>请求/响应体里</strong>「长得像密钥」的串与命中环境变量的值）——录的时候，这些字段被替换成 <span class="mono">[REDACTED]</span> 再落盘。注意 <span class="mono">RedactOptions</span> 的措辞是「<strong>叠加式（additive）</strong>」：默认清单是个安全底线，你可以在它之上再加要盖的字段，而不必从零写一份——这是把「安全的默认」和「可定制」叠在一起的典型做法（呼应 L60 PTY 环境「可定制在中间、不可妥协在最后」）。于是磁带既保留了「请求长什么样」（够用来匹配），又<strong>不含任何真实秘密</strong>，可以放心提交进仓库、当作测试 fixture 长期复用。整条<strong>录制</strong>路径是这样：</p>
 <div class="flow">
   <div class="node">runner 真打一次 API</div>
   <div class="arrow">→</div>
@@ -10843,6 +10845,7 @@ PtyEnvironment.Service.of({
   <tr><th>类别</th><th>默认脱敏项（示例）</th><th>替换为</th></tr>
   <tr><td>请求头</td><td><span class="mono">authorization</span>、<span class="mono">x-api-key</span>、<span class="mono">x-goog-api-key</span>…</td><td><span class="mono">[REDACTED]</span></td></tr>
   <tr><td>查询参数</td><td><span class="mono">DEFAULT_REDACT_QUERY</span> 里的敏感键</td><td><span class="mono">[REDACTED]</span></td></tr>
+  <tr><td>请求/响应体</td><td>形如密钥的串（<span class="mono">Bearer</span>/<span class="mono">sk-ant-</span>/<span class="mono">AIza</span>/<span class="mono">AKIA</span>/GitHub/PEM，<span class="mono">SECRET_PATTERNS</span>）+ 命中环境变量的值（<span class="mono">envSecrets()</span>）</td><td><span class="mono">[REDACTED]</span></td></tr>
   <tr><td>策略</td><td><span class="mono">RedactOptions</span>：叠加式，可在默认上再加</td><td>（可保留指定头）</td></tr>
 </table>
 <p>落到实战，<span class="mono">session-runner-recorded.test.ts</span> 把这一切串了起来：它用 <span class="mono">HttpRecorder.http("session-runner/openai-chat-streams-text", { directory: fixtures/recordings, … })</span> 加载一盘<strong>录好的 OpenAI 流式响应磁带</strong>，然后<strong>回放整条 V2 session runner</strong>——L17 的 agent 循环、L28+ 的协议解析、流式分帧，全在这盘确定的录音上跑一遍，最后断言「runner 处理得对不对」。它甚至支持一个 <span class="mono">mode:"record"</span> 开关：平时回放（CI 里又快又稳），需要更新磁带时切到录制、真打一次 API 重录——这套「平时放磁带、要更新时重录一次」的工作流，正是成熟项目对待「依赖外部服务的测试」的标准姿势。把这一课嵌回全书，它处在三条线的交汇点：</p>

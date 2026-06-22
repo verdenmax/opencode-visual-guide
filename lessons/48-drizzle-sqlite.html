@@ -366,7 +366,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="tl-item"><div class="tl-time">20260127</div><div class="tl-text">familiar_lady_ursula（初始）</div></div>
   <div class="tl-item"><div class="tl-time">20260312</div><div class="tl-text">session_message_cursor</div></div>
   <div class="tl-item"><div class="tl-time">20260428</div><div class="tl-text">add_session_path（+path 列）</div></div>
-  <div class="tl-item"><div class="tl-time">20260603</div><div class="tl-text">session_input_inbox（V2 输入箱）</div></div>
+  <div class="tl-item"><div class="tl-time">20260604</div><div class="tl-text">event_sourced_session_input（V2 输入箱）</div></div>
   <div class="tl-item"><div class="tl-time">20260612</div><div class="tl-text">project_dir_strategy（最新）</div></div>
 </div>
 <p>除了这一串「增量」迁移，drizzle-kit 还维护一份特殊的 <span class="mono">schema.gen.ts</span>——它是当前<strong>完整 schema 的「快照」</strong>：一口气 <span class="mono">CREATE TABLE</span> 出所有表的最新结构（两百多行）。增量链 + 完整快照，正是下面「双路径」迁移的两件武器。值得一提的是，<span class="mono">schema.gen.ts</span> 并不是手写维护的，而是 drizzle-kit 随着每次 schema 变更<strong>自动重新生成</strong>的——它永远等于「把所有增量迁移依次跑完后得到的最终结构」。于是同一套表结构有了两种等价表述：一条是<strong>历史视角</strong>的增量链（一笔笔怎么改过来的），一份是<strong>当下视角</strong>的完整快照（现在长什么样）。新库要的是后者（一步到位），老库要的是前者里它还缺的那几笔——双路径之所以成立，正因这两种表述被同时维护、且保证一致。</p>
@@ -530,7 +530,7 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="tl-item"><div class="tl-time">20260127</div><div class="tl-text">familiar_lady_ursula (initial)</div></div>
   <div class="tl-item"><div class="tl-time">20260312</div><div class="tl-text">session_message_cursor</div></div>
   <div class="tl-item"><div class="tl-time">20260428</div><div class="tl-text">add_session_path (+path column)</div></div>
-  <div class="tl-item"><div class="tl-time">20260603</div><div class="tl-text">session_input_inbox (V2 inbox)</div></div>
+  <div class="tl-item"><div class="tl-time">20260604</div><div class="tl-text">event_sourced_session_input (V2 inbox)</div></div>
   <div class="tl-item"><div class="tl-time">20260612</div><div class="tl-text">project_dir_strategy (latest)</div></div>
 </div>
 <p>Besides this string of "incremental" migrations, drizzle-kit also maintains a special <span class="mono">schema.gen.ts</span>—it's the current <strong>full schema "snapshot"</strong>: <span class="mono">CREATE TABLE</span>-ing all tables' latest structure in one go (two-hundred-some lines). The incremental chain + the full snapshot are exactly the two weapons of the "dual-path" migration below. Worth noting, <span class="mono">schema.gen.ts</span> isn't hand-maintained but <strong>auto-regenerated</strong> by drizzle-kit on each schema change—it always equals "the final structure after running all incremental migrations in sequence." So the same table structure has two equivalent expressions: one a <strong>historical view</strong>'s incremental chain (how it was changed step by step), one a <strong>present view</strong>'s full snapshot (what it looks like now). A new DB wants the latter (one shot), an old DB wants the few of the former it still lacks—the dual path works precisely because both expressions are maintained simultaneously and guaranteed consistent.</p>

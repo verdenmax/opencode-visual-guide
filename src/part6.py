@@ -84,7 +84,7 @@ LESSON_28 = {
 <span class="kw">export const</span> stream = LLMClient.stream      <span class="cm">// 流式：吐 LLMEvent 流（第 17 课在用）</span>
 <span class="kw">export const</span> generate = LLMClient.generate  <span class="cm">// 一次性</span>
 <span class="kw">export const</span> request = (input) =&gt; <span class="kw">new</span> LLMRequest({ ... })  <span class="cm">// 规范化请求</span></pre>
-  <p>注意 LLM 层是一个<strong>独立的包</strong>（<span class="mono">packages/llm</span>），不在 <span class="mono">packages/core</span> 里。这个物理上的分包，本身就是「翻译墙」的一道<strong>实体边界</strong>：协议、供应商、各家方言的所有细节，都被关在这个包内；core 只 <span class="mono">import</span> 它暴露的 <span class="mono">LLM.stream</span>/<span class="mono">request</span> 等少数几个干净入口。<strong>把脏活关进一个独立包，连依赖关系都替你昭示了「谁该知道方言、谁不该」。</strong>这是「关注点分离」做到包一级的彻底。一个简单的判断法则随之而来：<strong>凡是「这家供应商怎么怎么样」的知识，都只该住在这个包里；一旦它泄漏进了 core，就是一处需要警惕的设计破窗。</strong>这条法则，往后第 33-35 课讲路由、缓存、模型解析时还会反复用到。</p>
+  <p>注意 LLM 层是一个<strong>独立的包</strong> <span class="mono">@opencode-ai/llm</span>（<span class="mono">packages/llm</span>）——它与放 V2 内核、模型目录的 <span class="mono">packages/core</span> 是<strong>并列</strong>的两个包，而非藏在 core 里。这个物理上的分包，本身就是「翻译墙」的一道<strong>实体边界</strong>：协议、供应商、各家方言的所有细节，都被关在这个包内；core 只 <span class="mono">import</span> 它暴露的 <span class="mono">LLM.stream</span>/<span class="mono">request</span> 等少数几个干净入口。<strong>把脏活关进一个独立包，连依赖关系都替你昭示了「谁该知道方言、谁不该」。</strong>这是「关注点分离」做到包一级的彻底。一个简单的判断法则随之而来：<strong>凡是「这家供应商怎么怎么样」的知识，都只该住在这个包里；一旦它泄漏进了 core，就是一处需要警惕的设计破窗。</strong>这条法则，往后第 33-35 课讲路由、缓存、模型解析时还会反复用到。</p>
 </div>
 
 <div class="card key">
@@ -180,7 +180,7 @@ LESSON_28 = {
 <span class="kw">export const</span> stream = LLMClient.stream      <span class="cm">// streaming: emits an LLMEvent stream (used in Lesson 17)</span>
 <span class="kw">export const</span> generate = LLMClient.generate  <span class="cm">// one-shot</span>
 <span class="kw">export const</span> request = (input) =&gt; <span class="kw">new</span> LLMRequest({ ... })  <span class="cm">// canonical request</span></pre>
-  <p>Note the LLM layer is a <strong>standalone package</strong> (<span class="mono">packages/llm</span>), not inside <span class="mono">packages/core</span>. This physical split is itself a <strong>concrete boundary</strong> of the "translation wall": all the detail of protocols, providers, each dialect is locked inside this package; core only <span class="mono">import</span>s the few clean entries it exposes — <span class="mono">LLM.stream</span>/<span class="mono">request</span> etc. <strong>Locking the dirty job in a standalone package even makes the dependency graph declare "who should know dialects, who shouldn't."</strong> This is "separation of concerns" carried thoroughly to the package level. A simple rule of thumb follows: <strong>any "how this provider behaves" knowledge should live only in this package; once it leaks into core, that's a broken window to watch.</strong></p>
+  <p>Note the LLM layer is a <strong>standalone package</strong> <span class="mono">@opencode-ai/llm</span> (<span class="mono">packages/llm</span>) — a <strong>sibling</strong> of <span class="mono">packages/core</span> (which holds the V2 kernel and model catalog), not a sub-part of it. This physical split is itself a <strong>concrete boundary</strong> of the "translation wall": all the detail of protocols, providers, each dialect is locked inside this package; core only <span class="mono">import</span>s the few clean entries it exposes — <span class="mono">LLM.stream</span>/<span class="mono">request</span> etc. <strong>Locking the dirty job in a standalone package even makes the dependency graph declare "who should know dialects, who shouldn't."</strong> This is "separation of concerns" carried thoroughly to the package level. A simple rule of thumb follows: <strong>any "how this provider behaves" knowledge should live only in this package; once it leaks into core, that's a broken window to watch.</strong></p>
 </div>
 
 <div class="card key">
@@ -1465,7 +1465,7 @@ LESSON_35 = {
 </div>
 
 <h2>models.dev：一本不写死在代码里的「模型大全」</h2>
-<p>第一个关键设计：opencode <strong>不在源码里硬编码任何模型的事实</strong>。「claude-sonnet 支持 20 万 token 上下文」「gpt 输入每百万 token 多少钱」这类信息，是会随厂商发版<strong>不断变化</strong>的——若写死在代码里，每次模型更新都得改代码发版，苦不堪言。opencode 的解法是去拉取 <strong>models.dev</strong>：一个社区维护的、覆盖几乎所有 LLM 的<strong>公开模型目录</strong>。<span class="mono">models-dev.ts</span> 里的 <span class="mono">Model</span> schema，就定义了每个模型被追踪的事实：</p>
+<p>第一个关键设计：opencode <strong>不在源码里硬编码任何模型的事实</strong>。「claude-sonnet 支持 20 万 token 上下文」「gpt 输入每百万 token 多少钱」这类信息，是会随厂商发版<strong>不断变化</strong>的——若写死在代码里，每次模型更新都得改代码发版，苦不堪言。opencode 的解法是去拉取 <strong>models.dev</strong>：一个社区维护的、覆盖几乎所有 LLM 的<strong>公开模型目录</strong>。<span class="mono">packages/core/src/models-dev.ts</span> 里的 <span class="mono">Model</span> schema，就定义了每个模型被追踪的事实：</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">能力</div><div class="c-txt">attachment / reasoning / temperature / tool_call：支不支持附件、推理、调温、工具</div></div>
   <div class="cell"><div class="c-tag">cost</div><div class="c-txt">输入/输出/缓存读/缓存写 的单价（第 34 课算账用的就是它！）</div></div>
@@ -1484,13 +1484,13 @@ LESSON_35 = {
 <p><strong>把易变的事实外置到一个会自我更新的目录</strong>，这样新模型一上线，opencode 往往一行代码都不用改就能认得它——这和第 31 课「OpenAI 兼容白嫖生态」是同一种「把变化挡在代码之外」的智慧，只不过那次挡的是「协议的变化」，这次挡的是「模型事实的变化」。再往深想一层，这其实是一种<strong>责任的转移</strong>：模型的价格、上限、能力，本该由「最了解它们、且最频繁更新它们」的人来维护——而那不是 opencode 的开发者，是 models.dev 这个社区。opencode 只负责「消费」这份目录，把「维护事实」的脏活累活，交给了一个专门做这件事的上游。<strong>不重复造轮子，也不重复维护事实</strong>，这是更高一层的复用。</p>
 
 <h2>catalog：从「模型名」到「一条配好的 Route」</h2>
-<p>拉下来的 models.dev 目录是<strong>原始数据</strong>，要真正能用，还得变成一个<strong>可快速查询的内存结构</strong>——这就是 <span class="mono">catalog.ts</span>（CatalogV2）干的事。它把目录组织成一张两层的表：</p>
+<p>拉下来的 models.dev 目录是<strong>原始数据</strong>，要真正能用，还得变成一个<strong>可快速查询的内存结构</strong>——这就是 <span class="mono">packages/core/src/catalog.ts</span>（CatalogV2）干的事。它把目录组织成一张两层的表：</p>
 <div class="flow">
   <div class="f-node">模型名<br><small>anthropic/claude-sonnet</small></div>
   <div class="f-arrow">拆 →</div>
   <div class="f-node">providerID + modelID</div>
   <div class="f-arrow">catalog 查 →</div>
-  <div class="f-node">ModelInfo<br><small>能力/成本/上限/走哪条 Route</small></div>
+  <div class="f-node">ModelInfo<br><small>能力/成本/上限/形态</small></div>
   <div class="f-arrow">→</div>
   <div class="f-node">配好的 Route<br><small>第 33 课那几个正交件</small></div>
 </div>
@@ -1499,7 +1499,7 @@ LESSON_35 = {
   <div class="col"><h4>ProviderNotFoundError</h4><p>连供应商都没找到（比如模型名拼错了 provider 段）。第一层查找就失败。</p></div>
   <div class="col"><h4>ModelNotFoundError</h4><p>供应商有，但它名下没有这个模型。第二层查找失败，错误里带上 providerID + modelID。</p></div>
 </div>
-<p>注意这种设计的体贴：它<strong>不是返回一个含糊的 null 让上层去猜</strong>「到底哪一步出了错」，而是明确告诉你「是供应商没找到，还是供应商有、但这个模型没找到」。两种失败的修复方式截然不同——前者你得检查 provider 名、后者你得检查 model 名——把它们用不同的错误类型分开，上层就能给出精准的提示。这种把失败<strong>分得清清楚楚</strong>的设计，呼应了整本书反复出现的「让错误自己说清自己是谁」。这一步解析的产物 <span class="mono">ModelInfo</span>，正握着「这个模型该走哪条 Route」的钥匙——而 Route，就是第 33 课那几个正交件的组合。<strong>至此，一个用户输入的模型名，终于接上了一条从协议到传输、配置完整的链路。</strong></p>
+<p>注意这种设计的体贴：它<strong>不是返回一个含糊的 null 让上层去猜</strong>「到底哪一步出了错」，而是明确告诉你「是供应商没找到，还是供应商有、但这个模型没找到」。两种失败的修复方式截然不同——前者你得检查 provider 名、后者你得检查 model 名——把它们用不同的错误类型分开，上层就能给出精准的提示。这种把失败<strong>分得清清楚楚</strong>的设计，呼应了整本书反复出现的「让错误自己说清自己是谁」。这一步解析的产物 <span class="mono">ModelInfo</span> 只装<strong>模型事实</strong>（能力、成本、上限、形态），并<strong>不</strong>包含 Route 本身；真正的 Route 是<strong>另一步</strong>由各家的 provider 门面（<span class="mono">packages/llm/src/providers/*.ts</span>）按这些事实加配置拼出来的——也就是第 33 课那几个正交件的组合。<strong>至此，一个用户输入的模型名，终于接上了一条从协议到传输、配置完整的链路。</strong></p>
 
 <h2>Copilot：复用 OpenAI 协议，自带一套门禁</h2>
 <p>压轴的，是 GitHub Copilot 这个<strong>特殊供应商</strong>。它特殊在哪？翻开 <span class="mono">packages/llm/src/providers/github-copilot.ts</span>，第一眼你就会看到它 import 了 <span class="mono">OpenAIChat</span> 和 <span class="mono">OpenAIResponses</span> 两个协议模块，并<strong>直接复用它们现成的 <span class="mono">.route</span></strong>（第 31 课的 Chat 与 Responses）——连协议带整条 Route 整个拿来用！这意味着「请求怎么编码、响应怎么解码、字节怎么分帧」，Copilot 一个字都不用重写。那它到底「特殊」在哪？特殊在<strong>认证</strong>：</p>
@@ -1554,7 +1554,7 @@ LESSON_35 = {
   <div class="tag">🎯 本课要点</div>
   <ul>
     <li><strong>models.dev = 外置的社区模型目录</strong>（<span class="mono">models-dev.ts</span> 经 HTTP 拉取、缓存、发 <span class="mono">models-dev.refreshed</span>）：每个 Model 记录能力（attachment/reasoning/tool_call…）、<span class="mono">cost</span>（输入/输出/缓存读写单价，第 34 课算账的数据源）、<span class="mono">limit</span>（上下文/输入/输出上限）、modalities。把易变的模型事实挡在代码之外，新模型常常零改动即可识别。</li>
-    <li><strong>catalog（<span class="mono">catalog.ts</span> CatalogV2）= 解析器</strong>：<span class="mono">providers: Map&lt;ProviderID, {provider, models: Map&lt;ModelID, ModelInfo&gt;}&gt;</span>。模型名经两次字典查找 → ModelInfo（含走哪条 Route）；查不到给类型化的 <span class="mono">ProviderNotFoundError</span> / <span class="mono">ModelNotFoundError</span>。</li>
+    <li><strong>catalog（<span class="mono">catalog.ts</span> CatalogV2）= 解析器</strong>：<span class="mono">providers: Map&lt;ProviderID, {provider, models: Map&lt;ModelID, ModelInfo&gt;}&gt;</span>。模型名经两次字典查找 → ModelInfo（能力/成本/上限等<strong>模型事实</strong>，不含 Route）；查不到给类型化的 <span class="mono">ProviderNotFoundError</span> / <span class="mono">ModelNotFoundError</span>。</li>
     <li><strong>解析全链路</strong>：模型名 → 拆 providerID+modelID → catalog 查到 ModelInfo → 第 33 课的积木式 Route → 可发起 stream。</li>
     <li><strong>Copilot = 积木式架构的终极演示</strong>（<span class="mono">packages/llm/src/providers/github-copilot.ts</span>）：<strong>直接复用 OpenAI 的 Route</strong>（<span class="mono">OpenAIChat.route</span>/<span class="mono">OpenAIResponses.route</span>，零重写），只用 <span class="mono">.with(...)</span> 覆盖 <span class="mono">endpoint</span>（Copilot baseURL）和 <span class="mono">auth</span>（<span class="mono">AuthOptions.bearer</span>，token 由 GitHub OAuth 换取）两件。</li>
     <li><strong>差异是配置、不是分支</strong>：Copilot 与 OpenAI 的不同收敛成「换 headers + baseURL」的配置差异，而非协议代码里的 <span class="mono">if (isCopilot)</span>。正因 auth 早被设计成独立的一件，「先换证再进门」的特殊认证才能不惊动协议层。M6 闭环至此合龙，下一站 M7 工具系统。</li>
@@ -1571,7 +1571,7 @@ LESSON_35 = {
 </div>
 
 <h2>models.dev: a "model encyclopedia" not hardcoded in code</h2>
-<p>The first key design: opencode <strong>hardcodes no model's facts in source</strong>. Information like "claude-sonnet supports 200K-token context," "gpt costs how much per million input tokens"—these <strong>keep changing</strong> with vendor releases; hardcoded in code, every model update would mean changing code and shipping a release, agonizing. opencode's solution is to fetch <strong>models.dev</strong>: a community-maintained <strong>public model catalog</strong> covering nearly all LLMs. The <span class="mono">Model</span> schema in <span class="mono">models-dev.ts</span> defines each model's tracked facts:</p>
+<p>The first key design: opencode <strong>hardcodes no model's facts in source</strong>. Information like "claude-sonnet supports 200K-token context," "gpt costs how much per million input tokens"—these <strong>keep changing</strong> with vendor releases; hardcoded in code, every model update would mean changing code and shipping a release, agonizing. opencode's solution is to fetch <strong>models.dev</strong>: a community-maintained <strong>public model catalog</strong> covering nearly all LLMs. The <span class="mono">Model</span> schema in <span class="mono">packages/core/src/models-dev.ts</span> defines each model's tracked facts:</p>
 <div class="cellgroup">
   <div class="cell"><div class="c-tag">capabilities</div><div class="c-txt">attachment / reasoning / temperature / tool_call: supports attachments, reasoning, temperature, tools?</div></div>
   <div class="cell"><div class="c-tag">cost</div><div class="c-txt">unit prices for input/output/cache-read/cache-write (the very data lesson 34's reckoning used!)</div></div>
@@ -1590,13 +1590,13 @@ LESSON_35 = {
 <p><strong>Externalizing volatile facts into a self-updating directory</strong> means a new model coming online is often recognized by opencode without a line of code changed—the same "keep change out of the code" wisdom as lesson 31's "OpenAI-compatible free-rides the ecosystem," only that time it blocked "protocol changes," this time "model-fact changes." Deeper still, this is a <strong>transfer of responsibility</strong>: a model's prices, limits, capabilities should be maintained by "those who know them best and update them most often"—and that's not opencode's developers, it's the models.dev community. opencode only "consumes" this catalog, handing the grunt work of "maintaining facts" to an upstream dedicated to it. <strong>Don't reinvent the wheel, and don't re-maintain facts either</strong>—a higher-order reuse.</p>
 
 <h2>catalog: from "model name" to "a configured Route"</h2>
-<p>The fetched models.dev catalog is <strong>raw data</strong>; to be truly usable it must become a <strong>quickly-queryable in-memory structure</strong>—that's what <span class="mono">catalog.ts</span> (CatalogV2) does. It organizes the catalog into a two-level table:</p>
+<p>The fetched models.dev catalog is <strong>raw data</strong>; to be truly usable it must become a <strong>quickly-queryable in-memory structure</strong>—that's what <span class="mono">packages/core/src/catalog.ts</span> (CatalogV2) does. It organizes the catalog into a two-level table:</p>
 <div class="flow">
   <div class="f-node">model name<br><small>anthropic/claude-sonnet</small></div>
   <div class="f-arrow">split →</div>
   <div class="f-node">providerID + modelID</div>
   <div class="f-arrow">catalog lookup →</div>
-  <div class="f-node">ModelInfo<br><small>capabilities/cost/limits/which Route</small></div>
+  <div class="f-node">ModelInfo<br><small>capabilities/cost/limits/modalities</small></div>
   <div class="f-arrow">→</div>
   <div class="f-node">configured Route<br><small>lesson 33's orthogonal pieces</small></div>
 </div>
@@ -1605,7 +1605,7 @@ LESSON_35 = {
   <div class="col"><h4>ProviderNotFoundError</h4><p>even the provider isn't found (e.g. the provider segment of the model name is misspelled). The first lookup fails.</p></div>
   <div class="col"><h4>ModelNotFoundError</h4><p>the provider exists but has no such model. The second lookup fails, the error carrying providerID + modelID.</p></div>
 </div>
-<p>Note this design's thoughtfulness: it <strong>doesn't return a vague null</strong> leaving the upper layer to guess "which step failed," but tells you clearly "is it the provider not found, or the provider exists but this model not found." The two failures' fixes differ entirely—the former you check the provider name, the latter the model name—and separating them with different error types lets the upper layer give precise hints. This design of <strong>cleanly separating failures</strong> echoes the book's recurring "let errors say who they are." This resolution step's output <span class="mono">ModelInfo</span> holds the key to "which Route this model should ride"—and a Route is lesson 33's composition of orthogonal pieces. <strong>Now a user-entered model name finally connects to a complete, configured pipeline from protocol to transport.</strong></p>
+<p>Note this design's thoughtfulness: it <strong>doesn't return a vague null</strong> leaving the upper layer to guess "which step failed," but tells you clearly "is it the provider not found, or the provider exists but this model not found." The two failures' fixes differ entirely—the former you check the provider name, the latter the model name—and separating them with different error types lets the upper layer give precise hints. This design of <strong>cleanly separating failures</strong> echoes the book's recurring "let errors say who they are." This resolution step's output <span class="mono">ModelInfo</span> carries <strong>model facts only</strong> (capabilities, cost, limits, modalities); it does <strong>not</strong> contain the Route itself. The Route is built in a <strong>separate step</strong> by each provider facade (<span class="mono">packages/llm/src/providers/*.ts</span>) from those facts plus config — lesson 33's composition of orthogonal pieces. <strong>Now a user-entered model name finally connects to a complete, configured pipeline from protocol to transport.</strong></p>
 
 <h2>Copilot: reuse the OpenAI protocol, bring your own gate</h2>
 <p>Taking the final bow is GitHub Copilot, a <strong>special provider</strong>. Special how? Open <span class="mono">packages/llm/src/providers/github-copilot.ts</span> and at first glance you'll see it imports the <span class="mono">OpenAIChat</span> and <span class="mono">OpenAIResponses</span> protocol modules and <strong>reuses their ready-made <span class="mono">.route</span></strong> (lesson 31's Chat and Responses)—protocol and whole Route taken wholesale! Meaning "how requests encode, how responses decode, how bytes are framed," Copilot rewrites not a word. So where is it "special"? In <strong>auth</strong>:</p>
@@ -1660,7 +1660,7 @@ LESSON_35 = {
   <div class="tag">🎯 Key Takeaways</div>
   <ul>
     <li><strong>models.dev = an externalized community model catalog</strong> (<span class="mono">models-dev.ts</span> fetches via HTTP, caches, emits <span class="mono">models-dev.refreshed</span>): each Model records capabilities (attachment/reasoning/tool_call…), <span class="mono">cost</span> (input/output/cache-read/write prices, lesson 34's reckoning data source), <span class="mono">limit</span> (context/input/output caps), modalities. Blocking volatile model facts out of the code, a new model is often recognized with zero changes.</li>
-    <li><strong>catalog (<span class="mono">catalog.ts</span> CatalogV2) = the resolver</strong>: <span class="mono">providers: Map&lt;ProviderID, {provider, models: Map&lt;ModelID, ModelInfo&gt;}&gt;</span>. A model name via two dictionary lookups → ModelInfo (incl. which Route); not found gives typed <span class="mono">ProviderNotFoundError</span> / <span class="mono">ModelNotFoundError</span>.</li>
+    <li><strong>catalog (<span class="mono">catalog.ts</span> CatalogV2) = the resolver</strong>: <span class="mono">providers: Map&lt;ProviderID, {provider, models: Map&lt;ModelID, ModelInfo&gt;}&gt;</span>. A model name via two dictionary lookups → ModelInfo (<strong>model facts</strong>: capabilities/cost/limits, no Route); not found gives typed <span class="mono">ProviderNotFoundError</span> / <span class="mono">ModelNotFoundError</span>.</li>
     <li><strong>The full resolution chain</strong>: model name → split providerID+modelID → catalog finds ModelInfo → lesson 33's building-block Route → ready to stream.</li>
     <li><strong>Copilot = the ultimate building-block demo</strong> (<span class="mono">packages/llm/src/providers/github-copilot.ts</span>): <strong>directly reuses OpenAI's Route</strong> (<span class="mono">OpenAIChat.route</span>/<span class="mono">OpenAIResponses.route</span>, zero rewrite), <span class="mono">.with(...)</span>-overriding only the <span class="mono">endpoint</span> (Copilot baseURL) and <span class="mono">auth</span> (<span class="mono">AuthOptions.bearer</span>, token obtained via GitHub OAuth exchange) pieces.</li>
     <li><strong>Difference is configuration, not branches</strong>: Copilot's difference from OpenAI converges into "swap headers + baseURL" config, not <span class="mono">if (isCopilot)</span> in protocol code. Because auth was designed early as an independent piece, the special "exchange first, then enter" auth disturbs the protocol layer not at all. M6's loop now closes; next stop M7, the tool system.</li>
