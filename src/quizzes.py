@@ -45,6 +45,48 @@ def _shuffle(opts, answer, seed):
 
 
 QUIZZES = {
+    "52-opentui.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode 怎么在「只能显示字符的终端」里搭出一个响应式、可交互的现代 UI？", "en": "How does opencode build a reactive, interactive modern UI in a \"terminal that can only display characters\"?"},
+                "opts": [
+                    {"zh": "用 opentui——一个把 SolidJS 渲染到终端的渲染器，是「终端里的浏览器」：你照样写 JSX(<box>/<text>)、用 signal 做响应式，opentui 负责把组件树画成终端字符格", "en": "With opentui — a renderer that renders SolidJS to the terminal, \"a browser for the terminal\": you still write JSX (<box>/<text>), use signals for reactivity, and opentui paints the component tree into terminal character cells"},
+                    {"zh": "直接手写 ANSI 转义码、手动算每个字符的坐标", "en": "Hand-write ANSI escape codes directly, manually computing each character's coordinates"},
+                    {"zh": "在终端里嵌一个真正的浏览器", "en": "Embed an actual browser in the terminal"},
+                    {"zh": "把界面渲染成图片显示", "en": "Render the interface as an image to display"},
+                ],
+                "answer": 0,
+                "why": {"zh": "opencode 用 opentui——一个把 SolidJS 渲染到终端的渲染器，本质是「终端里的浏览器」。现代框架的精髓是「渲染器与框架分离」：SolidJS 管组件/signal/响应式，画到哪由可插拔渲染器决定——画到浏览器 DOM 是网页、画到终端就是 opentui。它分两层：@opentui/core(引擎：布局/绘制/输入)+@opentui/solid(SolidJS 绑定：render/useRenderer)。JSX 原语是终端版 HTML 标签：<box>(≈div,flexbox 容器)、<text>、<scrollbox>、<input>/<textarea>。布局用 flexDirection/flexGrow/justifyContent 等 CSS flexbox。于是你用和写网页一样的心智模型搭终端 App，opentui 把「组件树怎么变成屏幕字符」全包了——无需手写 ANSI、手算坐标。这是把整个前端渲染范式整体复用（同 L51 复用 git、L39 复用 Ripgrep）。", "en": "opencode uses opentui — a renderer that renders SolidJS to the terminal, essentially \"a browser for the terminal.\" The essence of modern frameworks is \"separating renderer from framework\": SolidJS handles components/signals/reactivity, where to paint is decided by a pluggable renderer — paint to the browser DOM and it's a web page, to the terminal and it's opentui. It's two layers: @opentui/core (engine: layout/paint/input) + @opentui/solid (SolidJS bindings: render/useRenderer). JSX primitives are terminal HTML tags: <box> (≈div, flexbox container), <text>, <scrollbox>, <input>/<textarea>. Layout via flexDirection/flexGrow/justifyContent CSS flexbox. So you build a terminal app with the same mental model as a web page, opentui handles all of \"how the component tree becomes screen characters\" — no hand-writing ANSI, no manual coordinates. This reuses the entire frontend rendering paradigm wholesale (like L51 reusing git, L39 reusing Ripgrep)."},
+            },
+            {
+                "q": {"zh": "为什么把 SolidJS 的「细粒度响应式」搬进终端，对一个流畅的 TUI 如此关键？", "en": "Why is transplanting SolidJS's \"fine-grained reactivity\" into the terminal so crucial to a fluid TUI?"},
+                "opts": [
+                    {"zh": "终端绘制昂贵、带宽有限（尤其 SSH），整屏重画扛不住 60fps 还会闪；signal 让 signal 变→只标脏依赖它的元素→只重画脏元素→只刷变化的字符格（差分），把每次更新压到最小", "en": "Terminal painting is expensive, bandwidth limited (especially SSH); full-screen redraw can't sustain 60fps and flickers; signals make a signal change → only mark dependent elements dirty → only repaint dirty elements → only flush changed character cells (diff), squeezing each update to the minimum"},
+                    {"zh": "细粒度响应式让代码更短", "en": "Fine-grained reactivity makes code shorter"},
+                    {"zh": "终端不支持整屏重画", "en": "Terminals don't support full-screen redraw"},
+                    {"zh": "为了兼容旧终端", "en": "For compatibility with old terminals"},
+                ],
+                "answer": 0,
+                "why": {"zh": "终端绘制是昂贵的：每帧要把成千上万字符格连同颜色算出来、经一串 ANSI 转义码刷给终端。如果每次状态变化都整屏重画，60fps 扛不住、画面还会闪；而且终端「带宽」有限——刷的字符越多，写出去的转义码越长越慢，SSH 远程尤其明显。所以「每次只刷最少的格子」是流畅 TUI 的生死线。SolidJS 的 signal 让更新外科手术般精确：某 signal 变→只有依赖它的那几个元素被标脏→opentui 只对脏元素重新布局/绘制→下一帧只刷变化的字符格（差分更新）。你只管用 signal 描述「数据是什么」，从不手动操心「重画屏幕哪一块」——依赖追踪+差分绘制自动把更新压到最小，和浏览器里用 Solid/React 一模一样，只是最小更新单位从 DOM 节点变成终端字符格。", "en": "Terminal painting is expensive: each frame must compute thousands of character cells with colors and flush them via a string of ANSI escape codes. If every state change redrew the whole screen, 60fps couldn't hold and the screen would flicker; and the terminal's \"bandwidth\" is limited — the more characters flushed, the longer/slower the escape codes written, especially over SSH. So \"flush the fewest cells each time\" is a fluid TUI's lifeline. SolidJS's signals make updates surgically precise: some signal changes → only the few elements depending on it are marked dirty → opentui re-lays-out/repaints only dirty elements → the next frame flushes only changed character cells (diff update). You just describe \"what the data is\" with signals, never manually worrying \"which part of the screen to redraw\" — dependency tracking + diff painting auto-squeeze updates to the minimum, identical to using Solid/React in the browser, only the minimal-update unit changes from a DOM node to a terminal character cell."},
+            },
+            {
+                "q": {"zh": "opencode 为什么把 createCliRenderer 包进 Effect 的 acquireRelease 里？", "en": "Why does opencode wrap createCliRenderer in Effect's acquireRelease?"},
+                "opts": [
+                    {"zh": "渲染器是个会独占并改写终端状态的资源（切备用屏/关回显/进 raw 模式）；acquireRelease 保证无论怎么退出（正常/异常/SIGHUP）destroyRenderer 必被执行，把终端恢复原状、不留烂摊子", "en": "The renderer is a resource that exclusively takes over and rewrites terminal state (alt screen/echo off/raw mode); acquireRelease guarantees that however you exit (normal/exception/SIGHUP) destroyRenderer is necessarily executed, restoring the terminal, leaving no mess"},
+                    {"zh": "为了让渲染器跑得更快", "en": "To make the renderer run faster"},
+                    {"zh": "acquireRelease 能减少内存占用", "en": "acquireRelease reduces memory usage"},
+                    {"zh": "纯粹是代码风格要求", "en": "Purely a code-style requirement"},
+                ],
+                "answer": 0,
+                "why": {"zh": "渲染器是一个会独占并改写你终端状态的资源（切到备用屏、关回显、进 raw 模式…）。一旦 App 崩了或被强杀，若不复原，终端会彻底错乱（光标乱跑、看不见输入）。Effect.acquireRelease 把「获取资源」和「释放资源」绑在一起，保证无论以何种方式退出——正常关、抛异常、收到 SIGHUP——那个 destroyRenderer 清理函数必定被执行，把终端恢复如初。这正是第 2 部分 Effect「资源获取与释放绑定、释放必然发生」的纪律，用在最容易把终端搞坏的 TUI 入口上。一个体贴的 TUI 不仅要画得好看，更要在退出时把舞台收拾干净——而结构化资源管理让「收拾干净」从靠自觉变成结构上无法遗漏。", "en": "The renderer is a resource that exclusively takes over and rewrites your terminal state (switches to the alternate screen, turns off echo, enters raw mode…). Once the App crashes or is force-killed, if not restored, the terminal will be thoroughly scrambled (cursor flying, input invisible). Effect.acquireRelease binds \"acquire resource\" and \"release resource\" together, guaranteeing that however you exit — normal close, thrown exception, received SIGHUP — that destroyRenderer cleanup function is necessarily executed, restoring the terminal to as-new. This is exactly Part 2's Effect \"acquisition and release bound, release necessarily happens\" discipline, applied at the TUI entry most likely to break the terminal. A thoughtful TUI must not only paint nicely but tidy up the stage on exit — and structured resource management turns \"tidying up\" from self-discipline into something structurally impossible to forget."},
+            },
+        ],
+        "open": [
+            {"zh": "课里反复强调 opentui 是「终端里的浏览器」——把整套 Web 渲染范式（DOM 般元素树、flexbox、60fps 绘制循环、键鼠事件）搬进 TTY，让你用和写网页一样的心智模型搭终端 App。请你谈谈这种「把成熟范式整体复用到新目标」的设计决策：它给 opencode 省下了什么（不必发明新 UI 框架、复用 SolidJS 生态、三端统一心智）？又有什么代价或局限（终端的字符网格 vs 像素、颜色/字体受限、依赖 opentui 的成熟度）？你是否见过/做过类似「把 React 渲染到非 DOM 目标」（react-three-fiber、Ink、react-native）的案例？它们的得失如何？", "en": "The lesson repeatedly stresses opentui is \"a browser for the terminal\" — transplanting the whole web rendering paradigm (DOM-like element tree, flexbox, 60fps paint loop, kb/mouse events) into the TTY, letting you build a terminal app with the same mental model as a web page. Discuss this \"reuse a mature paradigm wholesale on a new target\" design decision: what does it save opencode (no new UI framework, reuse the SolidJS ecosystem, unified mental model across three clients)? What are the costs or limitations (the terminal's character grid vs pixels, limited colors/fonts, dependence on opentui's maturity)? Have you seen/done a similar \"render React to a non-DOM target\" case (react-three-fiber, Ink, react-native)? How do their tradeoffs compare?"},
+            {"zh": "课里说终端绘制昂贵、带宽有限，所以「每次只刷最少的字符格」是流畅 TUI 的生死线，而 SolidJS 的细粒度响应式恰好天然满足这点（signal 变→只重画依赖它的元素→只刷变化的格子）。请你对比「细粒度响应式（SolidJS signal）」与「虚拟 DOM diff（React）」两种『把更新压到最小』的思路：它们各自如何决定「重画什么」？在终端这种『刷新成本极高、带宽极有限』的渲染目标上，为什么细粒度响应式可能比 vDOM diff 更有优势？反过来，vDOM 有没有它的长处？", "en": "The lesson says terminal painting is expensive and bandwidth limited, so \"flush the fewest character cells each time\" is a fluid TUI's lifeline, and SolidJS's fine-grained reactivity happens to satisfy this naturally (signal changes → only repaint elements depending on it → only flush changed cells). Compare \"fine-grained reactivity (SolidJS signals)\" with \"virtual DOM diff (React)\" as two approaches to \"squeezing updates to the minimum\": how does each decide \"what to repaint\"? On a render target like the terminal where \"refresh cost is very high, bandwidth very limited,\" why might fine-grained reactivity have an edge over vDOM diff? Conversely, does vDOM have its own strengths?"},
+        ],
+    },
+
     "51-compaction-snapshots.html": {
         "mcq": [
             {
