@@ -45,6 +45,48 @@ def _shuffle(opts, answer, seed):
 
 
 QUIZZES = {
+    "54-events-to-store.html": {
+        "mcq": [
+            {
+                "q": {"zh": "opencode TUI 的界面状态是怎么来的？它和 Redux 的「action→reducer→state」是什么关系？", "en": "Where does opencode TUI's interface state come from? How does it relate to Redux's \"action→reducer→state\"?"},
+                "opts": [
+                    {"zh": "事件溯源——SDKProvider 经 SSE 订阅服务器事件流，sync.tsx 的 switch(event.type) reducer 把每个事件归约进 createStore 响应式 store；store 是事件流的投影，正是 Redux 三段式，只是 action 来自服务器", "en": "Event-sourced — SDKProvider subscribes to the server event stream via SSE, sync.tsx's switch(event.type) reducer reduces each event into the createStore reactive store; the store is a projection of the event stream, exactly the Redux triad, only the action comes from the server"},
+                    {"zh": "每隔一秒拉一次完整状态、整个替换", "en": "Pulls the full state every second and replaces it wholesale"},
+                    {"zh": "状态全存在服务器、TUI 不存", "en": "All state lives on the server, the TUI stores none"},
+                    {"zh": "用轮询查询数据库", "en": "Polls the database"},
+                ],
+                "answer": 0,
+                "why": {"zh": "opencode TUI 不「每秒拉一次最新状态」，而是订阅：SDKProvider 经 SSE 连服务器事件流，服务器一有动静（新消息/工具状态变化/权限请求…）就主动推事件。把事件变成状态的，是 sync.tsx 那个巨大的 switch(event.type) reducer——针对每种类型做一次精准 setStore（如 permission.asked→setStore(\"permission\",sessionID,[request])、session.updated→setStore(\"session\",index,reconcile(info))）。这正是「action→reducer→state」三段式，只是 action 是服务器推的事件、state 是 createStore 建的响应式大 store（装所有会话/消息/权限/待办/配置…）。store 是事件流的一份投影。reducer 用 produce（草稿就地改、自动算变更路径）和 reconcile（替换时只改真正不同字段、保细粒度），数组按 id 排序 + 二分 search O(log n) 找到即更新/找不到即插入。", "en": "opencode TUI doesn't \"pull the latest state every second\" but subscribes: SDKProvider connects to the server event stream via SSE, and the moment the server has news (new message/tool status change/permission request…) it actively pushes an event. What turns events into state is sync.tsx's giant switch(event.type) reducer—one precise setStore per type (e.g. permission.asked→setStore(\"permission\",sessionID,[request]), session.updated→setStore(\"session\",index,reconcile(info))). This is exactly the \"action→reducer→state\" triad, only the action is a server-pushed event and the state is the big reactive store built with createStore (holding all sessions/messages/permissions/todos/config…). The store is a projection of the event stream. The reducer uses produce (draft in-place edit, auto-computes changed paths) and reconcile (on replace, changes only truly-different fields, keeps fine-grained), arrays sorted by id + binary search O(log n) find-and-update or insert."},
+            },
+            {
+                "q": {"zh": "当 agent 全速流式输出、一秒涌来上百个事件时，opencode 怎么避免「每个事件一次重渲染」把界面卡死？", "en": "When the agent streams at full speed and a hundred events gush in per second, how does opencode avoid \"one re-render per event\" stuttering the interface to death?"},
+                "opts": [
+                    {"zh": "16ms 批处理——事件入队；距上次 flush<16ms（洪流中）就 setTimeout(flush,16) 攒批、≥16ms（空闲）就立刻 flush；flush 把整批事件裹进 SolidJS batch()，一批事件只触发一次重渲染（16ms≈60fps 一帧）", "en": "16ms batching — events queued; <16ms since last flush (in flood) → setTimeout(flush,16) amass, ≥16ms (idle) → flush immediately; flush wraps the whole batch in SolidJS batch(), a batch of events triggers only one re-render (16ms≈one 60fps frame)"},
+                    {"zh": "丢弃多余的事件、只处理第一个", "en": "Discards excess events, processes only the first"},
+                    {"zh": "把渲染搬到后台线程", "en": "Moves rendering to a background thread"},
+                    {"zh": "降低终端分辨率", "en": "Lowers the terminal resolution"},
+                ],
+                "answer": 0,
+                "why": {"zh": "agent 流式输出时服务器每吐几个字就推一个事件，一秒可能上百个。若每个都立刻重渲染=一秒上百次重画，终端绘制昂贵（L52），必然卡成幻灯片还狂闪。opencode 的解法在 sdk.tsx 的 handleEvent：每个事件先 queue.push 入队不立即处理；看距上次 flush 过了多久（elapsed）——elapsed<16ms（刚刷过、正处洪流）就 setTimeout(flush,16) 把它和后续攒一起，elapsed≥16ms（很闲）就立刻 flush 零延迟。flush 把队列所有事件的应用裹进一个 SolidJS batch()——一批事件的所有 store 更新合并成一次重渲染。16ms≈60fps 一帧时长，节奏正好踩在屏幕刷新节拍上，把「一秒上百次重画」压到「一秒最多 60 次」。这层「时间维批处理」和 L52「空间维细粒度更新」叠加=流畅双重保险。", "en": "When the agent streams, the server pushes an event every few characters, possibly a hundred per second. If each immediately re-rendered = a hundred redraws/sec, terminal painting being expensive (L52), it'd inevitably stutter into a slideshow and flicker madly. opencode's solution is in sdk.tsx's handleEvent: each event first queue.pushes without immediate processing; check how long since the last flush (elapsed)—elapsed<16ms (just flushed, in the flood) → setTimeout(flush,16) amasses it with subsequent ones, elapsed≥16ms (idle) → flushes immediately, zero latency. flush wraps the application of all queued events in one SolidJS batch()—all a batch's store updates merge into one re-render. 16ms≈one 60fps frame's duration, the rhythm steps precisely on the screen-refresh beat, pressing \"a hundred redraws/sec\" down to \"at most 60/sec.\" This \"temporal-dimension batching\" stacked with L52's \"spatial-dimension fine-grained updates\" = the double insurance of fluidity."},
+            },
+            {
+                "q": {"zh": "16ms 批处理那个 elapsed<16 的判断，巧在哪里？", "en": "What's clever about that elapsed<16 check in 16ms batching?"},
+                "opts": [
+                    {"zh": "用一个判断在「低延迟（空闲立刻发）」和「高吞吐（洪流攒批）」间无缝自动切换——洞察是：用户对延迟敏感发生在事件稀疏时(等响应)、高吞吐需求发生在事件密集时(看流式)，两者时间上天然错开", "en": "One check seamlessly auto-switches between \"low latency (idle sends immediately)\" and \"high throughput (flood amasses)\" — the insight: a user's latency sensitivity happens when events are sparse (awaiting a response), the throughput need when events are dense (watching streaming), the two naturally staggered in time"},
+                    {"zh": "16 是 2 的幂、计算更快", "en": "16 is a power of 2, computes faster"},
+                    {"zh": "纯粹是为了兼容老终端", "en": "Purely for old-terminal compatibility"},
+                    {"zh": "为了限制每秒事件数量", "en": "To cap the number of events per second"},
+                ],
+                "answer": 0,
+                "why": {"zh": "「延迟」与「吞吐」是天生矛盾。朴素实现只能二选一：每事件立刻处理（延迟最低，但洪流卡死），或固定每 16ms 才处理一次（吞吐稳，但空闲也白慢 16ms）。opencode 用一个 elapsed<16 的判断把两种模式自动切换：闲时走「立刻」分支、忙时走「攒批」分支——系统自己按负载在低延迟和高吞吐间无缝滑动，无需手动调参。这种「自适应批处理」的精髓是一个洞察：用户对延迟的敏感恰恰发生在事件稀疏时（你在等响应），高吞吐需求恰恰发生在事件密集时（你在看流式输出），两种需求在时间上天然错开。于是一个简单的「最近是否刚忙过」判断，就能让系统永远站在当下最该站的那一边。好的性能优化往往不是更复杂、而是更懂场景。", "en": "\"Latency\" and \"throughput\" are a born contradiction. A naive implementation can only pick one: process each event immediately (lowest latency, but stutters under flood), or process only once per fixed 16ms (stable throughput, but needlessly 16ms slower when idle). opencode uses one elapsed<16 check to auto-switch between the two modes: when idle take the \"immediate\" branch, when busy take the \"amass\" branch—the system slides seamlessly between low latency and high throughput per load, no manual tuning. This \"adaptive batching\"'s essence is an insight: a user's sensitivity to latency happens exactly when events are sparse (you're awaiting a response), the need for high throughput exactly when events are dense (you're watching streaming output), the two needs naturally staggered in time. So a simple \"was it busy recently\" check lets the system always stand on the side it most should right now. Good performance optimization is often not more complex but more attuned to the scenario."},
+            },
+        ],
+        "open": [
+            {"zh": "课里把 opencode TUI 的流畅归功于「双重保险」：16ms 批处理（时间维：每帧最多渲一次）× 细粒度响应式（空间维：每次只动该动的字符格）。请你分别解释这两层各自解决了什么问题、缺了任何一层会怎样（只有批处理没有细粒度？只有细粒度没有批处理？），并谈谈这种「时间维 + 空间维」正交叠加的优化思路，在你熟悉的其他高频渲染场景（游戏循环、股票行情、聊天室、日志面板）里有没有对应的影子？", "en": "The lesson credits opencode TUI's fluidity to \"double insurance\": 16ms batching (temporal: at most one render per frame) × fine-grained reactivity (spatial: each render touches only the cells that should change). Explain what each layer solves and what would happen missing either (only batching, no fine-grained? only fine-grained, no batching?), and discuss this \"temporal + spatial\" orthogonally-stacked optimization approach—does it have echoes in other high-frequency rendering scenarios you know (game loops, stock tickers, chat rooms, log panels)?"},
+            {"zh": "课里盛赞 16ms 自适应批处理「用一个 elapsed<16 的判断在低延迟与高吞吐间无缝切换」，并提炼出洞察：用户对延迟的敏感发生在事件稀疏时、高吞吐需求发生在事件密集时，两者时间上天然错开。请你把这个「按当前负载在两种策略间自适应切换」的模式，与你见过的其他自适应机制（TCP 拥塞控制、自适应防抖/节流、数据库的批量提交、Nagle 算法）做类比：它们共享什么样的结构？设计一个好的「自适应阈值」要权衡什么（这里 16ms 选大选小各有什么后果）？什么场景下「固定策略」反而比「自适应」更可取？", "en": "The lesson praises 16ms adaptive batching for \"using one elapsed<16 check to seamlessly switch between low latency and high throughput,\" distilling the insight: a user's latency sensitivity happens when events are sparse, the throughput need when events are dense, the two naturally staggered in time. Compare this \"adaptively switch between two strategies per current load\" pattern with other adaptive mechanisms you've seen (TCP congestion control, adaptive debounce/throttle, database batch commits, the Nagle algorithm): what structure do they share? What does designing a good \"adaptive threshold\" trade off (here, what are the consequences of choosing 16ms larger or smaller)? In what scenarios is a \"fixed strategy\" preferable to \"adaptive\"?"},
+        ],
+    },
+
     "53-tui-structure.html": {
         "mcq": [
             {

@@ -449,6 +449,221 @@ LESSON_53 = {
 </div>
 """,
 }
-LESSON_54 = wip('事件到 store', 'Events to store')
+LESSON_54 = {
+    "zh": r"""
+<p class="lead">上一课我们看清了 Provider 金字塔，也注意到其中 <span class="mono">Sync</span>/<span class="mono">Data</span> 两层专管「把事件变成状态」。这一课就钻进这条<strong>数据流</strong>：服务器源源不断推来的事件，是怎么变成那个驱动整个界面的<strong>响应式 store</strong> 的。这是理解 opencode TUI <strong>为什么是「活的」</strong>的关键——你看到对话流里新消息一个字一个字地冒出来、工具调用的状态实时翻转、待办项打勾，背后都是这条「事件→store→重渲染」的流水在飞速运转。但这里藏着一个魔鬼细节：当 agent 全速流式输出时，事件会像<strong>消防水龙头</strong>一样喷涌而来——若每来一个事件就重画一次屏幕，界面会卡成幻灯片。opencode 怎么让界面在事件洪流下依然丝般顺滑？答案是一记精巧的 <strong>16ms 批处理</strong>。</p>
+<p>这一课有两个层层递进的洞见。第一，<strong>TUI 的状态是「事件溯源」出来的</strong>：它不是「拉一份数据、整个替换」，而是<strong>订阅服务器的事件流</strong>，再用一个 <span class="mono">switch(event.type)</span> 的 <strong>reducer</strong> 把每个事件<strong>归约</strong>进本地的响应式 store——store 是这条事件流的一份<strong>投影</strong>。这和你熟悉的 Redux「action→reducer→state」是同一个心智，只不过 action 来自服务器、state 是 SolidJS 的细粒度 store。第二，<strong>16ms 的「批处理 + 低延迟」双策略</strong>：所有在约 16ms（一个 60fps 帧）窗口内涌到的事件，会被<strong>攒成一批</strong>、在一次 SolidJS <span class="mono">batch()</span> 里统一应用——于是「一串事件」只触发<strong>一次重渲染</strong>；但若此刻很闲（距上次刷新超过 16ms），则<strong>立刻处理</strong>不攒，保证低延迟。读懂这两点，你就懂了「为什么 opencode 的终端界面，能在 agent 狂吐 token 的洪流里，依然每秒只稳稳地重画几十帧、既不卡也不闪」。</p>
+
+<div class="card analogy">
+  <div class="tag">📊 生活类比</div>
+  把那个响应式 store 想象成体育馆里的<strong>实时记分牌</strong>。场上的每一个动作——进球、犯规、换人——都是一条<strong>「事件」</strong>，通过广播流不断报进来；记分牌后台有个小工（<strong>reducer</strong>），听到「主队进球」就给主队 +1、听到「换人」就改阵容表——<strong>每条事件只精准改动记分牌的相关那一格</strong>，而非把整块牌子擦了重写。但问题来了：比赛精彩时，进球、助攻、数据更新可能在一两秒内<strong>连珠炮般砸来十几条</strong>。如果每来一条就把记分牌<strong>刷新一遍</strong>，整块牌子会闪得让人眼花。聪明的做法是：给记分牌定一个<strong>「最小刷新间隔」</strong>（比如每 16 毫秒最多刷一次）——这一小段时间内攒下的所有更新，<strong>合并成一次</strong>刷上去。于是哪怕事件像洪水，观众看到的记分牌始终是<strong>稳定、流畅、不闪</strong>的。这正是 opencode TUI 处理事件洪流的办法。
+</div>
+
+<h2>事件 → reducer → store：UI 状态的事件溯源</h2>
+<p>opencode 的 TUI 不会傻乎乎地「每隔一秒拉一次最新状态」。它做的是<strong>订阅</strong>：<span class="mono">SDKProvider</span> 通过 SSE（Server-Sent Events）连上服务器的事件流，服务器一有动静（新消息、工具状态变化、权限请求……）就<strong>主动推</strong>一个事件过来。而把这些事件<strong>变成状态</strong>的，是 <span class="mono">sync.tsx</span> 里那个巨大的 reducer——一个 <span class="mono">switch(event.type)</span>，针对每种事件类型，做一次精准的 store 更新：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">permission.asked</div><div class="c-txt"><span class="mono">setStore("permission", sessionID, [request])</span>——挂一个待批权限请求</div></div>
+  <div class="cell"><div class="c-tag">todo.updated</div><div class="c-txt"><span class="mono">setStore("todo", sessionID, todos)</span>——替换该会话的待办列表</div></div>
+  <div class="cell"><div class="c-tag">session.updated</div><div class="c-txt"><span class="mono">setStore("session", index, reconcile(info))</span>——就地更新某会话</div></div>
+  <div class="cell"><div class="c-tag">session.status</div><div class="c-txt"><span class="mono">setStore("session_status", sessionID, status)</span>——刷新运行状态（如「思考中」）</div></div>
+</div>
+<p>这就是经典的「<strong>action → reducer → state</strong>」三段式，只不过 action 是服务器推来的事件、state 是 <span class="mono">sync.tsx</span> 用 <span class="mono">createStore</span> 建的那个<strong>响应式大 store</strong>（装着所有会话、消息、权限、待办、配置、provider……整个 App 的服务器侧状态）。整条流水串起来是这样：</p>
+<div class="flow">
+  <div class="f-node">服务器 SSE 事件<br><small>新消息/状态变化…</small></div>
+  <div class="f-arrow">推送 →</div>
+  <div class="f-node">事件队列<br><small>SDKProvider 收下</small></div>
+  <div class="f-arrow">flush →</div>
+  <div class="f-node">reducer 归约<br><small>switch(type)→setStore</small></div>
+  <div class="f-arrow">更新 →</div>
+  <div class="f-node">响应式 store→重渲染<br><small>只动相关组件(L52)</small></div>
+</div>
+<p>更新 store 时，reducer 用了两个 SolidJS 的利器：<span class="mono">produce</span> 和 <span class="mono">reconcile</span>。<span class="mono">produce</span> 让你像改普通对象一样在一个「草稿」上就地修改（immer 风格），SolidJS 会自动算出哪些路径变了；<span class="mono">reconcile</span> 则在用「一个新对象」替换 store 某处时，<strong>智能地只改真正不同的字段</strong>、而非整块替换——这对保持细粒度响应至关重要：若粗暴整块替换，会让一大片本没变的组件也被迫重渲染。reducer 里还藏着一个二分查找 <span class="mono">search</span>：会话等数组按 id 排好序存着，新事件来时用二分<strong>O(log n)</strong> 地「找到就更新、找不到就插入」，避免线性扫描。<strong>这些细节合起来，让「把一个事件吸收进庞大 store」这件事既精准又高效。</strong></p>
+
+<h2>16ms 批处理：把事件洪流压成每帧一渲</h2>
+<p>现在来到最精妙的一环。设想 agent 正在全速流式输出一段长回答：服务器会<strong>每吐几个字就推一个事件</strong>，一秒钟可能涌来上百个事件。如果<strong>每个事件都立刻触发一次重渲染</strong>，那就是一秒上百次重画——终端绘制本就昂贵（L52），这么搞界面必然卡成幻灯片、还疯狂闪烁。opencode 的解法藏在 <span class="mono">sdk.tsx</span> 的 <span class="mono">handleEvent</span> 里，逻辑只有几行，却拿捏得极准：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">每个事件先 <span class="mono">queue.push</span> 入队，不立刻处理</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">看距上次 flush 过了多久（<span class="mono">elapsed</span>）</span></div>
+  <div class="t-row"><span class="t-num">3a</span><span class="t-txt"><span class="mono">elapsed &lt; 16ms</span>（刚刷过、正处于洪流）→ 设个 <span class="mono">setTimeout(flush, 16)</span>，把它和后续事件攒一起</span></div>
+  <div class="t-row"><span class="t-num">3b</span><span class="t-txt"><span class="mono">elapsed ≥ 16ms</span>（很闲）→ <strong>立刻 flush</strong>，零延迟</span></div>
+</div>
+<p>而 <span class="mono">flush</span> 的关键，是把队列里所有事件的应用<strong>裹进一个 SolidJS <span class="mono">batch()</span></strong>：</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">queue 攒批</div><div class="c-txt">16ms 窗口内涌来的事件全攒进一个队列，不逐个触发渲染</div></div>
+  <div class="cell"><div class="c-tag">batch() 合一</div><div class="c-txt"><span class="mono">batch(() =&gt; 逐个 emit)</span>——一批事件的所有 store 更新合并成<strong>一次</strong>重渲染</div></div>
+  <div class="cell"><div class="c-tag">闲时直发</div><div class="c-txt"><span class="mono">elapsed ≥ 16</span> 时立刻 flush——空闲时不引入任何延迟</div></div>
+  <div class="cell"><div class="c-tag">16ms ≈ 一帧</div><div class="c-txt">60fps 下一帧约 16.7ms——这个窗口正好「每帧最多渲一次」</div></div>
+</div>
+<p>这个策略的精髓，是<strong>「负载下攒批、空闲时直发」的二者兼得</strong>。当事件稀疏（你刚敲完一句、等 agent 反应），第一个事件 <span class="mono">elapsed ≥ 16</span> 会被立刻处理，界面<strong>零延迟</strong>响应你；而一旦进入洪流（agent 狂吐 token），后续事件就被 16ms 的窗口<strong>不断收拢成一批批</strong>，每 16ms 才统一渲一次——把「一秒上百次重画」死死压到「一秒最多 60 次」。16ms 这个数字不是随便选的：它恰好是 60fps 下一帧的时长，意味着批处理的节奏<strong>正好踩在屏幕刷新的节拍上</strong>，多渲也是浪费。<strong>这一层「时间维度的批处理」，和 L52 那层「空间维度的细粒度更新」叠在一起，构成了 opencode TUI 流畅的双重保险</strong>：16ms 批处理保证「每帧最多渲一次」，细粒度响应式保证「每次渲只动该动的那几个字符格」。一纵一横，事件洪流再凶，落到终端上也只是平稳的每秒几十帧。</p>
+
+<h2>全景：一个 token 从服务器到你眼前</h2>
+<p>把前两节合起来，看一个流式 token 走完的完整旅程，就能看清这套设计如何层层把「洪流」驯服成「顺滑」。先看 16ms 窗口在时间轴上是怎么收拢事件的：</p>
+<div class="timeline">
+  <div class="tl-item"><div class="tl-time">t=0ms</div><div class="tl-text">空闲中来了第 1 个事件 → elapsed≥16 → 立刻 flush+渲染（零延迟）</div></div>
+  <div class="tl-item"><div class="tl-time">t=2~15ms</div><div class="tl-text">洪流来了：事件 2/3/4…陆续涌到 → 全攒进 queue，排一个 16ms 后的 flush</div></div>
+  <div class="tl-item"><div class="tl-time">t=16ms</div><div class="tl-text">flush：把这一窗口攒下的 N 个事件裹进一个 batch → 只渲染 1 次</div></div>
+  <div class="tl-item"><div class="tl-time">t=16ms+</div><div class="tl-text">洪流继续 → 每 16ms 一批一渲，稳定 60fps；洪流停 → 下个事件又走零延迟分支</div></div>
+</div>
+<p>对比一下「没有 16ms 批处理」会怎样，这层防护的价值就一目了然：</p>
+<div class="cols">
+  <div class="col"><h4>朴素：每事件一渲（卡）</h4><p>agent 一秒吐 100 个 token=100 个事件=100 次重渲染。终端绘制昂贵，根本刷不过来，界面卡成幻灯片还疯狂闪烁——用户体验崩溃。</p></div>
+  <div class="col"><h4>opencode：16ms 批处理（顺）</h4><p>100 个事件被 16ms 窗口收拢成约 6 批=最多 60 次渲染/秒。配合细粒度响应式，每次只刷变化的字符格——洪流下依然丝般顺滑。</p></div>
+</div>
+<p>所以一个流式 token 的完整旅程是：<strong>服务器算出这个 token → SSE 推一个事件 → SDKProvider 收进队列 → 16ms 窗口把它和同批伙伴攒在一起 → 一次 batch 里，reducer 把它们逐个归约进 store（store 里对应那条消息的文本 +N 个字）→ store 变更只通知依赖它的那个 <span class="mono">&lt;text&gt;</span> 组件 → opentui 只重画屏幕上那几格字符。</strong>从「服务器的一个字节」到「你眼前多出来的一个字」，中间隔着<strong>事件流、队列、批处理、reducer、响应式 store、细粒度渲染</strong>这一整条精心设计的流水——而它们协同的唯一目的，就是让你在终端里看到的对话，<strong>像在最丝滑的网页里一样自然地流淌</strong>。这条从字节到字符的旅程，正是 opencode 把「服务器的事件世界」和「你眼前的终端界面」缝合起来的那根线。</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ 宏观视角</div>
+  <p>这一课讲清了 opencode TUI 的数据流——服务器事件如何变成驱动界面的响应式状态：</p>
+  <ul>
+    <li><strong>事件溯源的 UI 状态</strong>：TUI 不「拉取替换」，而是 <span class="mono">SDKProvider</span> 经 SSE 订阅服务器事件流，再用 <span class="mono">sync.tsx</span> 的 <span class="mono">switch(event.type)</span> reducer 把每个事件归约进 <span class="mono">createStore</span> 建的响应式大 store（会话/消息/权限/待办/配置…）。store=事件流的投影。同 Redux「action→reducer→state」，action 来自服务器。</li>
+    <li><strong>reducer 的两大利器</strong>：<span class="mono">produce</span>（immer 风草稿就地改、自动算变更路径）+ <span class="mono">reconcile</span>（替换时只改真正不同的字段、保细粒度）；数组按 id 排序 + 二分 <span class="mono">search</span> O(log n) 找到即更新/找不到即插入。</li>
+    <li><strong>16ms 批处理</strong>（<span class="mono">sdk.tsx</span> handleEvent/flush）：事件入队；<span class="mono">elapsed&lt;16ms</span>（洪流中）→ <span class="mono">setTimeout(flush,16)</span> 攒批，<span class="mono">≥16ms</span>（空闲）→ 立刻 flush。flush 把整批事件裹进 <span class="mono">batch()</span>→一批事件只触发一次重渲染。16ms≈60fps 一帧。</li>
+    <li><strong>流畅的双重保险</strong>：16ms 批处理（时间维：每帧最多渲一次）× L52 细粒度响应式（空间维：每次只动该动的字符格）=事件洪流下仍平稳每秒几十帧、不卡不闪。「负载下攒批、空闲时直发」二者兼得。</li>
+  </ul>
+  <p>数据流看清了——事件经 reducer 归约进 store、16ms 批处理把洪流压成每帧一渲、细粒度响应式只重画变化处。至此你已掌握 opencode TUI 的「骨架（L53 Provider 金字塔）+ 血液（L54 事件数据流）+ 画笔（L52 opentui）」。接下来两课转向具体的<strong>界面组件</strong>：L55 讲那个你天天敲字的 <strong>prompt 编辑器</strong>（自动补全、历史、frecency 常用度排序），L56 讲<strong>对话框、命令面板</strong>与 run CLI 的 scrollback。</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 源码细节</div>
+  <p><span class="mono">sdk.tsx</span> 的 <span class="mono">handleEvent</span>+<span class="mono">flush</span>，把「攒批 vs 直发」的取舍写得极简（简化自源码）：</p>
+  <pre class="code"><span class="kw">const</span> flush = () =&gt; {
+  <span class="kw">if</span> (queue.length === <span class="nu">0</span>) <span class="kw">return</span>
+  <span class="kw">const</span> events = queue; queue = []; timer = undefined; last = Date.<span class="fn">now</span>()
+  <span class="cm">// 把一批事件的所有 emit 裹进一个 batch → 只触发一次渲染</span>
+  <span class="fn">batch</span>(() =&gt; { <span class="kw">for</span> (<span class="kw">const</span> event <span class="kw">of</span> events) emitter.<span class="fn">emit</span>(<span class="st">"event"</span>, event) })
+}
+
+<span class="kw">const</span> handleEvent = (event) =&gt; {
+  queue.<span class="fn">push</span>(event)
+  <span class="kw">const</span> elapsed = Date.<span class="fn">now</span>() - last
+  <span class="kw">if</span> (timer) <span class="kw">return</span>                    <span class="cm">// 已排了一次 flush，等它</span>
+  <span class="kw">if</span> (elapsed &lt; <span class="nu">16</span>) {                  <span class="cm">// 刚刷过、正处洪流</span>
+    timer = <span class="fn">setTimeout</span>(flush, <span class="nu">16</span>)     <span class="cm">// ← 攒批，下一帧再统一刷</span>
+    <span class="kw">return</span>
+  }
+  <span class="fn">flush</span>()                            <span class="cm">// ← 空闲：立刻处理，零延迟</span>
+}</pre>
+  <p>这段代码最值得品的，是它对<strong>「延迟」与「吞吐」这对天生矛盾</strong>的精巧平衡。一个朴素的实现往往只能二选一：要么「每个事件立刻处理」（延迟最低，但洪流下卡死），要么「固定每 16ms 才处理一次」（吞吐稳定，但空闲时也白白慢 16ms）。而这里用一个 <span class="mono">elapsed &lt; 16</span> 的判断<strong>把两种模式自动切换</strong>：闲的时候走「立刻」分支、忙的时候走「攒批」分支——<strong>系统自己根据负载在「低延迟」和「高吞吐」之间无缝滑动</strong>，无需任何手动调参。这种「自适应批处理」是高性能事件系统里一个极优雅的模式，它的精髓在于看清了一个洞察：<strong>用户对延迟的敏感，恰恰发生在事件稀疏时（你在等响应）；而高吞吐的需求，恰恰发生在事件密集时（你在看流式输出）。</strong>两种需求在时间上天然错开，于是一个简单的「最近是否刚忙过」判断，就能让系统永远站在当下最该站的那一边。读懂这一手，你会对「好的性能优化往往不是更复杂、而是更懂场景」有更深的体会。</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 本课要点</div>
+  <ul>
+    <li><strong>事件溯源的 UI 状态</strong>：TUI 经 SSE 订阅服务器事件流（非拉取替换），<span class="mono">sync.tsx</span> 的 <span class="mono">switch(event.type)</span> reducer 把每事件归约进 <span class="mono">createStore</span> 响应式大 store。store=事件流投影，同 Redux action→reducer→state（action 来自服务器）。</li>
+    <li><strong>reducer 利器</strong>：<span class="mono">produce</span>（草稿就地改、自动算变更）+ <span class="mono">reconcile</span>（只改真正不同字段、保细粒度）；数组按 id 排序 + 二分 <span class="mono">search</span> O(log n) 找到即更新/找不到即插入。</li>
+    <li><strong>16ms 批处理</strong>（<span class="mono">sdk.tsx</span>）：事件入队；<span class="mono">elapsed&lt;16</span>（洪流）→ <span class="mono">setTimeout(flush,16)</span> 攒批、<span class="mono">≥16</span>（空闲）→ 立刻 flush；flush 把整批裹进 <span class="mono">batch()</span>→一批事件只触发一次渲染。16ms≈60fps 一帧。</li>
+    <li><strong>自适应批处理</strong>：<span class="mono">elapsed&lt;16</span> 一个判断在「低延迟（空闲立刻发）」与「高吞吐（洪流攒批）」间无缝自动切换——洞察=用户对延迟敏感发生在事件稀疏时、高吞吐需求发生在事件密集时，两者时间上天然错开。</li>
+    <li><strong>流畅双重保险</strong>：16ms 批处理（时间维：每帧最多渲一次）× L52 细粒度响应式（空间维：每次只动该动的字符格）=事件洪流下仍平稳每秒几十帧、不卡不闪。</li>
+  </ul>
+</div>
+""",
+    "en": r"""
+<p class="lead">Last lesson we saw the Provider pyramid, noting its <span class="mono">Sync</span>/<span class="mono">Data</span> layers specifically manage "turning events into state." This lesson drills into this <strong>data flow</strong>: how the events the server pushes continuously become the <strong>reactive store</strong> that drives the whole interface. This is the key to understanding <strong>why opencode's TUI is "alive"</strong>—you see new messages appear character by character in the conversation stream, tool-call statuses flip in real time, todo items get checked, all powered by this "event→store→re-render" pipeline running at high speed. But here hides a devilish detail: when the agent streams output at full speed, events gush in like a <strong>fire hose</strong>—if every event triggered a screen redraw, the interface would stutter into a slideshow. How does opencode keep the interface silky-smooth under a flood of events? The answer is an exquisite <strong>16ms batch</strong>.</p>
+<p>This lesson has two progressively deeper insights. First, <strong>the TUI's state is "event-sourced"</strong>: it doesn't "pull a copy of data and replace wholesale" but <strong>subscribes to the server's event stream</strong>, then uses a <span class="mono">switch(event.type)</span> <strong>reducer</strong> to <strong>reduce</strong> each event into a local reactive store—the store is a <strong>projection</strong> of this event stream. This is the same mental model as the Redux "action→reducer→state" you know, only the action comes from the server and the state is SolidJS's fine-grained store. Second, the <strong>16ms "batch + low-latency" dual strategy</strong>: all events arriving within a ~16ms (one 60fps frame) window get <strong>amassed into a batch</strong> and applied together in one SolidJS <span class="mono">batch()</span>—so "a string of events" triggers only <strong>one re-render</strong>; but if it's idle right now (more than 16ms since the last flush), it's <strong>processed immediately</strong> with no amassing, ensuring low latency. Grasp these two and you'll understand "why opencode's terminal interface, amid the flood of the agent spewing tokens, still steadily redraws only a few dozen frames per second—neither stuttering nor flickering."</p>
+
+<div class="card analogy">
+  <div class="tag">📊 Analogy</div>
+  Picture that reactive store as a stadium's <strong>live scoreboard</strong>. Every action on the field—a goal, a foul, a substitution—is an <strong>"event"</strong>, reported continuously via a broadcast stream; behind the scoreboard sits a worker (the <strong>reducer</strong>) who, hearing "home team scores," adds +1 to the home side, hearing "substitution," updates the lineup—<strong>each event precisely changes only the relevant cell of the scoreboard</strong>, not wiping and rewriting the whole board. But here's the problem: when the game is exciting, goals, assists, stat updates may slam in <strong>a dozen in rapid fire</strong> within a second or two. If the scoreboard <strong>refreshed once per event</strong>, the whole board would flicker dizzyingly. The smart move: give the scoreboard a <strong>"minimum refresh interval"</strong> (say, at most once per 16 milliseconds)—all updates amassed in that little window <strong>merged into one</strong> refresh. So even if events flood, what spectators see is always a <strong>stable, fluid, flicker-free</strong> scoreboard. That's exactly how opencode's TUI handles the event flood.
+</div>
+
+<h2>Event → reducer → store: event-sourcing the UI state</h2>
+<p>opencode's TUI doesn't foolishly "pull the latest state every second." It <strong>subscribes</strong>: <span class="mono">SDKProvider</span> connects to the server's event stream via SSE (Server-Sent Events), and the moment the server has news (new message, tool status change, permission request…) it <strong>actively pushes</strong> an event over. What <strong>turns these events into state</strong> is that giant reducer in <span class="mono">sync.tsx</span>—a <span class="mono">switch(event.type)</span> that, per event type, does one precise store update:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">permission.asked</div><div class="c-txt"><span class="mono">setStore("permission", sessionID, [request])</span>—hang a pending permission request</div></div>
+  <div class="cell"><div class="c-tag">todo.updated</div><div class="c-txt"><span class="mono">setStore("todo", sessionID, todos)</span>—replace that session's todo list</div></div>
+  <div class="cell"><div class="c-tag">session.updated</div><div class="c-txt"><span class="mono">setStore("session", index, reconcile(info))</span>—update some session in place</div></div>
+  <div class="cell"><div class="c-tag">session.status</div><div class="c-txt"><span class="mono">setStore("session_status", sessionID, status)</span>—refresh run status (e.g. "thinking")</div></div>
+</div>
+<p>This is the classic "<strong>action → reducer → state</strong>" triad, only the action is an event pushed by the server and the state is that <strong>big reactive store</strong> <span class="mono">sync.tsx</span> builds with <span class="mono">createStore</span> (holding all sessions, messages, permissions, todos, config, providers… the whole App's server-side state). The whole pipeline strung together:</p>
+<div class="flow">
+  <div class="f-node">server SSE event<br><small>new message/status change…</small></div>
+  <div class="f-arrow">push →</div>
+  <div class="f-node">event queue<br><small>SDKProvider receives</small></div>
+  <div class="f-arrow">flush →</div>
+  <div class="f-node">reducer reduces<br><small>switch(type)→setStore</small></div>
+  <div class="f-arrow">update →</div>
+  <div class="f-node">reactive store→re-render<br><small>only related components(L52)</small></div>
+</div>
+<p>When updating the store, the reducer uses two SolidJS power tools: <span class="mono">produce</span> and <span class="mono">reconcile</span>. <span class="mono">produce</span> lets you modify a "draft" in place like an ordinary object (immer-style), and SolidJS auto-computes which paths changed; <span class="mono">reconcile</span>, when replacing some part of the store with "a new object," <strong>intelligently changes only the truly-different fields</strong> rather than replacing the whole block—crucial for keeping fine-grained reactivity: a crude whole-block replace would force a large swath of unchanged components to re-render too. The reducer also hides a binary search <span class="mono">search</span>: arrays like sessions are stored sorted by id, and when a new event comes a binary search <strong>O(log n)</strong> "finds-and-updates or inserts," avoiding a linear scan. <strong>These details together make "absorbing one event into the giant store" both precise and efficient.</strong></p>
+
+<h2>16ms batching: squeezing the event flood to one render per frame</h2>
+<p>Now the most exquisite part. Imagine the agent streaming a long answer at full speed: the server <strong>pushes an event every few characters</strong>, possibly a hundred events gushing in per second. If <strong>every event immediately triggered a re-render</strong>, that's a hundred redraws per second—terminal painting is already expensive (L52), and doing this the interface would inevitably stutter into a slideshow and flicker madly. opencode's solution hides in <span class="mono">sdk.tsx</span>'s <span class="mono">handleEvent</span>, a few lines of logic yet nailed precisely:</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">1</span><span class="t-txt">each event first <span class="mono">queue.push</span>es into the queue, not processed immediately</span></div>
+  <div class="t-row"><span class="t-num">2</span><span class="t-txt">check how long since the last flush (<span class="mono">elapsed</span>)</span></div>
+  <div class="t-row"><span class="t-num">3a</span><span class="t-txt"><span class="mono">elapsed &lt; 16ms</span> (just flushed, in the flood) → set a <span class="mono">setTimeout(flush, 16)</span>, amass it with future events</span></div>
+  <div class="t-row"><span class="t-num">3b</span><span class="t-txt"><span class="mono">elapsed ≥ 16ms</span> (idle) → <strong>flush immediately</strong>, zero latency</span></div>
+</div>
+<p>And <span class="mono">flush</span>'s key is wrapping the application of all queued events <strong>in one SolidJS <span class="mono">batch()</span></strong>:</p>
+<div class="cellgroup">
+  <div class="cell"><div class="c-tag">queue amasses</div><div class="c-txt">events gushing in within the 16ms window all amass into a queue, not triggering a render each</div></div>
+  <div class="cell"><div class="c-tag">batch() merges</div><div class="c-txt"><span class="mono">batch(() =&gt; emit each)</span>—all a batch's store updates merge into <strong>one</strong> re-render</div></div>
+  <div class="cell"><div class="c-tag">idle sends directly</div><div class="c-txt"><span class="mono">elapsed ≥ 16</span> flushes immediately—no latency introduced when idle</div></div>
+  <div class="cell"><div class="c-tag">16ms ≈ one frame</div><div class="c-txt">at 60fps one frame is ~16.7ms—this window is exactly "at most one render per frame"</div></div>
+</div>
+<p>The essence of this strategy is <strong>having both "batch under load" and "send directly when idle."</strong> When events are sparse (you just typed a sentence, awaiting the agent's reaction), the first event with <span class="mono">elapsed ≥ 16</span> is processed immediately, the interface responds to you with <strong>zero latency</strong>; but once the flood begins (the agent spewing tokens), subsequent events are <strong>continuously gathered into batches</strong> by the 16ms window, rendering once per 16ms—pressing "a hundred redraws per second" firmly down to "at most 60 per second." The number 16ms isn't arbitrary: it's exactly one frame's duration at 60fps, meaning the batching's rhythm <strong>steps precisely on the beat of the screen refresh</strong>, rendering more would be waste. <strong>This layer of "temporal-dimension batching," stacked with L52's layer of "spatial-dimension fine-grained updates," forms the double insurance of opencode TUI's fluidity</strong>: 16ms batching guarantees "at most one render per frame," fine-grained reactivity guarantees "each render touches only the few character cells that should change." One vertical, one horizontal—however fierce the event flood, landing on the terminal it's just a steady few dozen frames per second.</p>
+
+<h2>The full picture: a token's journey from server to your eyes</h2>
+<p>Combining the prior two sections, watching a streaming token's complete journey shows how this design tames the "flood" into "smoothness" layer by layer. First see how the 16ms window gathers events along a timeline:</p>
+<div class="timeline">
+  <div class="tl-item"><div class="tl-time">t=0ms</div><div class="tl-text">in idle, event 1 arrives → elapsed≥16 → flush+render immediately (zero latency)</div></div>
+  <div class="tl-item"><div class="tl-time">t=2~15ms</div><div class="tl-text">flood comes: events 2/3/4… gush in → all amass into queue, schedule a flush 16ms out</div></div>
+  <div class="tl-item"><div class="tl-time">t=16ms</div><div class="tl-text">flush: wraps the N events amassed this window into one batch → renders only once</div></div>
+  <div class="tl-item"><div class="tl-time">t=16ms+</div><div class="tl-text">flood continues → one batch one render per 16ms, steady 60fps; flood stops → the next event takes the zero-latency branch again</div></div>
+</div>
+<p>Compare what "without 16ms batching" would be like, and this layer's value is clear at a glance:</p>
+<div class="cols">
+  <div class="col"><h4>naive: one render per event (stutter)</h4><p>the agent spews 100 tokens/sec = 100 events = 100 re-renders. Terminal painting is expensive, can't keep up at all, the interface stutters into a slideshow and flickers madly—UX collapse.</p></div>
+  <div class="col"><h4>opencode: 16ms batching (smooth)</h4><p>100 events gathered by the 16ms window into ~6 batches = at most 60 renders/sec. Paired with fine-grained reactivity, each render flushes only changed character cells—silky-smooth even under flood.</p></div>
+</div>
+<p>So a streaming token's complete journey is: <strong>the server computes this token → SSE pushes an event → SDKProvider receives it into the queue → the 16ms window amasses it with its batch-mates → in one batch, the reducer reduces them one by one into the store (the text of the corresponding message in the store +N characters) → the store change notifies only the one <span class="mono">&lt;text&gt;</span> component depending on it → opentui repaints only those few character cells on screen.</strong> From "a byte at the server" to "a character newly appearing before your eyes," in between sits this whole carefully-designed pipeline of <strong>event stream, queue, batching, reducer, reactive store, fine-grained rendering</strong>—and their sole shared purpose is to make the conversation you see in the terminal <strong>flow as naturally as in the silkiest web page</strong>. This journey from byte to character is exactly the thread by which opencode stitches "the server's event world" to "the terminal interface before your eyes."</p>
+
+<div class="card macro">
+  <div class="tag">🗺️ The Big Picture</div>
+  <p>This lesson clarifies opencode TUI's data flow—how server events become the reactive state driving the interface:</p>
+  <ul>
+    <li><strong>event-sourced UI state</strong>: the TUI doesn't "pull-and-replace" but <span class="mono">SDKProvider</span> subscribes to the server event stream via SSE, then <span class="mono">sync.tsx</span>'s <span class="mono">switch(event.type)</span> reducer reduces each event into the reactive store built with <span class="mono">createStore</span> (sessions/messages/permissions/todos/config…). store = projection of the event stream. Like Redux "action→reducer→state," the action comes from the server.</li>
+    <li><strong>the reducer's two power tools</strong>: <span class="mono">produce</span> (immer-style draft in-place edit, auto-computes changed paths) + <span class="mono">reconcile</span> (on replace, changes only truly-different fields, keeps fine-grained); arrays sorted by id + binary <span class="mono">search</span> O(log n) find-and-update or insert.</li>
+    <li><strong>16ms batching</strong> (<span class="mono">sdk.tsx</span> handleEvent/flush): events queued; <span class="mono">elapsed&lt;16ms</span> (in flood) → <span class="mono">setTimeout(flush,16)</span> amass, <span class="mono">≥16ms</span> (idle) → flush immediately. flush wraps the whole batch in <span class="mono">batch()</span> → a batch of events triggers only one re-render. 16ms ≈ one 60fps frame.</li>
+    <li><strong>double insurance of fluidity</strong>: 16ms batching (temporal: at most one render per frame) × L52 fine-grained reactivity (spatial: each render touches only the cells that should change) = steady few dozen fps under flood, no stutter no flicker. "Batch under load, send directly when idle"—both at once.</li>
+  </ul>
+  <p>The data flow is clear—events reduced into the store via the reducer, 16ms batching squeezing the flood to one render per frame, fine-grained reactivity repainting only changes. By here you've grasped opencode TUI's "skeleton (L53 Provider pyramid) + blood (L54 event data flow) + brush (L52 opentui)." The next two lessons turn to concrete <strong>interface components</strong>: L55 covers that <strong>prompt editor</strong> you type into daily (autocomplete, history, frecency sorting), L56 covers <strong>dialogs, the command palette</strong>, and the run CLI's scrollback.</p>
+</div>
+
+<div class="card detail">
+  <div class="tag">🔬 Source Detail</div>
+  <p><span class="mono">sdk.tsx</span>'s <span class="mono">handleEvent</span>+<span class="mono">flush</span> writes the "amass vs send directly" trade-off minimally (simplified from source):</p>
+  <pre class="code"><span class="kw">const</span> flush = () =&gt; {
+  <span class="kw">if</span> (queue.length === <span class="nu">0</span>) <span class="kw">return</span>
+  <span class="kw">const</span> events = queue; queue = []; timer = undefined; last = Date.<span class="fn">now</span>()
+  <span class="cm">// wrap all emits of a batch in one batch → triggers only one render</span>
+  <span class="fn">batch</span>(() =&gt; { <span class="kw">for</span> (<span class="kw">const</span> event <span class="kw">of</span> events) emitter.<span class="fn">emit</span>(<span class="st">"event"</span>, event) })
+}
+
+<span class="kw">const</span> handleEvent = (event) =&gt; {
+  queue.<span class="fn">push</span>(event)
+  <span class="kw">const</span> elapsed = Date.<span class="fn">now</span>() - last
+  <span class="kw">if</span> (timer) <span class="kw">return</span>                    <span class="cm">// a flush already scheduled, wait for it</span>
+  <span class="kw">if</span> (elapsed &lt; <span class="nu">16</span>) {                  <span class="cm">// just flushed, in the flood</span>
+    timer = <span class="fn">setTimeout</span>(flush, <span class="nu">16</span>)     <span class="cm">// ← amass, flush together next frame</span>
+    <span class="kw">return</span>
+  }
+  <span class="fn">flush</span>()                            <span class="cm">// ← idle: process immediately, zero latency</span>
+}</pre>
+  <p>What's most worth savoring here is its exquisite balance of <strong>"latency" and "throughput," a born contradiction</strong>. A naive implementation often can only pick one: either "process each event immediately" (lowest latency, but stutters under flood) or "process only once per fixed 16ms" (stable throughput, but needlessly 16ms slower when idle). Here a single <span class="mono">elapsed &lt; 16</span> check <strong>auto-switches between the two modes</strong>: when idle take the "immediate" branch, when busy take the "amass" branch—<strong>the system itself slides seamlessly between "low latency" and "high throughput" per load</strong>, with no manual tuning. This "adaptive batching" is an extremely elegant pattern in high-performance event systems, its essence being an insight: <strong>a user's sensitivity to latency happens exactly when events are sparse (you're awaiting a response); while the need for high throughput happens exactly when events are dense (you're watching streaming output).</strong> The two needs are naturally staggered in time, so a simple "was it busy recently" check lets the system always stand on the side it most should right now. Grasp this move and you'll feel more deeply that "good performance optimization is often not more complex but more attuned to the scenario."</p>
+</div>
+
+<div class="card key">
+  <div class="tag">🎯 Key Takeaways</div>
+  <ul>
+    <li><strong>event-sourced UI state</strong>: the TUI subscribes to the server event stream via SSE (not pull-and-replace), <span class="mono">sync.tsx</span>'s <span class="mono">switch(event.type)</span> reducer reduces each event into the <span class="mono">createStore</span> reactive store. store = projection of the event stream, like Redux action→reducer→state (action from the server).</li>
+    <li><strong>reducer power tools</strong>: <span class="mono">produce</span> (draft in-place edit, auto-computes changes) + <span class="mono">reconcile</span> (changes only truly-different fields, keeps fine-grained); arrays sorted by id + binary <span class="mono">search</span> O(log n) find-and-update or insert.</li>
+    <li><strong>16ms batching</strong> (<span class="mono">sdk.tsx</span>): events queued; <span class="mono">elapsed&lt;16</span> (flood) → <span class="mono">setTimeout(flush,16)</span> amass, <span class="mono">≥16</span> (idle) → flush immediately; flush wraps the whole batch in <span class="mono">batch()</span> → a batch of events triggers only one render. 16ms ≈ one 60fps frame.</li>
+    <li><strong>adaptive batching</strong>: one <span class="mono">elapsed&lt;16</span> check seamlessly auto-switches between "low latency (idle sends immediately)" and "high throughput (flood amasses)"—the insight = a user's latency sensitivity happens when events are sparse, the throughput need when events are dense, the two naturally staggered in time.</li>
+    <li><strong>double insurance of fluidity</strong>: 16ms batching (temporal: at most one render per frame) × L52 fine-grained reactivity (spatial: each render touches only the cells that should change) = steady few dozen fps under flood, no stutter no flicker.</li>
+  </ul>
+</div>
+""",
+}
 LESSON_55 = wip('prompt 组件', 'The prompt component')
 LESSON_56 = wip('对话框与 scrollback', 'Dialogs & scrollback')
