@@ -10189,7 +10189,7 @@ PtyEnvironment.Service.of({
 <p>为什么开发要这样「从源码即时跑」而不是「每次先编译再运行」？因为编译要时间，而开发的本质是<strong>高频的「改一点、看一眼」循环</strong>——你可能一分钟内改十次，若每次都等几十秒编译，心流就断了。<span class="mono">bun dev</span> 直接把 TypeScript 源码喂给 Bun 运行时跑，省掉了编译这一步，改完保存、立刻见效，反馈是<strong>秒级</strong>的。这也是为什么 opencode 选 Bun：它既是包管理器、又是能直接跑 TS 的运行时、还是打包器，一套工具贯穿「装依赖→跑源码→编成品」全程，省去了传统 Node 项目里 <span class="mono">tsc</span>+<span class="mono">node</span>+<span class="mono">webpack</span> 那一堆拼装。理解了这点，下面这个由几块拼成、各司其职的 monorepo 结构也就顺理成章：</p>
 <div class="cellgroup">
   <div class="cel"><b>packages/opencode</b><br>核心业务逻辑 + 服务器（CLI 入口、Session、工具…全在这）</div>
-  <div class="cel"><b>cli/cmd/tui/</b><br>TUI 代码，SolidJS + opentui（L52–56）</div>
+  <div class="cel"><b>cli/tui/</b><br>TUI 代码，SolidJS + opentui（L52–56）</div>
   <div class="cel"><b>packages/app</b><br>共享 Web UI 组件，SolidJS 写</div>
   <div class="cel"><b>packages/desktop</b><br>原生桌面端，Electron 包住 app</div>
   <div class="cel"><b>packages/plugin</b><br><span class="mono">@opencode-ai/plugin</span> 的源（L57）</div>

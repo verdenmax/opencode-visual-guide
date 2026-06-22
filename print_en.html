@@ -10181,7 +10181,7 @@ PtyEnvironment.Service.of({
 <p>Why should development "run from source instantly" rather than "compile first, then run, every time"? Because compiling takes time, and development is essentially a <strong>high-frequency "tweak a bit, glance" loop</strong>—you might change things ten times a minute, and if each one waited tens of seconds to compile, the flow would break. <span class="mono">bun dev</span> feeds TypeScript source straight to the Bun runtime, skipping the compile step; save your change and it takes effect immediately, feedback in <strong>seconds</strong>. This is also why opencode chose Bun: it's package manager, a runtime that runs TS directly, and bundler all in one, spanning "install deps → run source → compile product" with a single tool, sparing the <span class="mono">tsc</span>+<span class="mono">node</span>+<span class="mono">webpack</span> assembly of a traditional Node project. With that understood, the monorepo's several-piece, each-with-its-job structure follows naturally:</p>
 <div class="cellgroup">
   <div class="cel"><b>packages/opencode</b><br>Core business logic + server (CLI entry, Session, tools… all here)</div>
-  <div class="cel"><b>cli/cmd/tui/</b><br>TUI code, SolidJS + opentui (L52–56)</div>
+  <div class="cel"><b>cli/tui/</b><br>TUI code, SolidJS + opentui (L52–56)</div>
   <div class="cel"><b>packages/app</b><br>Shared Web UI components, written in SolidJS</div>
   <div class="cel"><b>packages/desktop</b><br>Native desktop app, Electron wrapping app</div>
   <div class="cel"><b>packages/plugin</b><br>Source of <span class="mono">@opencode-ai/plugin</span> (L57)</div>
