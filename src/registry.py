@@ -3,7 +3,7 @@
 Each value is {"zh": html, "en": html}. build.py / build_print.py import this so
 the lesson set stays in sync with shell.PAGES. Keys MUST match shell.PAGES.
 """
-import part1, part2, part3, part4, part5, part6, part7, part8, part9, part10, part11, part12
+import part1, part2, part3, part4, part5, part6, part7, part8, part9, part10, part11, part12, part13
 
 CONTENT = {
     '01-what-is-opencode.html': part1.LESSON_01,
@@ -70,4 +70,9 @@ CONTENT = {
     '62-build-debug.html': part12.LESSON_62,
     '63-test-contribute.html': part12.LESSON_63,
     '64-glossary.html': part12.LESSON_64,
+    '65-event-sourcing-sync.html': part13.LESSON_65,
+    '66-slash-commands.html': part13.LESSON_66,
+    '67-http-recorder.html': part13.LESSON_67,
+    '68-account-auth.html': part13.LESSON_68,
+    '69-ecosystem-tour.html': part13.LESSON_69,
 }

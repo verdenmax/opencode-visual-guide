@@ -174,6 +174,16 @@ PAGES = [
      '第十二部分 · 实战与速查', 'Part 12 · Practice & Reference'),
     ('64-glossary.html', '术语表与索引', 'Glossary & index',
      '第十二部分 · 实战与速查', 'Part 12 · Practice & Reference'),
+    ('65-event-sourcing-sync.html', 'EventV2 持久事件溯源与单写入同步', 'Event sourcing & single-writer sync',
+     '第十三部分 · 深入专题', 'Part 13 · Advanced Topics'),
+    ('66-slash-commands.html', '斜杠命令系统', 'Slash commands',
+     '第十三部分 · 深入专题', 'Part 13 · Advanced Topics'),
+    ('67-http-recorder.html', 'http-recorder 磁带录放测试', 'http-recorder tape testing',
+     '第十三部分 · 深入专题', 'Part 13 · Advanced Topics'),
+    ('68-account-auth.html', 'Account 与设备码 OAuth', 'Account & device-code OAuth',
+     '第十三部分 · 深入专题', 'Part 13 · Advanced Topics'),
+    ('69-ecosystem-tour.html', '其余生态一览', 'Ecosystem tour',
+     '第十三部分 · 深入专题', 'Part 13 · Advanced Topics'),
 ]
 
 
