@@ -394,7 +394,9 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="t-row"><span class="t-num">收获</span><span class="t-txt">OpenRouter / xAI / 本地模型… 一大票「兼容」厂商全部接入</span></div>
   <div class="t-row"><span class="t-num">增量</span><span class="t-txt">再多一家兼容厂商？协议代码一行不加，配个端点即可</span></div>
 </div>
-<p>这就是「协议 ≠ 供应商」这条设计原则的<strong>现金回报</strong>。如果当初把协议和供应商揉成一团（每家一套 if 分支），新增一家「OpenAI 兼容」厂商就得复制粘贴一大坨编解码逻辑；而解耦之后，新增一家的成本，<strong>趋近于零</strong>。一个 24 行的文件，胜过千言万语的架构布道。值得再多想一层的是：这 24 行之所以能这么短，<strong>不是因为偷懒，而是因为前面的功夫下到了位</strong>——正因为 Chat 协议把「请求编码」「流解码」干干净净地封装成了一个可复用的 <span class="mono">protocol</span> 对象，复用它才像「拿来即用」这么轻松。<strong>好的抽象，回报往往迟到，但一定会到</strong>：你在 Chat 协议上多花的那份「把编解码和网络分开」的心思，到这里、到每一个新接入的兼容厂商身上，连本带利地还给你。这也是为什么第 29 课要反复强调那张「两栏表」的边界——边界划得清，复用才来得爽。</p>
+<p>这就是「协议 ≠ 供应商」这条设计原则的<strong>现金回报</strong>。如果当初把协议和供应商揉成一团（每家一套 if 分支），新增一家「OpenAI 兼容」厂商就得复制粘贴一大坨编解码逻辑；而解耦之后，新增一家的成本，<strong>趋近于零</strong>。一个 24 行的文件，胜过千言万语的架构布道。</p>
+<p>值得再多想一层的是：这 24 行之所以能这么短，<strong>不是因为偷懒，而是因为前面的功夫下到了位</strong>——正因为 Chat 协议把「请求编码」「流解码」干干净净地封装成了一个可复用的 <span class="mono">protocol</span> 对象，复用它才像「拿来即用」这么轻松。</p>
+<p><strong>好的抽象，回报往往迟到，但一定会到</strong>：你在 Chat 协议上多花的那份「把编解码和网络分开」的心思，到这里、到每一个新接入的兼容厂商身上，连本带利地还给你。这也是为什么第 29 课要反复强调那张「两栏表」的边界——边界划得清，复用才来得爽。</p>
 
 <div class="card macro">
   <div class="tag">🗺️ 宏观图景</div>
@@ -542,7 +544,9 @@ OpenAICompatible.route = Route.make({ protocol: OpenAIChat.protocol, endpoint: <
   <div class="t-row"><span class="t-num">reap</span><span class="t-txt">OpenRouter / xAI / local models… a crowd of "compatible" vendors all connect</span></div>
   <div class="t-row"><span class="t-num">marginal</span><span class="t-txt">one more compatible vendor? Not a line of protocol code, just configure an endpoint</span></div>
 </div>
-<p>This is the <strong>cash reward</strong> of the "protocol ≠ provider" design principle. Had protocol and provider been mashed together originally (a set of if-branches per vendor), adding one "OpenAI-compatible" vendor would mean copy-pasting a big lump of codec logic; after decoupling, the cost of adding one <strong>approaches zero</strong>. A 24-line file outweighs a thousand words of architecture preaching. Worth one more layer of thought: these 24 lines can be this short <strong>not from laziness but because the earlier work was done right</strong>—precisely because the Chat protocol cleanly encapsulates "request encode" and "stream decode" into one reusable <span class="mono">protocol</span> object, reusing it is as easy as "plug and play." <strong>A good abstraction's reward often arrives late, but it arrives</strong>: the extra care you spent on the Chat protocol to "separate codec from network" is paid back here, with interest, at every newly-connected compatible vendor. This is why lesson 29 kept stressing that "two-column form"'s boundary—draw the boundary cleanly and reuse comes joyfully.</p>
+<p>This is the <strong>cash reward</strong> of the "protocol ≠ provider" design principle. Had protocol and provider been mashed together originally (a set of if-branches per vendor), adding one "OpenAI-compatible" vendor would mean copy-pasting a big lump of codec logic; after decoupling, the cost of adding one <strong>approaches zero</strong>. A 24-line file outweighs a thousand words of architecture preaching.</p>
+<p>Worth one more layer of thought: these 24 lines can be this short <strong>not from laziness but because the earlier work was done right</strong>—precisely because the Chat protocol cleanly encapsulates "request encode" and "stream decode" into one reusable <span class="mono">protocol</span> object, reusing it is as easy as "plug and play."</p>
+<p><strong>A good abstraction's reward often arrives late, but it arrives</strong>: the extra care you spent on the Chat protocol to "separate codec from network" is paid back here, with interest, at every newly-connected compatible vendor. This is why lesson 29 kept stressing that "two-column form"'s boundary—draw the boundary cleanly and reuse comes joyfully.</p>
 
 <div class="card macro">
   <div class="tag">🗺️ The Big Picture</div>

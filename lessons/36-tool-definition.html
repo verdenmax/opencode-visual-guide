@@ -375,6 +375,11 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="col"><h4>structured（给系统）</h4><p>output schema 编码后的<strong>结构化值</strong>，原原本本归档进消息历史，供日后程序化读取、重放、审计。</p></div>
   <div class="col"><h4>content（给模型）</h4><p>由 <span class="mono">toModelOutput</span> 渲染的 <span class="mono">text</span>/<span class="mono">file</span> 列表——只放<strong>模型该看的那一面</strong>。一个工具可以「内部记一大坨、只给模型看一句」。</p></div>
 </div>
+<div class="trace">
+  <div class="t-row"><span class="t-num">content 怎么定?</span><span class="t-txt">工具给了 <span class="mono">toModelOutput</span>？→ 用它渲染成 <span class="mono">text</span>/<span class="mono">file</span> 列表</span></div>
+  <div class="t-row"><span class="t-num">否，是字符串?</span><span class="t-txt">→ 直接把这串字符当文本给模型（简单工具零负担）</span></div>
+  <div class="t-row"><span class="t-num">否则</span><span class="t-txt">→ content 为空 <span class="mono">[]</span>（结构化结果照样进 <span class="mono">structured</span> 归档）</span></div>
+</div>
 <p>为什么要把这两份<strong>分开</strong>？因为「系统要记的」和「模型该看的」常常不是一回事。比如一个文件读取工具，结构化结果里可能有完整的字节数、行号、编码信息（系统归档有用），但给模型的 content 只需要文件内容本身；又比如某些工具内部结果很大，却只想给模型一句「已完成，写入 42 行」。把 <span class="mono">structured</span> 和 <span class="mono">content</span> 解耦，工具就能<strong>各按所需地「对内详尽、对外精炼」</strong>——这也为第 42 课「有界输出」埋了伏笔：给模型的那一面，是可以被裁剪的。</p>
 
 <h2>不透明的句柄：一把钥匙牌 + 上锁的机芯</h2>
@@ -526,6 +531,11 @@ Schema.<span class="fn">decodeUnknownEffect</span>(config.input)(call.input).pip
 <div class="cols">
   <div class="col"><h4>structured (for the system)</h4><p>The <strong>structured value</strong> after output-schema encoding, filed verbatim into message history for later programmatic reading, replay, audit.</p></div>
   <div class="col"><h4>content (for the model)</h4><p>The <span class="mono">text</span>/<span class="mono">file</span> list rendered by <span class="mono">toModelOutput</span>—holding only <strong>the side the model should see</strong>. A tool can "record a lot internally, show the model one line."</p></div>
+</div>
+<div class="trace">
+  <div class="t-row"><span class="t-num">how is content set?</span><span class="t-txt">tool gave <span class="mono">toModelOutput</span>? → use it to render a <span class="mono">text</span>/<span class="mono">file</span> list</span></div>
+  <div class="t-row"><span class="t-num">no, is it a string?</span><span class="t-txt">→ show that string as text (zero burden for simple tools)</span></div>
+  <div class="t-row"><span class="t-num">otherwise</span><span class="t-txt">→ content is empty <span class="mono">[]</span> (the structured result still files into <span class="mono">structured</span>)</span></div>
 </div>
 <p>Why <strong>separate</strong> these two? Because "what the system records" and "what the model should see" are often not the same. E.g. a file-read tool's structured result might hold full byte counts, line numbers, encoding (useful for the system's files), but the model's content needs only the file content itself; or some tools' internal result is huge yet want to tell the model just "done, wrote 42 lines." Decoupling <span class="mono">structured</span> and <span class="mono">content</span> lets a tool <strong>be "detailed inward, concise outward" as needed</strong>—which also foreshadows lesson 42's "bounded output": the side shown to the model can be trimmed.</p>
 

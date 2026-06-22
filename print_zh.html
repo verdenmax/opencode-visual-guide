@@ -823,6 +823,20 @@ const cli = <span class="fn">yargs</span>(<span class="fn">hideBin</span>(proces
 </div>
 <p>这张"下行 / 上行"图，是读懂 opencode 最省力的心智模型。<strong>下行是一个收敛的过程</strong>：你模糊的一句"帮我修个 bug"，经过会话登记、历史投影、上下文渲染，被一步步<strong>翻译成模型能吃的精确请求</strong>；每往下一层，信息就更结构化一分，最终收拢成一次干净的模型调用。</p>
 <p><strong>上行则是一个发散的过程</strong>：模型吐出的文本碎片、工具跑出的结果、持久化顺手产生的记录，被打散成一个个<strong>事件</strong>向上广播，谁订阅谁就看得到。两股流方向相反、却同时进行——下行在"问"，上行在"答与报告"。后面每讲一个模块，你都可以先问自己：它在下行还是上行？属于哪一层？理解立刻就有了坐标。这也是为什么这趟旅程值得在第一部分就走一遍：它是整本书的<strong>地图坐标系</strong>。</p>
+<p>下面把这 11 跳<strong>一次性铺平</strong>，并标出每跳属于下行（<span class="mono">↓</span> 收拢请求）、中段循环（<span class="mono">↻</span>）还是上行（<span class="mono">↑</span> 广播事件）：</p>
+<div class="trace">
+  <div class="t-row"><span class="t-num">①↓</span><span class="t-txt">按键落进 TUI prompt 组件（<span class="mono">packages/tui/src/component/prompt</span>）</span></div>
+  <div class="t-row"><span class="t-num">②↓</span><span class="t-txt"><span class="mono">createWorkerFetch</span> 把 SDK.fetch 偷换成对 Worker 的 RPC（<span class="mono">cli/cmd/tui.ts</span>）</span></div>
+  <div class="t-row"><span class="t-num">③↓</span><span class="t-txt">worker 里的 <span class="mono">Server.listen</span> → Effect <span class="mono">HttpApi</span> 的 session 路由组</span></div>
+  <div class="t-row"><span class="t-num">④↓</span><span class="t-txt">prompt 落成事件溯源的收件箱记录、唤醒运行器（<span class="mono">session/input.ts</span> → <span class="mono">run-coordinator.ts</span>）</span></div>
+  <div class="t-row"><span class="t-num">⑤↓</span><span class="t-txt">渲染基线 System Context（<span class="mono">system-context/index.ts</span>）</span></div>
+  <div class="t-row"><span class="t-num">⑥↓</span><span class="t-txt">投影历史 → LLM 消息、解析模型（<span class="mono">runner/to-llm-message.ts</span> · <span class="mono">model.ts</span>）</span></div>
+  <div class="t-row"><span class="t-num">⑦↓</span><span class="t-txt"><span class="mono">llm.stream()</span> 经协议适配器发给 provider，拿回 <span class="mono">Stream&lt;LLMEvent&gt;</span></span></div>
+  <div class="t-row"><span class="t-num">⑧↻</span><span class="t-txt"><strong>循环·问</strong>：一次 provider turn</span></div>
+  <div class="t-row"><span class="t-num">⑨↻</span><span class="t-txt"><strong>循环·干</strong>：tool-call → <span class="mono">FiberSet</span> 并发 settle → 持久化结果</span></div>
+  <div class="t-row"><span class="t-num">⑩↻</span><span class="t-txt"><strong>循环·判</strong>：还有工具调用？是 → 回 ⑧；否 → 收尾（护栏 <span class="mono">MAX_STEPS=25</span>）</span></div>
+  <div class="t-row"><span class="t-num">⑪↑</span><span class="t-txt">增量持久化发事件 → <span class="mono">GlobalBus</span> → SSE/RPC → 16ms 批渲染 → 屏幕</span></div>
+</div>
 
 <h2>第 1–3 跳：从按键到 server</h2>
 <p>你敲下的字符先落进 TUI 的 prompt 组件（<span class="mono">packages/tui/src/component/prompt</span>）。回车后，TUI 不是发网络请求——富终端有个巧妙设计：<strong>server 就跑在同一进程的一个 Worker 里</strong>。<span class="mono">cli/cmd/tui.ts</span> 用 <span class="mono">createWorkerFetch</span> 把 SDK 的 <span class="mono">fetch</span> 偷偷换成"对 Worker 发 RPC"，于是前端代码照常调 SDK，底层却<strong>零网络开销</strong>（第 13 课细讲）。</p>
@@ -2686,7 +2700,9 @@ GlobalBus.<span class="fn">on</span>(<span class="st">"event"</span>, (event) =&
   <div class="col"><h4>tool · 一个动作</h4><p>一次工具调用：名字、参数，以及它的执行状态。</p></div>
 </div>
 <p>「content 是 part 数组」这个设计，是理解整个 agent 体验的钥匙。为什么不直接存一大段字符串？因为一条 AI 回复，真实形态本就是<strong>交错的</strong>：它可能先想一会儿（reasoning），说两句（text），调个工具（tool），看了结果再接着说（text）……把这些拆成有序的 part 数组，系统就能<strong>分别对待每一种</strong>：思考折叠起来、文字正常显示、工具调用画成一张带状态的卡片。第 11 课那条事件流之所以能让你看到 AI「一个字一个字往外蹦、工具状态实时翻牌」，正是因为底层是这样一个<strong>可逐 part 增量更新</strong>的结构，而不是一锤子定音的字符串。</p>
-<p>把这件事和别的聊天工具对比一下就更清楚了。很多简单的对话应用，一条 AI 消息就是一个字符串字段——思考、工具、文字全糊成一团纯文本，想把工具调用单独画成卡片？做不到，因为信息在存的时候就被压扁了。opencode 反其道而行：<strong>在最源头就把一条回复拆成带类型的零件</strong>，于是「能不能漂亮地渲染」「能不能实时更新某一块」这些问题，在数据进库的那一刻就已经有了肯定的答案。这又是那个反复出现的主题——<strong>形状定得好，下游全都顺；形状压扁了，再多的前端努力也补不回丢掉的结构</strong>。reasoning 和 text 分开存也是同理：它让客户端可以选择「默认折叠思考、只显示答案」，而这只有在两者本就是不同 part 时才办得到。</p>
+<p>把这件事和别的聊天工具对比一下就更清楚了。很多简单的对话应用，一条 AI 消息就是一个字符串字段——思考、工具、文字全糊成一团纯文本，想把工具调用单独画成卡片？做不到，因为信息在存的时候就被压扁了。</p>
+<p>opencode 反其道而行：<strong>在最源头就把一条回复拆成带类型的零件</strong>，于是「能不能漂亮地渲染」「能不能实时更新某一块」这些问题，在数据进库的那一刻就已经有了肯定的答案。这又是那个反复出现的主题——<strong>形状定得好，下游全都顺；形状压扁了，再多的前端努力也补不回丢掉的结构</strong>。</p>
+<p>reasoning 和 text 分开存也是同理：它让客户端可以选择「默认折叠思考、只显示答案」，而这只有在两者本就是不同 part 时才办得到。</p>
 <div class="layers">
   <div class="layer l-app"><div class="lh"><span class="badge">外</span><span class="name">Session</span></div><div class="ld">一次会话的档案袋（元数据）</div></div>
   <div class="layer l-part"><div class="lh"><span class="badge">中</span><span class="name">Message ×8 种</span></div><div class="ld">User / Assistant / System / …</div></div>
@@ -3031,12 +3047,22 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   <div class="t-row"><span class="t-num">→</span><span class="t-txt">本趟跑完，若有待办 → 再补跑一趟（coalesced rerun）</span></div>
   <div class="t-row"><span class="t-num">idle</span><span class="t-txt">待办也清空了 → 回到空闲，静待下一记铃</span></div>
 </div>
-<p>这台状态机的美，在于它把「<strong>至多一条链在跑</strong>」这个不变量焊得死死的：无论外面 run、wake 来得多猛、多密，一个会话<strong>同时最多只有一趟 drain 在跑、外加最多一个待办</strong>。它既不会因为请求太密而并发失控，也不会因为合并而漏掉任何一笔已入账的活。还有第三个动作 <span class="mono">interrupt</span>（中断）：它能停掉当前这条执行链——这是「能干净地喊停一个正在长考的 agent」的底层开关，我们留到第 20 课再细看它怎么和「有界步数、错误处理」配合。这里只需记住：协调器不只管「怎么开跑」，也管「怎么停下」。</p>
+<p>这台状态机的美，在于它把「<strong>至多一条链在跑</strong>」这个不变量焊得死死的：无论外面 run、wake 来得多猛、多密，一个会话<strong>同时最多只有一趟 drain 在跑、外加最多一个待办</strong>。它既不会因为请求太密而并发失控，也不会因为合并而漏掉任何一笔已入账的活。还有第三个动作 <span class="mono">interrupt</span>（中断）：它能干净地停掉当前这条执行链——下面就拆开它在协调器里的机关；至于被中断的 runner 内部怎么收尾未结清的工具，留到第 20 课。这里先记住：协调器不只管「怎么开跑」，也管「怎么停下」。</p>
 <div class="cellgroup">
   <div class="cell"><div class="k">run(key)</div><div class="v">显式发车：起链或并入当前链</div></div>
   <div class="cell"><div class="k">wake(key, seq?)</div><div class="v">建议摇铃：起链或合并一个后续</div></div>
   <div class="cell"><div class="k">awaitIdle(key)</div><div class="v">等这条链彻底跑完、回到空闲</div></div>
-  <div class="cell"><div class="k">interrupt(key, seq?)</div><div class="v">停掉当前执行链（第 20 课细看）</div></div>
+  <div class="cell"><div class="k">interrupt(key, seq?)</div><div class="v">停掉当前执行链（下面拆解）</div></div>
+</div>
+<p>那第三个动作 <span class="mono">interrupt(seq)</span> 怎么融进这台状态机？它把车道从 draining 推入一个 <strong>stopping</strong> 态：停掉当前执行链的同时记下一个 <span class="mono">interruptSeq</span>，并<strong>把序号 ≤ 该 seq 的待办 wake 全部挡掉</strong>（<span class="mono">run-coordinator.ts</span> 的 <span class="mono">suppressPendingAtOrBefore</span> 与 <span class="mono">isAfterInterrupt</span>）。这一笔很关键：中断一个长考中的 agent 时，往往正有一串「中断前就在路上」的旧 wake——若不挡掉，它们会立刻把刚停下的链<strong>原地复活</strong>。于是规矩是：<strong>中断边界之前的旧铃一律作废，只有携带更新 seq 的新输入才能重新起链</strong>。这正是「干净喊停」背后真正的机关。</p>
+<div class="flow">
+  <div class="node">idle<span class="sub">空闲，无链在跑</span></div>
+  <div class="arrow">run/wake →</div>
+  <div class="node hl">draining<span class="sub">途中 run/wake 折叠成 ≤1 待办；有待办则补跑</span></div>
+  <div class="arrow">interrupt(seq) →</div>
+  <div class="node">stopping<span class="sub">停链：记 interruptSeq、挡掉 ≤seq 旧 wake</span></div>
+  <div class="arrow">链终止 →</div>
+  <div class="node">idle<span class="sub">回空闲；更新 seq 的新 wake 可再起链</span></div>
 </div>
 
 <div class="card macro">
@@ -3473,7 +3499,9 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   <div class="col"><h4>写端 · 事件（底账）</h4><p>append-only、不可变、有序。求<strong>稳</strong>：崩不丢、可重放、可定责。但直接读它，得自己重放一切。</p></div>
   <div class="col"><h4>读端 · 投影消息（报表）</h4><p>誊写好、当下、现成。求<strong>快</strong>：模型一读即用，不必重放。它是底账的「投影」，可随时据底账重建。</p></div>
 </div>
-<p>这套「写一种、读一种」的分家，在工程上有个名字叫 <strong>CQRS / 事件溯源读模型</strong>——但名字不重要，重要的是那个直觉：<strong>底账与报表，是同一份真相的两张脸。</strong>报表丢了不要紧，照底账能重新投影出来；但底账要是被改写了，那就真的失去了真相。所以 opencode 把「不可变的权威」放在事件这一端，把「可重建的便利」放在投影这一端——<strong>权威的那份永不可变，好读的那份随时可弃可重建</strong>。这个主次一旦摆正，可靠和好读就不再打架了。一旦你习惯用「底账 vs 报表」这副眼镜看系统，你会在很多地方认出它：数据库的物化视图、缓存与源数据、甚至 git 的提交历史与工作区——都是同一种「权威只追加、视图可重建」的分工。</p>
+<p>这套「写一种、读一种」的分家，在工程上有个名字叫 <strong>CQRS / 事件溯源读模型</strong>——但名字不重要，重要的是那个直觉：<strong>底账与报表，是同一份真相的两张脸。</strong>报表丢了不要紧，照底账能重新投影出来；但底账要是被改写了，那就真的失去了真相。</p>
+<p>所以 opencode 把「不可变的权威」放在事件这一端，把「可重建的便利」放在投影这一端——<strong>权威的那份永不可变，好读的那份随时可弃可重建</strong>。这个主次一旦摆正，可靠和好读就不再打架了。</p>
+<p>一旦你习惯用「底账 vs 报表」这副眼镜看系统，你会在很多地方认出它：数据库的物化视图、缓存与源数据、甚至 git 的提交历史与工作区——都是同一种「权威只追加、视图可重建」的分工。</p>
 <div class="flow">
   <div class="node">事件日志<span class="sub">append-only·底账（第 15 课）</span></div>
   <div class="arrow">投影器 →</div>
@@ -3627,7 +3655,9 @@ SessionExecution.<span class="fn">wake</span>(sessionID, seq?)
   { sessionID: SessionSchema.ID, limit: Schema.Int },  <span class="cm">// ← 谁、撞了多少</span>
 ) {}</pre>
 <p>为什么非要一个硬上限？因为模型<strong>不总知道自己该停</strong>。它可能陷进「再查一个文件、再改一处、再验证一下」的兔子洞，自以为在勤勤恳恳地推进，实则在原地打转、烧着你的钱。<span class="mono">while(true)</span> 式的「让它自由迭代到满意为止」，对一个会消耗真金白银、还可能动你文件的循环，是不可接受的赌博。25 这道环，是 opencode 替你按下的一道<strong>不容商量的刹车</strong>：迭代可以，但到此为止。而把「到此为止」做成一个<strong>带字段的类型化错误</strong>而非默默 return，意味着上层能<strong>明确地知道「这次是因为撞了上限才停的」</strong>，从而做出恰当反应（比如提示用户「任务太长，要不要分步」），而不是面对一个语焉不详的「就这么结束了」。</p>
-<p>这里有个容易被忽略的分寸：上限是 25，不是 5、也不是 250。太小，复杂任务还没展开就被掐断，agent 显得「不中用」；太大，失控的代价（钱、时间、对你文件的折腾）又太可怕。但要诚实地说——<strong>25 这个具体数字，源码自己也没把握</strong>：常量上方就挂着一行注释「<span class="mono">QUESTION: 这个限制是本来就有、还是我们后加的？它合理吗？</span>」。所以与其说它是精确调校出的最优值，不如说是一个<strong>「先定个数、别让它失控」的硬上限</strong>——它给了模型足够长的自驱空间去完成多数真实任务，又给了一道在它跑偏时及时止损的硬线。安全护栏的艺术，往往不在「有没有」，而在「卡在哪个值」：太松等于没有，太紧等于碍事，而这个值<strong>本就允许日后再校准</strong>。正因如此，把这个数字钉成一个<strong>显式的常量</strong>（<span class="mono">MAX_STEPS</span>）而非散落在代码里的魔法数，才尤其要紧——它方便日后被审视、被调整，这又是这套代码「把关键决策（连同它的不确定）摆到明面上」的一贯做派。</p>
+<p>这里有个容易被忽略的分寸：上限是 25，不是 5、也不是 250。太小，复杂任务还没展开就被掐断，agent 显得「不中用」；太大，失控的代价（钱、时间、对你文件的折腾）又太可怕。</p>
+<p>但要诚实地说——<strong>25 这个具体数字，源码自己也没把握</strong>：常量上方就挂着一行注释「<span class="mono">QUESTION: 这个限制是本来就有、还是我们后加的？它合理吗？</span>」。所以与其说它是精确调校出的最优值，不如说是一个<strong>「先定个数、别让它失控」的硬上限</strong>——它给了模型足够长的自驱空间去完成多数真实任务，又给了一道在它跑偏时及时止损的硬线。</p>
+<p>安全护栏的艺术，往往不在「有没有」，而在「卡在哪个值」：太松等于没有，太紧等于碍事，而这个值<strong>本就允许日后再校准</strong>。正因如此，把这个数字钉成一个<strong>显式的常量</strong>（<span class="mono">MAX_STEPS</span>）而非散落在代码里的魔法数，才尤其要紧——它方便日后被审视、被调整，这又是这套代码「把关键决策（连同它的不确定）摆到明面上」的一贯做派。</p>
 <div class="cols">
   <div class="col"><h4>❌ while(true) 自由迭代</h4><p>让模型转到自己满意。可它常陷兔子洞原地打转，烧钱、动文件，没人喊停。</p></div>
   <div class="col"><h4>✅ for(step&lt;25) + 类型化错误</h4><p>硬上限 25 圈，超了抛 StepLimitExceededError（带 sessionID/limit）。上层明确知道"为何而停"。</p></div>
@@ -4254,6 +4284,7 @@ load: () =&gt; Effect.<span class="fn">gen</span>(<span class="kw">function</spa
   <div class="t-row"><span class="t-num">→ Unchanged</span><span class="t-txt">环境没变 → 沿用旧 baseline/baselineSeq，啥也不发</span></div>
   <div class="t-row"><span class="t-num">→ Updated</span><span class="t-txt">环境变了 → publish 一个 ContextUpdated 事件（带差异文本）、revision+1</span></div>
   <div class="t-row"><span class="t-num">换 agent</span><span class="t-txt">agent 变了 → replace：尝试重立纪元（可能被 block，第 27 课）</span></div>
+  <div class="t-row"><span class="t-num">revision</span><span class="t-txt">写库时带 <span class="mono">WHERE revision=期望值</span>；并发撞车 → <strong>乐观重试</strong>，直到稳定（绝不终止一次合法的安全边界运行）</span></div>
 </div>
 <p>这套「对表」逻辑，把前几课的零件全用上了。<strong>首次</strong>，就是第 21~23 课那条「注册表 load → combine → initialize → Generation」的链路落地成一行数据库记录。<strong>同 agent 的 reconcile</strong>，正是第 22 课那个 compare 的会话级版本：环境没变就<strong>沉默</strong>（Unchanged，沿用旧基线，连 baselineSeq 都不动）；变了就走 <strong>Updated</strong>——但注意它这里不是简单改个字段，而是 <strong>publish 一个 <span class="mono">ContextUpdated</span> 事件</strong>！这个细节极重要：上下文的变化，被当成<strong>会话历史里一条正式的事件</strong>记下来（还记得第 14、15 课「一切皆事件、只追加」吗？）——于是模型在下一轮重读历史时，自然就读到「哦，目录变了」这条更新，无缝衔接。<strong>系统上下文的演进，本身也是事件溯源的一部分。</strong>（一个精确的小补充：源码里走 reconcile 还是 replace，判据是 <span class="mono">replacement_seq === null &amp;&amp; !换agent</span>——也就是说，除了换 agent，一个「尚未落定的待替换」也会把同 agent 也导向 replace。这点细节，留到第 27 课讲替换时自会清楚。）</p>
 <div class="cols">
@@ -4729,6 +4760,10 @@ SystemContext.<span class="fn">make</span>({
   <div class="col"><h4>✅ 阻塞：等齐再建</h4><p>有源暂缺就 block，保留旧纪元、等它恢复再重试。代价是切换稍延，收益是新基线永远完整可信。宁慢勿错。</p></div>
 </div>
 <div class="flow">
+  <div class="node">AgentSwitched 事件<span class="sub">projector 投影时</span></div>
+  <div class="arrow">requestReplacement →</div>
+  <div class="node">replacement_seq 置位<span class="sub">给纪元留「该换了」的标记</span></div>
+  <div class="arrow">下次 prepare →</div>
   <div class="node">换 agent<span class="sub">人设作废</span></div>
   <div class="arrow">replace →</div>
   <div class="node">重新观察所有源<span class="sub">从头拼基线</span></div>
@@ -4870,7 +4905,9 @@ SystemContext.<span class="fn">make</span>({
   <div class="cell"><div class="k">providerOptions</div><div class="v">少数确实供应商相关的逃生舱</div></div>
 </div>
 <p>回来的方向，是 <span class="mono">LLMEvent</span> 的流——模型的响应被翻译成一串<strong>统一的事件</strong>：文字块、推理块、工具调用、用量统计、错误……还记得第 17 课循环里那句 <span class="mono">llm.stream(request).pipe(Stream.runForEach(event =&gt; ...))</span> 吗？它消费的 <span class="mono">event</span>，正是这种规范化的 <span class="mono">LLMEvent</span>。<strong>无论底层是 Anthropic 还是 Gemini，循环看到的事件长一个样</strong>——这正是「翻译墙」的全部价值：墙内的 agent 循环，<strong>对供应商一无所知、也无需知道</strong>。</p>
-<p>停下来体会「一种规范语言」这件事的分量。它的本质，是在 core 和外部世界之间，<strong>钉死一份双方都认的契约</strong>：core 承诺「我永远按这个形状提需求、按这个形状收响应」，适配器承诺「无论外面多乱，我都把它整理成这个形状」。一旦这份契约立住，两边就能<strong>各自独立地演化</strong>：core 想加一种新的工具调用方式，只需在规范里加一笔，不必管十几家供应商怎么实现；某家供应商改了 API，只需改它那个适配器，core 浑然不觉。<strong>规范语言不是一种限制，而是一种解耦的自由</strong>——它让「业务怎么演化」和「供应商怎么演化」这两件本会互相拖累的事，彻底分了家。你会发现，这和第 12 课「用 OpenAPI 规范解耦前后端」是<strong>同一种智慧</strong>：中间立一份机器/双方都认的契约，两端就都获得了不被对方绑架的自由。</p>
+<p>停下来体会「一种规范语言」这件事的分量。它的本质，是在 core 和外部世界之间，<strong>钉死一份双方都认的契约</strong>：core 承诺「我永远按这个形状提需求、按这个形状收响应」，适配器承诺「无论外面多乱，我都把它整理成这个形状」。</p>
+<p>一旦这份契约立住，两边就能<strong>各自独立地演化</strong>：core 想加一种新的工具调用方式，只需在规范里加一笔，不必管十几家供应商怎么实现；某家供应商改了 API，只需改它那个适配器，core 浑然不觉。<strong>规范语言不是一种限制，而是一种解耦的自由</strong>——它让「业务怎么演化」和「供应商怎么演化」这两件本会互相拖累的事，彻底分了家。</p>
+<p>你会发现，这和第 12 课「用 OpenAPI 规范解耦前后端」是<strong>同一种智慧</strong>：中间立一份机器/双方都认的契约，两端就都获得了不被对方绑架的自由。</p>
 <div class="flow">
   <div class="node">core / agent 循环<span class="sub">只说规范语</span></div>
   <div class="arrow">LLMRequest →</div>
@@ -4886,7 +4923,9 @@ SystemContext.<span class="fn">make</span>({
   <div class="col"><h4>供应商 = 一个「具体厂商」</h4><p>一个能真正连上的服务：用<strong>哪种协议</strong> + 怎么认证 + 连哪个端点。如 anthropic、openai、google、bedrock、azure、github-copilot、openrouter、xai…</p></div>
 </div>
 <p>这一刀切得极妙，因为<strong>协议和供应商是「多对多」的</strong>。一个协议能服务多个供应商：OpenAI Chat 这套协议，不只 OpenAI 自己用，<strong>一大票「OpenAI 兼容」的厂商</strong>（OpenRouter、xAI、各种本地模型……）都借它说话。反过来，一个供应商也可能支持多种协议：OpenAI 自己就既有老的 Chat、又有新的 Responses。把「线缆格式」（协议）和「具体厂商」（供应商）<strong>解耦</strong>，opencode 就能用 <strong>6 种协议</strong>，<strong>复用</strong>地覆盖十几家供应商——而不是为每一家从头写一套。<strong>少量协议、大量复用</strong>，这正是这套分层最划算的地方。</p>
-<p>为什么不干脆「一个供应商一套适配器」、省去「协议」这层抽象？因为那样会有大量<strong>重复</strong>。OpenRouter、xAI、本地的 Ollama，它们的 API 形态几乎和 OpenAI 一模一样——如果按供应商各写一套，就是把同一套「OpenAI 方言翻译」抄了三四遍，改一处就要改三四处。opencode 把「方言」抽出来单独成「协议」，正是看准了「<strong>形态相同的供应商，本质共享同一种线缆格式</strong>」。于是供应商那一层变得极薄——它几乎只剩「我用哪种协议、怎么认证、连哪个端点」这三件事，真正费劲的「翻译」逻辑，全沉淀在为数不多的协议里复用。<strong>把重复的部分往下沉、把易变的部分往上提</strong>，是分层设计永恒的母题，这里又见一例。</p>
+<p>为什么不干脆「一个供应商一套适配器」、省去「协议」这层抽象？因为那样会有大量<strong>重复</strong>。OpenRouter、xAI、本地的 Ollama，它们的 API 形态几乎和 OpenAI 一模一样——如果按供应商各写一套，就是把同一套「OpenAI 方言翻译」抄了三四遍，改一处就要改三四处。</p>
+<p>opencode 把「方言」抽出来单独成「协议」，正是看准了「<strong>形态相同的供应商，本质共享同一种线缆格式</strong>」。于是供应商那一层变得极薄——它几乎只剩「我用哪种协议、怎么认证、连哪个端点」这三件事，真正费劲的「翻译」逻辑，全沉淀在为数不多的协议里复用。</p>
+<p><strong>把重复的部分往下沉、把易变的部分往上提</strong>，是分层设计永恒的母题，这里又见一例。</p>
 
 <h2>翻译墙挡住了什么</h2>
 <p>要体会这道墙的价值，不妨设想<strong>没有它</strong>会怎样。假如 agent 循环直接去调各家的 SDK，那么「发一条带工具调用的消息」这件事，就得在 core 里写成一团乱麻：Anthropic 的工具放在 <span class="mono">tools</span> 数组、用 <span class="mono">input_schema</span>；OpenAI 的放在 <span class="mono">functions</span>（或新版的 <span class="mono">tools</span>）、用 <span class="mono">parameters</span>；Gemini 又是另一套 <span class="mono">functionDeclarations</span>…… core 的每一处「调模型」，都会长出一片 <span class="mono">if (provider === ...)</span> 的藤蔓，缠死在各家方言的细节里。更糟的是，哪天某家改版，你得满 core 去找、去改。</p>
@@ -5179,7 +5218,9 @@ SystemContext.<span class="fn">make</span>({
   <div class="cell"><div class="c-tag">server_tool_use</div><div class="c-txt">服务端工具（如 web 搜索，供应商自己执行）</div></div>
   <div class="cell"><div class="c-tag">*_tool_result</div><div class="c-txt">服务端工具结果（web_search/code_execution/web_fetch，整块内联）</div></div>
 </div>
-<p>这种「一切皆块」的设计，好处是<strong>结构清晰、可校验、可携带元数据</strong>——每个块都能单独挂一个 <span class="mono">cache_control</span>（下一节的主角）。这里还藏着一个有意思的不对称：普通的 <span class="mono">tool_use</span>（客户端工具）是「助手开口要求、由 opencode 在本地跑、再把 <span class="mono">tool_result</span> 回传」的<strong>三步往返</strong>；可那几个<strong>服务端工具</strong>（<span class="mono">web_search</span> / <span class="mono">code_execution</span> / <span class="mono">web_fetch</span>）却是供应商<strong>自己执行、把结果整块内联</strong>进助手这一轮——源码注释特意点明，它们「<strong>整块到达，没有流式增量</strong>」，没有客户端这边对应的 <span class="mono">tool_result</span> 往返。一个「块」的类型标签，背后竟编码着「这工具该谁来跑」这样的执行语义差异，可见这套块类型设计之精细。还有个容易忽略的细节：<strong>系统提示（system）在 Anthropic 里不是一条消息，而是请求体顶层一个独立字段</strong>，类型是「一个文本块的数组」。这跟 OpenAI 把 system 当成 messages 里第一条「role: system」的消息，是<strong>截然不同的方言</strong>——而这，正是为什么要有协议适配器：core 那边只有一份规范的 system，到了 Anthropic 这份 <span class="mono">body.from</span> 里，它被翻译成顶层 <span class="mono">system</span> 字段；到了第 31 课 OpenAI 那份里，它又被翻译成 messages 数组的头一条。<strong>同一个规范概念，两种方言两种摆法</strong>，这就是适配器在默默吸收的差异。</p>
+<p>这种「一切皆块」的设计，好处是<strong>结构清晰、可校验、可携带元数据</strong>——每个块都能单独挂一个 <span class="mono">cache_control</span>（下一节的主角）。这里还藏着一个有意思的不对称：普通的 <span class="mono">tool_use</span>（客户端工具）是「助手开口要求、由 opencode 在本地跑、再把 <span class="mono">tool_result</span> 回传」的<strong>三步往返</strong>；可那几个<strong>服务端工具</strong>（<span class="mono">web_search</span> / <span class="mono">code_execution</span> / <span class="mono">web_fetch</span>）却是供应商<strong>自己执行、把结果整块内联</strong>进助手这一轮——源码注释特意点明，它们「<strong>整块到达，没有流式增量</strong>」，没有客户端这边对应的 <span class="mono">tool_result</span> 往返。</p>
+<p>一个「块」的类型标签，背后竟编码着「这工具该谁来跑」这样的执行语义差异，可见这套块类型设计之精细。还有个容易忽略的细节：<strong>系统提示（system）在 Anthropic 里不是一条消息，而是请求体顶层一个独立字段</strong>，类型是「一个文本块的数组」。</p>
+<p>这跟 OpenAI 把 system 当成 messages 里第一条「role: system」的消息，是<strong>截然不同的方言</strong>——而这，正是为什么要有协议适配器：core 那边只有一份规范的 system，到了 Anthropic 这份 <span class="mono">body.from</span> 里，它被翻译成顶层 <span class="mono">system</span> 字段；到了第 31 课 OpenAI 那份里，它又被翻译成 messages 数组的头一条。<strong>同一个规范概念，两种方言两种摆法</strong>，这就是适配器在默默吸收的差异。</p>
 <div class="cols">
   <div class="col"><h4>Anthropic 的摆法</h4><p><span class="mono">system</span> 是顶层独立字段（文本块数组）；<span class="mono">messages</span> 里每条的 content 是「块数组」。</p></div>
   <div class="col"><h4>core 的规范</h4><p>core 只有一份不带口音的 system + 消息列表；不知道、也不该知道谁把它摆哪。</p></div>
@@ -5383,7 +5424,9 @@ SystemContext.<span class="fn">make</span>({
   <div class="t-row"><span class="t-num">收获</span><span class="t-txt">OpenRouter / xAI / 本地模型… 一大票「兼容」厂商全部接入</span></div>
   <div class="t-row"><span class="t-num">增量</span><span class="t-txt">再多一家兼容厂商？协议代码一行不加，配个端点即可</span></div>
 </div>
-<p>这就是「协议 ≠ 供应商」这条设计原则的<strong>现金回报</strong>。如果当初把协议和供应商揉成一团（每家一套 if 分支），新增一家「OpenAI 兼容」厂商就得复制粘贴一大坨编解码逻辑；而解耦之后，新增一家的成本，<strong>趋近于零</strong>。一个 24 行的文件，胜过千言万语的架构布道。值得再多想一层的是：这 24 行之所以能这么短，<strong>不是因为偷懒，而是因为前面的功夫下到了位</strong>——正因为 Chat 协议把「请求编码」「流解码」干干净净地封装成了一个可复用的 <span class="mono">protocol</span> 对象，复用它才像「拿来即用」这么轻松。<strong>好的抽象，回报往往迟到，但一定会到</strong>：你在 Chat 协议上多花的那份「把编解码和网络分开」的心思，到这里、到每一个新接入的兼容厂商身上，连本带利地还给你。这也是为什么第 29 课要反复强调那张「两栏表」的边界——边界划得清，复用才来得爽。</p>
+<p>这就是「协议 ≠ 供应商」这条设计原则的<strong>现金回报</strong>。如果当初把协议和供应商揉成一团（每家一套 if 分支），新增一家「OpenAI 兼容」厂商就得复制粘贴一大坨编解码逻辑；而解耦之后，新增一家的成本，<strong>趋近于零</strong>。一个 24 行的文件，胜过千言万语的架构布道。</p>
+<p>值得再多想一层的是：这 24 行之所以能这么短，<strong>不是因为偷懒，而是因为前面的功夫下到了位</strong>——正因为 Chat 协议把「请求编码」「流解码」干干净净地封装成了一个可复用的 <span class="mono">protocol</span> 对象，复用它才像「拿来即用」这么轻松。</p>
+<p><strong>好的抽象，回报往往迟到，但一定会到</strong>：你在 Chat 协议上多花的那份「把编解码和网络分开」的心思，到这里、到每一个新接入的兼容厂商身上，连本带利地还给你。这也是为什么第 29 课要反复强调那张「两栏表」的边界——边界划得清，复用才来得爽。</p>
 
 <div class="card macro">
   <div class="tag">🗺️ 宏观图景</div>
@@ -5531,7 +5574,9 @@ OpenAICompatible.route = Route.make({ protocol: OpenAIChat.protocol, endpoint: <
   <div class="f-arrow">consumeFrames →</div>
   <div class="f-node">完整帧们<br><small>够一帧就切一帧出来</small></div>
 </div>
-<p>它的状态是一个 <span class="mono">FrameBufferState{buffer, offset}</span>：<span class="mono">buffer</span> 攒着收到的字节，<span class="mono">offset</span> 是已读到的位置。每来一个网络 chunk，就 <span class="mono">appendChunk</span> 把它接到 buffer 尾上（顺手把 offset 之前已消费的前缀<strong>压缩</strong>丢掉，于是 buffer 不会随流无限膨胀——最多比「还活着的窗口」多出一个 chunk）；然后 <span class="mono">consumeFrames</span> 一帧一帧地切：只要剩余字节够拼出一整帧，就用<strong>零拷贝的 subarray</strong> 切出来、验 CRC、吐给上层。这台「字节→帧」的状态机，和第 29 课那台「帧→事件」的状态机，结构如出一辙——都是 <span class="mono">(状态, 新输入) → [新状态, 吐出的东西]</span>。<strong>流式解码原来是套娃的</strong>：framing 把字节攒成帧，protocol.stream 把帧攒成事件，两层各管一段、各是一台状态机，严丝合缝地叠在一起。第 29 课你以为只有一台状态机，到 Bedrock 这儿，你看见了它底下还垫着另一台。这种「同一个模式在不同抽象层反复出现」的现象，在好的代码库里很常见——一旦你认得了「攒输入、够了就吐、留住未尽的部分继续攒」这个骨架，无论它出现在字节层、帧层还是事件层，你都能<strong>一眼认出老朋友</strong>，不必从头理解。这就是吃透一个核心模式的复利：它会在你读代码的余生里，一次次替你省下理解成本。</p>
+<p>它的状态是一个 <span class="mono">FrameBufferState{buffer, offset}</span>：<span class="mono">buffer</span> 攒着收到的字节，<span class="mono">offset</span> 是已读到的位置。每来一个网络 chunk，就 <span class="mono">appendChunk</span> 把它接到 buffer 尾上（顺手把 offset 之前已消费的前缀<strong>压缩</strong>丢掉，于是 buffer 不会随流无限膨胀——最多比「还活着的窗口」多出一个 chunk）；然后 <span class="mono">consumeFrames</span> 一帧一帧地切：只要剩余字节够拼出一整帧，就用<strong>零拷贝的 subarray</strong> 切出来、验 CRC、吐给上层。</p>
+<p>这台「字节→帧」的状态机，和第 29 课那台「帧→事件」的状态机，结构如出一辙——都是 <span class="mono">(状态, 新输入) → [新状态, 吐出的东西]</span>。<strong>流式解码原来是套娃的</strong>：framing 把字节攒成帧，protocol.stream 把帧攒成事件，两层各管一段、各是一台状态机，严丝合缝地叠在一起。第 29 课你以为只有一台状态机，到 Bedrock 这儿，你看见了它底下还垫着另一台。</p>
+<p>这种「同一个模式在不同抽象层反复出现」的现象，在好的代码库里很常见——一旦你认得了「攒输入、够了就吐、留住未尽的部分继续攒」这个骨架，无论它出现在字节层、帧层还是事件层，你都能<strong>一眼认出老朋友</strong>，不必从头理解。这就是吃透一个核心模式的复利：它会在你读代码的余生里，一次次替你省下理解成本。</p>
 
 <div class="card macro">
   <div class="tag">🗺️ 宏观图景</div>
@@ -5960,7 +6005,8 @@ Route.<span class="fn">make</span>({
   <div class="f-arrow">刷新时 →</div>
   <div class="f-node">广播 refreshed<br><small>models-dev.refreshed 事件</small></div>
 </div>
-<p><strong>把易变的事实外置到一个会自我更新的目录</strong>，这样新模型一上线，opencode 往往一行代码都不用改就能认得它——这和第 31 课「OpenAI 兼容白嫖生态」是同一种「把变化挡在代码之外」的智慧，只不过那次挡的是「协议的变化」，这次挡的是「模型事实的变化」。再往深想一层，这其实是一种<strong>责任的转移</strong>：模型的价格、上限、能力，本该由「最了解它们、且最频繁更新它们」的人来维护——而那不是 opencode 的开发者，是 models.dev 这个社区。opencode 只负责「消费」这份目录，把「维护事实」的脏活累活，交给了一个专门做这件事的上游。<strong>不重复造轮子，也不重复维护事实</strong>，这是更高一层的复用。</p>
+<p><strong>把易变的事实外置到一个会自我更新的目录</strong>，这样新模型一上线，opencode 往往一行代码都不用改就能认得它——这和第 31 课「OpenAI 兼容白嫖生态」是同一种「把变化挡在代码之外」的智慧，只不过那次挡的是「协议的变化」，这次挡的是「模型事实的变化」。</p>
+<p>再往深想一层，这其实是一种<strong>责任的转移</strong>：模型的价格、上限、能力，本该由「最了解它们、且最频繁更新它们」的人来维护——而那不是 opencode 的开发者，是 models.dev 这个社区。opencode 只负责「消费」这份目录，把「维护事实」的脏活累活，交给了一个专门做这件事的上游。<strong>不重复造轮子，也不重复维护事实</strong>，这是更高一层的复用。</p>
 
 <h2>catalog：从「模型名」到「一条配好的 Route」</h2>
 <p>拉下来的 models.dev 目录是<strong>原始数据</strong>，要真正能用，还得变成一个<strong>可快速查询的内存结构</strong>——这就是 <span class="mono">packages/core/src/catalog.ts</span>（CatalogV2）干的事。它把目录组织成一张两层的表：</p>
@@ -5978,7 +6024,8 @@ Route.<span class="fn">make</span>({
   <div class="col"><h4>ProviderNotFoundError</h4><p>连供应商都没找到（比如模型名拼错了 provider 段）。第一层查找就失败。</p></div>
   <div class="col"><h4>ModelNotFoundError</h4><p>供应商有，但它名下没有这个模型。第二层查找失败，错误里带上 providerID + modelID。</p></div>
 </div>
-<p>注意这种设计的体贴：它<strong>不是返回一个含糊的 null 让上层去猜</strong>「到底哪一步出了错」，而是明确告诉你「是供应商没找到，还是供应商有、但这个模型没找到」。两种失败的修复方式截然不同——前者你得检查 provider 名、后者你得检查 model 名——把它们用不同的错误类型分开，上层就能给出精准的提示。这种把失败<strong>分得清清楚楚</strong>的设计，呼应了整本书反复出现的「让错误自己说清自己是谁」。这一步解析的产物 <span class="mono">ModelInfo</span> 只装<strong>模型事实</strong>（能力、成本、上限、形态），并<strong>不</strong>包含 Route 本身；真正的 Route 是<strong>另一步</strong>由各家的 provider 门面（<span class="mono">packages/llm/src/providers/*.ts</span>）按这些事实加配置拼出来的——也就是第 33 课那几个正交件的组合。<strong>至此，一个用户输入的模型名，终于接上了一条从协议到传输、配置完整的链路。</strong></p>
+<p>注意这种设计的体贴：它<strong>不是返回一个含糊的 null 让上层去猜</strong>「到底哪一步出了错」，而是明确告诉你「是供应商没找到，还是供应商有、但这个模型没找到」。两种失败的修复方式截然不同——前者你得检查 provider 名、后者你得检查 model 名——把它们用不同的错误类型分开，上层就能给出精准的提示。这种把失败<strong>分得清清楚楚</strong>的设计，呼应了整本书反复出现的「让错误自己说清自己是谁」。</p>
+<p>这一步解析的产物 <span class="mono">ModelInfo</span> 只装<strong>模型事实</strong>（能力、成本、上限、形态），并<strong>不</strong>包含 Route 本身；真正的 Route 是<strong>另一步</strong>由各家的 provider 门面（<span class="mono">packages/llm/src/providers/*.ts</span>）按这些事实加配置拼出来的——也就是第 33 课那几个正交件的组合。<strong>至此，一个用户输入的模型名，终于接上了一条从协议到传输、配置完整的链路。</strong></p>
 
 <h2>Copilot：复用 OpenAI 协议，自带一套门禁</h2>
 <p>压轴的，是 GitHub Copilot 这个<strong>特殊供应商</strong>。它特殊在哪？翻开 <span class="mono">packages/llm/src/providers/github-copilot.ts</span>，第一眼你就会看到它 import 了 <span class="mono">OpenAIChat</span> 和 <span class="mono">OpenAIResponses</span> 两个协议模块，并<strong>直接复用它们现成的 <span class="mono">.route</span></strong>（第 31 课的 Chat 与 Responses）——连协议带整条 Route 整个拿来用！这意味着「请求怎么编码、响应怎么解码、字节怎么分帧」，Copilot 一个字都不用重写。那它到底「特殊」在哪？特殊在<strong>认证</strong>：</p>
@@ -5996,7 +6043,8 @@ Route.<span class="fn">make</span>({
   <tr><td>auth</td><td>固定 API key</td><td>GitHub 工牌换短期 token</td></tr>
   <tr><td>transport / framing</td><td>HTTP / SSE</td><td>同上</td></tr>
 </table>
-<p>它和第 31 课的「openai-compatible 只改端点」是同一招的升级版——这次不光改端点，还<strong>换了一套认证</strong>，但<strong>协议依然原封不动地复用</strong>。Copilot 的认证比一般的 API key 复杂：你不能直接拿一个固定密钥，而要先用 GitHub 的 OAuth 工牌，去<strong>换取一个有时效的 Copilot 专用 token</strong>，再用它做 Bearer 认证。正因为 <span class="mono">auth</span> 早被设计成独立的一件，这套「先换证、再进门」的特殊流程，才能<strong>整个塞进 auth 这一件里、丝毫不惊动协议层</strong>。假如当初认证逻辑和协议编解码缠在一起，Copilot 这种「同协议、异认证」的家伙就会逼你把 OpenAI 协议又抄一遍——而正交分解让它优雅地化解于无形。<strong>用一个最棘手的真实供应商，给整个 M6 的设计哲学盖了章。</strong></p>
+<p>它和第 31 课的「openai-compatible 只改端点」是同一招的升级版——这次不光改端点，还<strong>换了一套认证</strong>，但<strong>协议依然原封不动地复用</strong>。Copilot 的认证比一般的 API key 复杂：你不能直接拿一个固定密钥，而要先用 GitHub 的 OAuth 工牌，去<strong>换取一个有时效的 Copilot 专用 token</strong>，再用它做 Bearer 认证。</p>
+<p>正因为 <span class="mono">auth</span> 早被设计成独立的一件，这套「先换证、再进门」的特殊流程，才能<strong>整个塞进 auth 这一件里、丝毫不惊动协议层</strong>。假如当初认证逻辑和协议编解码缠在一起，Copilot 这种「同协议、异认证」的家伙就会逼你把 OpenAI 协议又抄一遍——而正交分解让它优雅地化解于无形。<strong>用一个最棘手的真实供应商，给整个 M6 的设计哲学盖了章。</strong></p>
 <p>为什么要绕这么一圈「先换证、再进门」？因为这套<strong>令牌交换</strong>背后是一种更安全的设计：你的 GitHub OAuth 凭证是长期的、贵重的，不该被反复发到推理端点上；而换来的 Copilot token 是<strong>短期、限定用途</strong>的，即便泄露，危害也被时效和权限死死框住。这正是「最小权限 + 短时效凭证」的安全惯例。opencode 要做的，无非是把这套交换流程封装进 auth 这一件——上层只管说「我要用 Copilot」，底下「拿工牌换通行证」的来回，被 auth 这一层<strong>悄悄消化掉</strong>，协议层和 agent 循环全程无感。安全性的复杂，被恰当地隔离在了它该待的那一层，没有渗进别处。</p>
 
 <div class="card detail">
@@ -6138,6 +6186,11 @@ Route.<span class="fn">make</span>({
 <div class="cols">
   <div class="col"><h4>structured（给系统）</h4><p>output schema 编码后的<strong>结构化值</strong>，原原本本归档进消息历史，供日后程序化读取、重放、审计。</p></div>
   <div class="col"><h4>content（给模型）</h4><p>由 <span class="mono">toModelOutput</span> 渲染的 <span class="mono">text</span>/<span class="mono">file</span> 列表——只放<strong>模型该看的那一面</strong>。一个工具可以「内部记一大坨、只给模型看一句」。</p></div>
+</div>
+<div class="trace">
+  <div class="t-row"><span class="t-num">content 怎么定?</span><span class="t-txt">工具给了 <span class="mono">toModelOutput</span>？→ 用它渲染成 <span class="mono">text</span>/<span class="mono">file</span> 列表</span></div>
+  <div class="t-row"><span class="t-num">否，是字符串?</span><span class="t-txt">→ 直接把这串字符当文本给模型（简单工具零负担）</span></div>
+  <div class="t-row"><span class="t-num">否则</span><span class="t-txt">→ content 为空 <span class="mono">[]</span>（结构化结果照样进 <span class="mono">structured</span> 归档）</span></div>
 </div>
 <p>为什么要把这两份<strong>分开</strong>？因为「系统要记的」和「模型该看的」常常不是一回事。比如一个文件读取工具，结构化结果里可能有完整的字节数、行号、编码信息（系统归档有用），但给模型的 content 只需要文件内容本身；又比如某些工具内部结果很大，却只想给模型一句「已完成，写入 42 行」。把 <span class="mono">structured</span> 和 <span class="mono">content</span> 解耦，工具就能<strong>各按所需地「对内详尽、对外精炼」</strong>——这也为第 42 课「有界输出」埋了伏笔：给模型的那一面，是可以被裁剪的。</p>
 
@@ -6882,6 +6935,12 @@ Ruleset = Rule[]</pre>
   <div class="col"><h4>后匹配者胜（findLast）</h4><p>规则按顺序排，<strong>越靠后越优先</strong>。可以先写一条宽泛规则、再用一条具体规则去覆盖它——和防火墙规则表一个套路。</p></div>
   <div class="col"><h4>默认即「问」</h4><p>没有任何规则提到的动作，<strong>不默认放行、也不默认拒绝，而是问人</strong>。这是「安全默认」：未知 = 交给人判断。</p></div>
 </div>
+<div class="trace">
+  <div class="t-row"><span class="t-num">规则集</span><span class="t-txt">[① <span class="mono">allow bash *</span>，② <span class="mono">deny bash rm*</span>]（按书写顺序排）</span></div>
+  <div class="t-row"><span class="t-num">来访</span><span class="t-txt">bash 要跑 <span class="mono">rm -rf build</span> → action=bash、resource=<span class="mono">rm -rf build</span></span></div>
+  <div class="t-row"><span class="t-num">findLast</span><span class="t-txt">① 与 ② 都通配匹配，但 ② 更靠后 → <strong>取 ②</strong>（① 的 allow 被覆盖）</span></div>
+  <div class="t-row"><span class="t-num">结果</span><span class="t-txt">effect = <strong>deny</strong> → 抛 <span class="mono">DeniedError</span>，命令不执行</span></div>
+</div>
 <p>「默认问」这一条，看似平常，实则是整套设计的<strong>定盘星</strong>。它意味着：agent <strong>无法靠「钻规则的空子」悄悄做成一件没人批准的事</strong>——凡是规则册没明说放行的敏感操作，都会触发一次对用户的询问。新工具、新场景、边界情况……一切「未被预先考虑」的，统统落到「问一下」这个安全网里。<strong>把「未知」默认归到「问人」，而不是「放行」，是这套权限系统最重要的一个选择。</strong>反过来想就明白它的分量：如果默认是「放行」，那每出现一个设计者没预料到的新动作，agent 就可能<strong>悄无声息地做了一件你本想拦下的事</strong>；而默认「问」，把这种「漏网」的风险<strong>从根上堵死</strong>——代价不过是初期多问几句。在「安全」与「省事」之间，这套系统毫不犹豫地选了前者，再用 always 把「省事」一点点挣回来。</p>
 
 <h2>评估流：assert 的一次完整裁决</h2>
@@ -7045,6 +7104,13 @@ Ruleset = Rule[]</pre>
   <div class="f-node">头 1000 行<br><small>headLines=⌈max/2⌉</small></div>
   <div class="f-arrow">+ 标记 +</div>
   <div class="f-node">尾 1000 行<br><small>tailLines=⌊max/2⌋</small></div>
+</div>
+<div class="flow">
+  <div class="f-node">字节超界<br><small>比如 200 KB</small></div>
+  <div class="f-arrow">preview →</div>
+  <div class="f-node">头 headBytes<br><small>takePrefix ⌈maxBytes/2⌉</small></div>
+  <div class="f-arrow">+ 标记 +</div>
+  <div class="f-node">尾 tailBytes<br><small>takeSuffix ⌊maxBytes/2⌋</small></div>
 </div>
 <p>为什么是<strong>头 + 尾</strong>，而不是「头 N 行」这种最直觉的做法？因为对工具输出的<strong>信息分布</strong>有洞察：一段日志、一次测试运行、一个文件转储，最有价值的信息几乎总是落在<strong>两端</strong>——<strong>开头</strong>告诉你「在跑什么、什么配置」，<strong>结尾</strong>告诉你「结果如何、有没有报错、最终汇总」；中间往往是大段重复的进度行、数据行，信息密度最低。若天真地「只留前 1000 行」，恰恰会<strong>把最关键的『最终结果 / 报错』那一截砍掉</strong>——模型看了半天进度，却不知道到底成没成。<span class="mono">preview</span> 保留头一半、尾一半，中间夹一个 marker（如「…已截断…」），正是<strong>用同样的预算，留住信息密度最高的两端</strong>。字节超界时同理——头 <span class="mono">headBytes</span>、尾 <span class="mono">tailBytes</span> 各取一半。<strong>一个看似不起眼的「头尾都留」，背后是对『工具输出长什么样』的真实理解。</strong>不妨想想你自己看一份很长的测试日志：是不是也总先扫一眼开头「跑了哪些用例」，再直接跳到结尾看「几个通过几个失败、错在哪」？中间那几千行逐条进度，多半一眼带过。<span class="mono">preview</span> 的「掐头去尾」，做的正是这件最符合人直觉的事——它没有把截断当成一道无脑的「砍到 N 行」的机械操作，而是当成一个「<strong>在有限预算里，尽量多留有用信息</strong>」的优化问题来解。</p>
 
@@ -7322,7 +7388,8 @@ Ruleset = Rule[]</pre>
   <div class="cell"><div class="c-tag">tool_output / skills</div><div class="c-txt">工具输出上限（第 42 课）、技能目录（第 43 课）</div></div>
   <div class="cell"><div class="c-tag">instructions / commands / lsp…</div><div class="c-txt">指令、自定义命令、LSP、格式化器、压缩…</div></div>
 </div>
-<p>看这张表你就明白：<strong>配置不是某个孤立模块的设置，而是把全系统的「用户可调项」汇到一处的总枢纽</strong>。第 41 课的权限、第 42 课的输出上限、第 43 课的 skills、第 46 课的 MCP……它们各自的「该怎么配」，最终都落到 <span class="mono">Config.Info</span> 的某一格里。而它是一个<strong>类型化的 Schema 类</strong>——这意味着配置文件在加载时就被<strong>校验</strong>：写错了字段、给错了类型，在解析关就被挡下（又是第 5、22 课「schema 即契约」的体现），而不是等到某个子系统运行时才神秘出错。<strong>一份配置文件，是用户向整个系统下达意图的统一入口；一个 Config.Info schema，是这份意图的类型化契约。</strong>这种「<strong>把全系统的可调项收拢到一个类型化结构里</strong>」的做法本身就是一种设计美德：用户不必去十几个地方改十几种格式的设置，只在一处声明；而每个子系统也不必各自发明一套读配置的办法，都从这同一份 <span class="mono">Config.Info</span> 里取自己那一格。<strong>一处声明、各取所需</strong>，配置因此既好写、又好校验、又好演进——加一个新可调项，就是给 schema 添一个字段。</p>
+<p>看这张表你就明白：<strong>配置不是某个孤立模块的设置，而是把全系统的「用户可调项」汇到一处的总枢纽</strong>。第 41 课的权限、第 42 课的输出上限、第 43 课的 skills、第 46 课的 MCP……它们各自的「该怎么配」，最终都落到 <span class="mono">Config.Info</span> 的某一格里。而它是一个<strong>类型化的 Schema 类</strong>——这意味着配置文件在加载时就被<strong>校验</strong>：写错了字段、给错了类型，在解析关就被挡下（又是第 5、22 课「schema 即契约」的体现），而不是等到某个子系统运行时才神秘出错。</p>
+<p><strong>一份配置文件，是用户向整个系统下达意图的统一入口；一个 Config.Info schema，是这份意图的类型化契约。</strong>这种「<strong>把全系统的可调项收拢到一个类型化结构里</strong>」的做法本身就是一种设计美德：用户不必去十几个地方改十几种格式的设置，只在一处声明；而每个子系统也不必各自发明一套读配置的办法，都从这同一份 <span class="mono">Config.Info</span> 里取自己那一格。<strong>一处声明、各取所需</strong>，配置因此既好写、又好校验、又好演进——加一个新可调项，就是给 schema 添一个字段。</p>
 
 <h2>分层加载：全局垫底、就近覆盖</h2>
 <p>再看配置<strong>怎么来</strong>。这才是这一课真正精妙的地方。opencode 不是「读一个文件」，而是<strong>从多处收集、按优先级排好</strong>。它认三种文件名，并把发现的东西分成两类 <span class="mono">Entry</span>：</p>
@@ -7359,7 +7426,9 @@ Ruleset = Rule[]</pre>
   <div class="t-row"><span class="t-num">查</span><span class="t-txt">从最高优先级的 Entry 往低看，谁第一个定义了 model</span></div>
   <div class="t-row"><span class="t-num">取</span><span class="t-txt">子目录配置定义了 → 用它；没定义 → 退回项目配置；再没有 → 退回全局；都没有 → undefined</span></div>
 </div>
-<p>这套「<strong>保留一串有序来源、按 key 逐项就近裁决</strong>」的设计，比「急着把所有配置深合并成一个大对象」要干净得多。它不预先算一份合成结果，而是<strong>把来源原样按优先级留着，谁问哪个 key，就当场为那个 key 裁决一次</strong>。好处是：每一项的「<strong>它从哪份配置来的、为什么是这个值</strong>」始终清清楚楚、可追溯——你要排查「这个 model 怎么是这个」，顺着优先级一层层看就行，不会迷失在一个早已合并、来源难辨的大对象里。<strong>把『有哪些来源』和『某一项最终取谁』分开，是这套配置系统可解释性的根基。</strong>这种可解释性在现实里极其值钱：当一个团队成员困惑「为什么我的 agent 用了这个奇怪的模型」，答案不是去翻一个早已揉成一团的合成对象，而是顺着那串有序 Entry 一层层问「这一层定义 model 了吗」，立刻就能定位到「哦，是我自己子目录里那份 .opencode 写的」。<strong>配置出问题时最怕的就是『来源成谜』，而这套设计从结构上就让来源始终可追。</strong>这和第 41 课权限的 <span class="mono">findLast</span>「后匹配者胜」、第 37 课注册表的「摞顶最新」，又是同一种「有序来源、就近取值」的思路在不同地方的回响。</p>
+<p>这套「<strong>保留一串有序来源、按 key 逐项就近裁决</strong>」的设计，比「急着把所有配置深合并成一个大对象」要干净得多。它不预先算一份合成结果，而是<strong>把来源原样按优先级留着，谁问哪个 key，就当场为那个 key 裁决一次</strong>。好处是：每一项的「<strong>它从哪份配置来的、为什么是这个值</strong>」始终清清楚楚、可追溯——你要排查「这个 model 怎么是这个」，顺着优先级一层层看就行，不会迷失在一个早已合并、来源难辨的大对象里。</p>
+<p><strong>把『有哪些来源』和『某一项最终取谁』分开，是这套配置系统可解释性的根基。</strong>这种可解释性在现实里极其值钱：当一个团队成员困惑「为什么我的 agent 用了这个奇怪的模型」，答案不是去翻一个早已揉成一团的合成对象，而是顺着那串有序 Entry 一层层问「这一层定义 model 了吗」，立刻就能定位到「哦，是我自己子目录里那份 .opencode 写的」。</p>
+<p><strong>配置出问题时最怕的就是『来源成谜』，而这套设计从结构上就让来源始终可追。</strong>这和第 41 课权限的 <span class="mono">findLast</span>「后匹配者胜」、第 37 课注册表的「摞顶最新」，又是同一种「有序来源、就近取值」的思路在不同地方的回响。</p>
 
 <div class="card macro">
   <div class="tag">🗺️ 宏观图景</div>
@@ -8143,7 +8212,9 @@ sdks.<span class="fn">set</span>(sdkKey, sdk)               <span class="cm">// 
   <div class="col"><h4>V1 · message + part</h4><p><span class="mono">message</span>(一条消息) → <span class="mono">part</span>(消息的一个片段，如一段文字、一次工具调用)，两级。每行的 <span class="mono">data</span> 列是一个 <strong>JSON 大对象</strong>，装着 V1 时代的消息结构。这是 opencode 早期的消息模型。</p></div>
   <div class="col"><h4>V2 · session_message</h4><p><span class="mono">session_message</span> 单表，带 <span class="mono">type</span>(消息类型) + <span class="mono">seq</span>(会话内单调序号) + <span class="mono">data</span>(JSON)。这是重构后的新模型，配套 <span class="mono">session_input</span>、<span class="mono">session_context_epoch</span> 一起构成 V2 的 session 核心。</p></div>
 </div>
-<p>「新旧同堂」绝非设计混乱，而是<strong>大型有状态系统演进时的常态与智慧</strong>：你不可能在某个深夜「啪」地把所有历史会话从 V1 瞬间切到 V2——那风险太大。正确的做法是让两代模型<strong>在同一个库里共存一段时间</strong>，旧数据继续以 V1 形态躺着、新数据以 V2 形态写入，再用一个专门的迁移过程慢慢把 V1 翻译成 V2（这正是下一课 L50 的主题）。这张「同堂」的快照，本身就是 opencode 正处在<strong>从 V1 向 V2 演进途中</strong>的活化石。你也能从中读出一条朴素的工程真理：<strong>真实世界的数据库 schema 从不是一张定稿的蓝图，而是一部还在续写的历史</strong>——能优雅地容纳「上一代」与「这一代」共存，是成熟系统的标志。另外值得一提的是 V1 那两级结构本身：<span class="mono">message</span>→<span class="mono">part</span> 的拆分，对应着「一条助手消息里，可以夹着好几个片段」——一段思考文字是一个 part、一次工具调用是一个 part、工具返回又是一个 part。这种「消息含多片段」的结构其实很合理，V2 的 <span class="mono">session_message</span> 也延续了类似的思路，只是把组织方式重做得更利于按 <span class="mono">seq</span> 流式追加。两代之间的差异，更多在「怎么编号、怎么入箱、上下文怎么落盘」这些<strong>会话编排层面</strong>，而非「一条消息长什么样」这个内容层面。</p>
+<p>「新旧同堂」绝非设计混乱，而是<strong>大型有状态系统演进时的常态与智慧</strong>：你不可能在某个深夜「啪」地把所有历史会话从 V1 瞬间切到 V2——那风险太大。正确的做法是让两代模型<strong>在同一个库里共存一段时间</strong>，旧数据继续以 V1 形态躺着、新数据以 V2 形态写入，再用一个专门的迁移过程慢慢把 V1 翻译成 V2（这正是下一课 L50 的主题）。</p>
+<p>这张「同堂」的快照，本身就是 opencode 正处在<strong>从 V1 向 V2 演进途中</strong>的活化石。你也能从中读出一条朴素的工程真理：<strong>真实世界的数据库 schema 从不是一张定稿的蓝图，而是一部还在续写的历史</strong>——能优雅地容纳「上一代」与「这一代」共存，是成熟系统的标志。</p>
+<p>另外值得一提的是 V1 那两级结构本身：<span class="mono">message</span>→<span class="mono">part</span> 的拆分，对应着「一条助手消息里，可以夹着好几个片段」——一段思考文字是一个 part、一次工具调用是一个 part、工具返回又是一个 part。这种「消息含多片段」的结构其实很合理，V2 的 <span class="mono">session_message</span> 也延续了类似的思路，只是把组织方式重做得更利于按 <span class="mono">seq</span> 流式追加。两代之间的差异，更多在「怎么编号、怎么入箱、上下文怎么落盘」这些<strong>会话编排层面</strong>，而非「一条消息长什么样」这个内容层面。</p>
 
 <h2>V2 三件套与 seq：顺序、纪元与不重不漏</h2>
 <p>V2 的 session 核心由三张表撑起，它们的设计把「顺序」和「一致性」刻进了表结构本身：</p>
@@ -8327,7 +8398,9 @@ sqliteTable(<span class="st">"session_input"</span>, {
   <div class="f-arrow">读取时 →</div>
   <div class="f-node">V2 投影<br><small>message-v2 把 V1 行投影成 V2 结构</small></div>
 </div>
-<p>这里有个非常务实的设计：V1 数据搬进 SQLite 时，<strong>并没有立刻被「翻译」成 V2 结构</strong>——它仍以 V1-shaped 的 JSON 原样躺在 <span class="mono">message</span>/<span class="mono">part</span> 表的 <span class="mono">data</span> 列里（这正是 L49 看到的「V1 同堂」之源）。真正的「V1→V2 语义转换」是<strong>读取时按需发生</strong>的：<span class="mono">message-v2.ts</span> 从 <span class="mono">PartTable</span>/<span class="mono">MessageTable</span> 读出 V1 行，<strong>当场投影（project）成 V2 的消息结构</strong>交给上层。这种「<strong>先把字节原样搬过来、语义转换推迟到读取时</strong>」的策略极其聪明：它让<strong>数据迁移这一步变得简单又安全</strong>——只是把文件内容照搬进表，不动一个字节的语义，出错风险最小；而复杂易变的「V1 语义怎么映射成 V2」逻辑则集中在读取路径上一处维护、随时可改。<strong>把「搬运」和「翻译」解耦，让最危险的批量数据迁移退化成最无脑的字节复制</strong>——这是大型数据迁移里一条值得反复回味的智慧。它还顺带带来一个好处：万一某天发现「V1→V2 的语义映射」写错了，你<strong>不必重跑那场代价高昂的数据大迁移</strong>，只要改读取时的投影逻辑、重新读一遍即可，因为原始 V1 字节<strong>始终原封不动地保存在库里</strong>。原始数据不被破坏性改写，就永远留着一条「重新解释」的退路——这种「保真原始、按需解释」的克制，和 L42 有界输出「全文 spill、按需回取」、L43 skills「名字常驻、正文按需」是同一种深谋远虑。</p>
+<p>这里有个非常务实的设计：V1 数据搬进 SQLite 时，<strong>并没有立刻被「翻译」成 V2 结构</strong>——它仍以 V1-shaped 的 JSON 原样躺在 <span class="mono">message</span>/<span class="mono">part</span> 表的 <span class="mono">data</span> 列里（这正是 L49 看到的「V1 同堂」之源）。真正的「V1→V2 语义转换」是<strong>读取时按需发生</strong>的：<span class="mono">message-v2.ts</span> 从 <span class="mono">PartTable</span>/<span class="mono">MessageTable</span> 读出 V1 行，<strong>当场投影（project）成 V2 的消息结构</strong>交给上层。</p>
+<p>这种「<strong>先把字节原样搬过来、语义转换推迟到读取时</strong>」的策略极其聪明：它让<strong>数据迁移这一步变得简单又安全</strong>——只是把文件内容照搬进表，不动一个字节的语义，出错风险最小；而复杂易变的「V1 语义怎么映射成 V2」逻辑则集中在读取路径上一处维护、随时可改。<strong>把「搬运」和「翻译」解耦，让最危险的批量数据迁移退化成最无脑的字节复制</strong>——这是大型数据迁移里一条值得反复回味的智慧。</p>
+<p>它还顺带带来一个好处：万一某天发现「V1→V2 的语义映射」写错了，你<strong>不必重跑那场代价高昂的数据大迁移</strong>，只要改读取时的投影逻辑、重新读一遍即可，因为原始 V1 字节<strong>始终原封不动地保存在库里</strong>。原始数据不被破坏性改写，就永远留着一条「重新解释」的退路——这种「保真原始、按需解释」的克制，和 L42 有界输出「全文 spill、按需回取」、L43 skills「名字常驻、正文按需」是同一种深谋远虑。</p>
 
 <div class="card macro">
   <div class="tag">🗺️ 宏观视角</div>
@@ -8425,7 +8498,9 @@ sqliteTable(<span class="st">"session_input"</span>, {
 <h1>压缩、摘要与快照</h1>
 
 <p class="lead">前三课（L48–50）讲的都是「把数据忠实地存好、搬好」——SQLite 地基、核心表网、V1→V2 迁移。但光会存还不够。这一课讲<strong>「持久化」之上更高阶的「记忆管理」</strong>，它要解决两个真实的痛点。第一个痛点是<strong>记忆太多</strong>：一场对话越聊越长，消息多到撑爆模型有限的上下文窗口怎么办？答案是<strong>压缩（compaction）与摘要</strong>——把陈旧的对话折叠成一份结构化摘要，只留最近的若干轮原文。第二个痛点是<strong>想回到过去</strong>：agent 改了一堆文件，你后悔了，想把对话和工作目录一起<strong>退回到几步之前</strong>怎么办？答案是 <strong>快照（snapshot）与 revert</strong>——opencode 用一个巧妙的「影子 git 仓库」给工作目录做时间机器。压缩管「记忆的容量」，快照管「记忆的时间轴」，两者合起来，才让 agent 的「记忆」既装得下、又退得回。</p>
-<p>这一课有两个最值得带走的设计。其一，<strong>压缩 = 「留近况原文 + 把远的折成结构化摘要」</strong>：当对话的 token 估算超出上下文窗口（减去输出余量），opencode 自动把最近约 8000 token 的对话<strong>原样保留</strong>、把更早的对话交给 LLM<strong>填进一张固定结构的摘要模板</strong>（目标/约束/进展/决策/下一步/关键上下文/相关文件），而且这份摘要是<strong>「锚定式」增量更新</strong>的——下次压缩不重写，而是在旧摘要上「保留仍成立的、删过时的、并入新的」。其二，<strong>快照 = 「影子 git 仓库」</strong>：opencode 不动你真实的 <span class="mono">.git</span>，而是在数据目录下另起一个独立的 git 仓库（<span class="mono">--git-dir</span> 指向它、<span class="mono">--work-tree</span> 指向你的真实工作目录），用 <span class="mono">git write-tree</span> 给工作目录拍一张「树快照」、用 <span class="mono">read-tree</span>+<span class="mono">checkout-index</span> 还原。<strong>它把 git 强大的内容寻址存储借来当时间机器，却绝不污染你自己的提交历史。</strong>读懂这两笔，你就懂了「一个 agent 如何在有限的上下文里装下无限长的对话，又如何安全地给你一颗『后悔药』」。</p>
+<p>这一课有两个最值得带走的设计。其一，<strong>压缩 = 「留近况原文 + 把远的折成结构化摘要」</strong>：当对话的 token 估算超出上下文窗口（减去输出余量），opencode 自动把最近约 8000 token 的对话<strong>原样保留</strong>、把更早的对话交给 LLM<strong>填进一张固定结构的摘要模板</strong>（目标/约束/进展/决策/下一步/关键上下文/相关文件），而且这份摘要是<strong>「锚定式」增量更新</strong>的——下次压缩不重写，而是在旧摘要上「保留仍成立的、删过时的、并入新的」。</p>
+<p>其二，<strong>快照 = 「影子 git 仓库」</strong>：opencode 不动你真实的 <span class="mono">.git</span>，而是在数据目录下另起一个独立的 git 仓库（<span class="mono">--git-dir</span> 指向它、<span class="mono">--work-tree</span> 指向你的真实工作目录），用 <span class="mono">git write-tree</span> 给工作目录拍一张「树快照」、用 <span class="mono">read-tree</span>+<span class="mono">checkout-index</span> 还原。<strong>它把 git 强大的内容寻址存储借来当时间机器，却绝不污染你自己的提交历史。</strong></p>
+<p>读懂这两笔，你就懂了「一个 agent 如何在有限的上下文里装下无限长的对话，又如何安全地给你一颗『后悔药』」。</p>
 
 <div class="card analogy">
   <div class="tag">⏳ 生活类比</div>
@@ -8457,7 +8532,8 @@ sqliteTable(<span class="st">"session_input"</span>, {
   <div class="f-arrow">产出 →</div>
   <div class="f-node">compaction 消息<br><small>{summary, recent} 替代远段</small></div>
 </div>
-<p>最见功力的是<strong>「锚定式增量摘要」</strong>：如果这场对话<strong>之前已经压缩过</strong>（历史里已有一条 <span class="mono">compaction</span> 消息），这次不会从头重写摘要，而是把旧摘要塞进提示里，让模型「<strong>用上面的对话历史更新这份锚定摘要：保留仍成立的细节、删掉过时的、并入新事实</strong>」。为什么这很重要？因为摘要本身会被<strong>反复压缩</strong>——如果每次都从仅剩的近况重新生成，越早的信息会在一次次压缩中被<strong>逐渐稀释、最终遗忘</strong>。而「锚定 + 增量更新」让那份摘要像一条<strong>不断被修订、却始终连续的主线</strong>，把整场对话从头到尾的关键脉络<strong>一路传下去</strong>，不因压缩而断裂。这和 L42「有界输出」是同一种哲学在不同层级的回响：L42 管<strong>单个工具输出</strong>别撑爆上下文，压缩管<strong>整场对话</strong>别撑爆上下文——稀缺的永远是模型那点宝贵的注意力。</p>
+<p>最见功力的是<strong>「锚定式增量摘要」</strong>：如果这场对话<strong>之前已经压缩过</strong>（历史里已有一条 <span class="mono">compaction</span> 消息），这次不会从头重写摘要，而是把旧摘要塞进提示里，让模型「<strong>用上面的对话历史更新这份锚定摘要：保留仍成立的细节、删掉过时的、并入新事实</strong>」。为什么这很重要？因为摘要本身会被<strong>反复压缩</strong>——如果每次都从仅剩的近况重新生成，越早的信息会在一次次压缩中被<strong>逐渐稀释、最终遗忘</strong>。</p>
+<p>而「锚定 + 增量更新」让那份摘要像一条<strong>不断被修订、却始终连续的主线</strong>，把整场对话从头到尾的关键脉络<strong>一路传下去</strong>，不因压缩而断裂。这和 L42「有界输出」是同一种哲学在不同层级的回响：L42 管<strong>单个工具输出</strong>别撑爆上下文，压缩管<strong>整场对话</strong>别撑爆上下文——稀缺的永远是模型那点宝贵的注意力。</p>
 
 <h2>快照：给工作目录开一个「影子 git 仓库」</h2>
 <p>压缩管的是「对话记忆」，而快照管的是「文件记忆」——agent 改了你的代码，怎么能让你<strong>退回到改之前</strong>？<span class="mono">snapshot/index.ts</span> 的答案巧妙得令人拍案：<strong>另起一个影子 git 仓库</strong>。它绝不碰你项目里真实的 <span class="mono">.git</span>，而是在 <span class="mono">数据目录/snapshot/&lt;项目&gt;/&lt;工作目录哈希&gt;</span> 下建一个<strong>独立的 git 仓库</strong>，所有 git 命令都带上 <span class="mono">--git-dir &lt;影子仓库&gt; --work-tree &lt;你的真实工作目录&gt;</span>：</p>
@@ -8614,7 +8690,9 @@ sqliteTable(<span class="st">"session_input"</span>, {
   <div class="cell"><div class="c-tag">&lt;scrollbox&gt;</div><div class="c-txt">可滚动容器（≈ <span class="mono">overflow:auto</span> 的 div），对话流就靠它</div></div>
   <div class="cell"><div class="c-tag">&lt;input&gt; / &lt;textarea&gt;</div><div class="c-txt">单行/多行输入框（≈表单控件），prompt 编辑器的底座</div></div>
 </div>
-<p>布局也是你熟悉的那套：opencode 的 TUI 代码里到处是 <span class="mono">flexDirection</span>（122 处）、<span class="mono">flexGrow</span>、<span class="mono">justifyContent</span>、<span class="mono">alignItems</span>——<strong>就是 CSS flexbox</strong>。opentui 内置了一个 flexbox 布局引擎，按这些属性算出每个元素该占终端的哪几行哪几列、多宽多高。于是「左边固定宽的侧边栏 + 右边自适应的主区」这种布局，你用 <span class="mono">flexDirection:"row"</span> + 侧边栏定宽 + 主区 <span class="mono">flexGrow:1</span> 就搞定了，和写网页<strong>一字不差</strong>。这种「把成熟模型整体复用」的思路，正是全书反复出现的智慧（L51 复用 git、L39 复用 Ripgrep）——只不过这次复用的，是整个<strong>前端渲染范式</strong>。值得想一想这背后省掉了多少事：终端绘图的传统做法，是直接拼接 ANSI 转义码——「把光标移到第 5 行第 12 列、设成红色、打印这串字、再复位」。这种手工绘图既<strong>难写又难维护</strong>：稍微复杂一点的布局（一个会随窗口缩放的多栏界面）就得自己算每个字符的坐标，改一处动全身。而 opentui 把这层彻底<strong>抽象掉了</strong>：你只声明「我要一个横向排列、左栏定宽、右栏自适应的盒子」，至于「第 5 行第 12 列该打什么字、什么颜色」，全交给布局引擎和绘制器去算。<strong>从「手动摆字符」到「声明式描述布局」，正是 TUI 开发体验的一次代际跃迁</strong>——而这一跃，opencode 没有自己造，是借 opentui 白捡的。</p>
+<p>布局也是你熟悉的那套：opencode 的 TUI 代码里到处是 <span class="mono">flexDirection</span>（122 处）、<span class="mono">flexGrow</span>、<span class="mono">justifyContent</span>、<span class="mono">alignItems</span>——<strong>就是 CSS flexbox</strong>。opentui 内置了一个 flexbox 布局引擎，按这些属性算出每个元素该占终端的哪几行哪几列、多宽多高。于是「左边固定宽的侧边栏 + 右边自适应的主区」这种布局，你用 <span class="mono">flexDirection:"row"</span> + 侧边栏定宽 + 主区 <span class="mono">flexGrow:1</span> 就搞定了，和写网页<strong>一字不差</strong>。</p>
+<p>这种「把成熟模型整体复用」的思路，正是全书反复出现的智慧（L51 复用 git、L39 复用 Ripgrep）——只不过这次复用的，是整个<strong>前端渲染范式</strong>。值得想一想这背后省掉了多少事：终端绘图的传统做法，是直接拼接 ANSI 转义码——「把光标移到第 5 行第 12 列、设成红色、打印这串字、再复位」。</p>
+<p>这种手工绘图既<strong>难写又难维护</strong>：稍微复杂一点的布局（一个会随窗口缩放的多栏界面）就得自己算每个字符的坐标，改一处动全身。而 opentui 把这层彻底<strong>抽象掉了</strong>：你只声明「我要一个横向排列、左栏定宽、右栏自适应的盒子」，至于「第 5 行第 12 列该打什么字、什么颜色」，全交给布局引擎和绘制器去算。<strong>从「手动摆字符」到「声明式描述布局」，正是 TUI 开发体验的一次代际跃迁</strong>——而这一跃，opencode 没有自己造，是借 opentui 白捡的。</p>
 
 <h2>渲染管线：从 JSX 到终端字符</h2>
 <p>opencode 启动 TUI 的入口是 <span class="mono">app.tsx</span> 的 <span class="mono">run</span> 函数，它干两件事：先 <span class="mono">createCliRenderer</span> 造一个渲染器，再 <span class="mono">render(() =&gt; &lt;组件树&gt;)</span> 把组件挂上去。要理解这条管线，先看 opentui 内部分了哪几层——从你写的 JSX，到终端上的字符，中间隔着这样一摞：</p>
@@ -8775,7 +8853,9 @@ sqliteTable(<span class="st">"session_input"</span>, {
   <div class="layer"><span class="l-tag">Dialog / Frecency / PromptHistory…</span><span class="l-desc">对话框、常用度、prompt 历史等交互状态</span></div>
   <div class="layer"><span class="l-tag">&lt;App/&gt;</span><span class="l-desc">最里层：真正的界面，头顶所有 Provider 的服务任它取用</span></div>
 </div>
-<p>这个嵌套顺序<strong>绝非随意</strong>——它是一张<strong>依赖关系图</strong>的拓扑排序。看 <span class="mono">project.tsx</span> 就明白了：<span class="mono">ProjectProvider</span> 的 <span class="mono">init</span> 函数第一行就是 <span class="mono">const sdk = useSDK()</span>——它要用 SDK 去拉项目信息。既然 <span class="mono">useSDK()</span> 只能在 <span class="mono">SDKProvider</span> 内部用，那 <span class="mono">ProjectProvider</span> 就<strong>必须</strong>被 <span class="mono">SDKProvider</span> 包在里头。同理，<span class="mono">RouteProvider</span> 的 <span class="mono">init</span> 只用 <span class="mono">useTuiStartup()</span>、<strong>并不</strong>依赖 SDK，所以它<strong>反而裹在 <span class="mono">SDKProvider</span> 之外</strong>（同在外层的还有 Toast、KV 等）；而 <span class="mono">SyncProvider</span> 与 <span class="mono">DataProvider</span> 的 <span class="mono">init</span> 都通过 <span class="mono">useEvent()</span>（其内部又调 <span class="mono">useSDK()</span>）<strong>各自独立地</strong>消费 SDK 的事件流——两者都依赖 SDK、故都在 SDKProvider 之内（它俩彼此并不依赖，<span class="mono">Sync→Data</span> 的相邻只是惯例排序）……<strong>每一处「内层 init 调用外层的 use」，都在这座金字塔里钉下一条「谁必须在谁外面」的硬约束</strong>。于是这座塔从下到上，恰好是一条「越基础越靠外、越上层越靠内」的依赖链：连接（SDK）→ 项目 → 数据同步 → 主题 → 交互状态 → 界面。这种「用嵌套顺序表达依赖」的手法，其实比一份显式的依赖声明更巧妙：你<strong>无需另写一张「谁依赖谁」的表</strong>，依赖关系就<strong>物理地</strong>体现在代码的缩进层级里——外层一定先于内层就位，内层天然能用上外层的一切。读 <span class="mono">app.tsx</span> 那段嵌套，从上往下读一遍，就等于把整个 App 的「服务依赖图」从地基到屋顶走了一遍。一个新人想搞懂「TUI 启动时各种服务按什么顺序就位」，不必翻文档，看这一段 JSX 的嵌套顺序即可——<strong>结构本身就是文档</strong>。</p>
+<p>这个嵌套顺序<strong>绝非随意</strong>——它是一张<strong>依赖关系图</strong>的拓扑排序。看 <span class="mono">project.tsx</span> 就明白了：<span class="mono">ProjectProvider</span> 的 <span class="mono">init</span> 函数第一行就是 <span class="mono">const sdk = useSDK()</span>——它要用 SDK 去拉项目信息。既然 <span class="mono">useSDK()</span> 只能在 <span class="mono">SDKProvider</span> 内部用，那 <span class="mono">ProjectProvider</span> 就<strong>必须</strong>被 <span class="mono">SDKProvider</span> 包在里头。</p>
+<p>同理，<span class="mono">RouteProvider</span> 的 <span class="mono">init</span> 只用 <span class="mono">useTuiStartup()</span>、<strong>并不</strong>依赖 SDK，所以它<strong>反而裹在 <span class="mono">SDKProvider</span> 之外</strong>（同在外层的还有 Toast、KV 等）；而 <span class="mono">SyncProvider</span> 与 <span class="mono">DataProvider</span> 的 <span class="mono">init</span> 都通过 <span class="mono">useEvent()</span>（其内部又调 <span class="mono">useSDK()</span>）<strong>各自独立地</strong>消费 SDK 的事件流——两者都依赖 SDK、故都在 SDKProvider 之内（它俩彼此并不依赖，<span class="mono">Sync→Data</span> 的相邻只是惯例排序）……<strong>每一处「内层 init 调用外层的 use」，都在这座金字塔里钉下一条「谁必须在谁外面」的硬约束</strong>。于是这座塔从下到上，恰好是一条「越基础越靠外、越上层越靠内」的依赖链：连接（SDK）→ 项目 → 数据同步 → 主题 → 交互状态 → 界面。</p>
+<p>这种「用嵌套顺序表达依赖」的手法，其实比一份显式的依赖声明更巧妙：你<strong>无需另写一张「谁依赖谁」的表</strong>，依赖关系就<strong>物理地</strong>体现在代码的缩进层级里——外层一定先于内层就位，内层天然能用上外层的一切。读 <span class="mono">app.tsx</span> 那段嵌套，从上往下读一遍，就等于把整个 App 的「服务依赖图」从地基到屋顶走了一遍。一个新人想搞懂「TUI 启动时各种服务按什么顺序就位」，不必翻文档，看这一段 JSX 的嵌套顺序即可——<strong>结构本身就是文档</strong>。</p>
 
 <h2>同一个模子：createSimpleContext</h2>
 <p>二十多个 Provider，没有一个是从零手写的——它们全用一个叫 <span class="mono">createSimpleContext</span> 的小助手（<span class="mono">context/helper.tsx</span>）刻出来。与其让每个 context 各写一遍「建 context、写 Provider、写 use 钩子」的样板（还很容易在某一处忘了判空、忘了门控），不如把这套样板封进一个工具、让所有 context 都从同一个模子里出来。这个助手把「SolidJS 的 context 三件套」封成一行：</p>
@@ -9121,7 +9201,9 @@ sqliteTable(<span class="st">"session_input"</span>, {
   <div class="cell"><div class="c-tag">分母 1 + 天数</div><div class="c-txt">隔得越久、分母越大、分越被「衰减」；+1 防止刚开时除以零</div></div>
   <div class="cell"><div class="c-tag">分数 = freq /(1+天数)</div><div class="c-txt">又常用、又最近=高分；常用但很久没碰=被时间稀释</div></div>
 </div>
-<p>这个公式的妙处，在于它<strong>同时打败了两种朴素方案</strong>。如果<strong>只按频率排</strong>（开得多的在前），那你半年前因为某个原因疯狂打开过几十次的文件，会<strong>永远霸占榜首</strong>——哪怕你早就不碰它了。如果<strong>只按最近排</strong>（刚开的在前），那你<strong>误点一次</strong>的某个无关文件，会瞬间插到你天天用的核心文件前面。而 frecency 用「频率<strong>除以</strong>时间衰减」把两者揉到一起：一个文件哪怕历史频率很高，只要久不碰，分母 <span class="mono">(1+天数)</span> 就把它的分数<strong>慢慢拖低</strong>；而一个刚开的新文件，频率虽低但 <span class="mono">天数≈0</span>、分母≈1，能暂时靠前——但若你不再回头开它，它的分也很快随频率不再增长而被后来者超过。<strong>「频率给你长期偏好，最近度给你当下意图，相除让两者动态平衡」</strong>——这就是为什么你敲 <span class="mono">@</span> 时，列表顶端总是「你这阵子又常用、又刚碰过」的那几个文件。这个算法不是 opencode 的独创，而是 Firefox 地址栏、各种编辑器文件选择器背后<strong>同一个久经验证的排序智慧</strong>——一个值得你装进工具箱、随处可用的小而美的算法。三种排序方案的高下，并排一看便知：</p>
+<p>这个公式的妙处，在于它<strong>同时打败了两种朴素方案</strong>。如果<strong>只按频率排</strong>（开得多的在前），那你半年前因为某个原因疯狂打开过几十次的文件，会<strong>永远霸占榜首</strong>——哪怕你早就不碰它了。如果<strong>只按最近排</strong>（刚开的在前），那你<strong>误点一次</strong>的某个无关文件，会瞬间插到你天天用的核心文件前面。</p>
+<p>而 frecency 用「频率<strong>除以</strong>时间衰减」把两者揉到一起：一个文件哪怕历史频率很高，只要久不碰，分母 <span class="mono">(1+天数)</span> 就把它的分数<strong>慢慢拖低</strong>；而一个刚开的新文件，频率虽低但 <span class="mono">天数≈0</span>、分母≈1，能暂时靠前——但若你不再回头开它，它的分也很快随频率不再增长而被后来者超过。<strong>「频率给你长期偏好，最近度给你当下意图，相除让两者动态平衡」</strong>——这就是为什么你敲 <span class="mono">@</span> 时，列表顶端总是「你这阵子又常用、又刚碰过」的那几个文件。</p>
+<p>这个算法不是 opencode 的独创，而是 Firefox 地址栏、各种编辑器文件选择器背后<strong>同一个久经验证的排序智慧</strong>——一个值得你装进工具箱、随处可用的小而美的算法。三种排序方案的高下，并排一看便知：</p>
 <div class="cols">
   <div class="col"><h4>纯频率 / 纯最近（各有硬伤）</h4><p><strong>纯频率</strong>：开得多的永远在前→半年前疯狂用过的文件霸榜，早不碰了也赖着不走。<strong>纯最近</strong>：刚开的在前→误点一次的无关文件瞬间插到核心文件前面。各偏一极。</p></div>
   <div class="col"><h4>frecency（动态平衡）</h4><p>频率 ÷ 时间衰减：历史频率再高，久不碰也被分母慢慢拖低；刚开的新文件能暂时靠前，但不持续就被超过。<strong>长期偏好 × 当下意图，相除自洽</strong>。</p></div>
@@ -9168,7 +9250,9 @@ sqliteTable(<span class="st">"session_input"</span>, {
   <span class="fn">setStore</span>(<span class="st">"data"</span>, abs, entry)
   <span class="fn">appendText</span>(frecencyPath, JSON.<span class="fn">stringify</span>({ path: abs, ...entry }) + <span class="st">"\n"</span>)  <span class="cm">// ← 只追加一行</span>
 }</pre>
-  <p>最值得品的，是这个设计如何用<strong>一个极简的数学式</strong>，优雅地表达了一个本来很「主观」的需求——「把我最可能想要的文件排前面」。「我最可能想要什么」听起来像要靠机器学习、要建用户画像的复杂问题，但 frecency 用一行除法就给出了一个<strong>足够好</strong>的答案：你的<strong>长期偏好</strong>（频率）和<strong>当下意图</strong>（最近度）本就是预测「你想要什么」的两个最强信号，而「频率 ÷ 时间」恰好让它们以一种<strong>会自动新陈代谢</strong>的方式融合——新习惯随你的打开行为不断累积上分，旧习惯随时间流逝自动褪色。<strong>不需要任何显式的「过期」「清理」逻辑，时间衰减让排序永远自动跟着你「最近这阵子」的真实状态走。</strong>这是一个绝佳的范例，说明<strong>很多看似需要「智能」的产品体验，其实一个想透了的简单公式就能漂亮地解决</strong>——关键不在算法多复杂，而在你是否看清了「真正该度量的是什么」。把它装进你的工具箱：任何「最近常用项排序」的需求，frecency 都是第一个该想到的答案。</p>
+  <p>最值得品的，是这个设计如何用<strong>一个极简的数学式</strong>，优雅地表达了一个本来很「主观」的需求——「把我最可能想要的文件排前面」。「我最可能想要什么」听起来像要靠机器学习、要建用户画像的复杂问题，但 frecency 用一行除法就给出了一个<strong>足够好</strong>的答案：你的<strong>长期偏好</strong>（频率）和<strong>当下意图</strong>（最近度）本就是预测「你想要什么」的两个最强信号，而「频率 ÷ 时间」恰好让它们以一种<strong>会自动新陈代谢</strong>的方式融合——新习惯随你的打开行为不断累积上分，旧习惯随时间流逝自动褪色。</p>
+<p><strong>不需要任何显式的「过期」「清理」逻辑，时间衰减让排序永远自动跟着你「最近这阵子」的真实状态走。</strong>这是一个绝佳的范例，说明<strong>很多看似需要「智能」的产品体验，其实一个想透了的简单公式就能漂亮地解决</strong>——关键不在算法多复杂，而在你是否看清了「真正该度量的是什么」。</p>
+<p>把它装进你的工具箱：任何「最近常用项排序」的需求，frecency 都是第一个该想到的答案。</p>
 </div>
 
 <div class="card key">
@@ -9738,6 +9822,13 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
 
 <h2>LSP：借来整个 IDE 生态的大脑</h2>
 <p>要给 agent「代码智能」，最笨的办法是自己为每种语言写一套理解器——但那意味着重新实现 TypeScript 编译器、Go 的类型检查器、Python 的分析器……一种语言就是一个天坑。opencode 的聪明之处，是它根本不碰这个坑，而是站到了一个早已解决此问题的巨人肩上：<strong>LSP</strong>。LSP 当初被发明出来，正是为了解一道「<strong>M × N</strong>」的难题——<span class="mono">M</span> 种编辑器要支持 <span class="mono">N</span> 种语言，若各自对接就是 M×N 套适配；而 LSP 定一套标准协议，编辑器和语言各自只对接协议，难题就塌缩成了「<strong>M + N</strong>」。opencode 做的，就是<strong>把自己当成又一个「编辑器」</strong>接进这套协议：</p>
+<div class="flow">
+  <div class="f-node">没有 LSP<br><small>M 编辑器 × N 语言 = M×N 套适配</small></div>
+  <div class="f-arrow">立一套标准协议 →</div>
+  <div class="f-node hl">有 LSP<br><small>各自只接协议 = M+N（编辑器、语言各写一次）</small></div>
+  <div class="f-arrow">opencode →</div>
+  <div class="f-node">当「又一个编辑器」<br><small>插上即得全部语言</small></div>
+</div>
 <div class="layers">
   <div class="layer"><span class="l-tag">opencode（LSP 客户端）</span><span class="l-desc">opencode 把自己当一个编辑器，说标准 LSP——<span class="mono">lsp/client.ts</span></span></div>
   <div class="layer"><span class="l-tag">JSON-RPC 连接</span><span class="l-desc">客户端与服务器之间的标准通信（didOpen / 请求 / 通知）</span></div>
@@ -9814,7 +9905,9 @@ keymap.<span class="fn">bind</span>(<span class="st">"escape"</span>, () =&gt; {
     limited.<span class="fn">map</span>(pretty).<span class="fn">join</span>(<span class="st">"\n"</span>) +                  <span class="cm">// pretty: ERROR [行:列] 消息</span>
     (more &gt; <span class="nu">0</span> ? <span class="st">`\n... and ${more} more`</span> : <span class="st">""</span>) + <span class="st">`\n&lt;/diagnostics&gt;`</span>
 }</pre>
-  <p>这二十来行代码里，藏着一个常被新手忽略、却对 agent 体验至关重要的判断：<strong>什么该说、什么不该说。</strong>一个朴素的实现可能会把语言服务器吐出的<strong>所有</strong>诊断（错误、警告、提示、风格建议）一股脑塞给模型——结果是灾难：模型的上下文被几百条「这里少个分号」「建议用 const」的噪音淹没，真正会导致编译失败的那三条 ERROR 反而被埋了。<span class="mono">report</span> 做了三层克制：<strong>只报 ERROR</strong>（agent 当下最该管的是「能不能编译过」，warning 多是风格偏好，可以稍后再说）、<strong>每文件封顶 20 条</strong>（一个文件错到 20 条以上，再多列也没意义，先修这些）、<strong>没错误就返回空字符串</strong>（一个字都不浪费）。这背后是一个深刻的产品直觉：<strong>给 agent 的反馈，不是越多越好，而是越「准」越好。</strong>信息过载和信息缺失一样有害——前者淹没重点、烧光上下文，后者让 agent 盲目。<span class="mono">report</span> 这二十行的全部用心，就是在这两者之间，为「agent 此刻最需要知道什么」找到那个恰到好处的量。这和 L42 有界工具输出是同一种对「模型注意力稀缺」的敬畏，只不过这次稀缺的对象，是那几条<strong>真正要命</strong>的编译错误。</p>
+  <p>这二十来行代码里，藏着一个常被新手忽略、却对 agent 体验至关重要的判断：<strong>什么该说、什么不该说。</strong></p>
+<p>一个朴素的实现可能会把语言服务器吐出的<strong>所有</strong>诊断（错误、警告、提示、风格建议）一股脑塞给模型——结果是灾难：模型的上下文被几百条「这里少个分号」「建议用 const」的噪音淹没，真正会导致编译失败的那三条 ERROR 反而被埋了。<span class="mono">report</span> 做了三层克制：<strong>只报 ERROR</strong>（agent 当下最该管的是「能不能编译过」，warning 多是风格偏好，可以稍后再说）、<strong>每文件封顶 20 条</strong>（一个文件错到 20 条以上，再多列也没意义，先修这些）、<strong>没错误就返回空字符串</strong>（一个字都不浪费）。</p>
+<p>这背后是一个深刻的产品直觉：<strong>给 agent 的反馈，不是越多越好，而是越「准」越好。</strong>信息过载和信息缺失一样有害——前者淹没重点、烧光上下文，后者让 agent 盲目。<span class="mono">report</span> 这二十行的全部用心，就是在这两者之间，为「agent 此刻最需要知道什么」找到那个恰到好处的量。这和 L42 有界工具输出是同一种对「模型注意力稀缺」的敬畏，只不过这次稀缺的对象，是那几条<strong>真正要命</strong>的编译错误。</p>
 </div>
 
 <div class="card key">
@@ -10118,7 +10211,9 @@ PtyEnvironment.Service.of({
   <span class="kw">const</span> resolved = <span class="kw">yield*</span> project.<span class="fn">resolve</span>(ref.directory)   <span class="cm">// 目录→项目</span>
   <span class="kw">return</span> Service.<span class="fn">of</span>({ directory: ref.directory, project: {...}, ... })
 }))</pre>
-  <p>这个类小得不能再小，但它在 opencode 架构里的位置极其关键——<strong>它是一条「接缝」，把一整个会话从「它在哪儿」这件事上剥离了开来。</strong>注意它被实现成一个 Effect 的 <span class="mono">Service</span>（第 2 部分的依赖注入）：工具、权限、文件系统这些子系统，都<strong>通过依赖这个 <span class="mono">Location.Service</span> 来确定自己的作用域</strong>，而非各自去摸一个全局的「当前目录」。这一个小小的设计选择，带来了惊人的杠杆：<strong>因为「位置」是被注入的、而非写死的，所以换一份 Location，整个会话的「文件系统视图、权限边界、能跑的命令」就整体平移到了新位置——而会话的逻辑代码一行都不用改。</strong>这正是依赖注入（M2）最深刻的威力：把一个横切一切的关注点（「在哪儿」）抽成一个可注入的服务，于是「换地方」从「改一大堆硬编码路径」的噩梦，变成了「换一个注入值」的举手之劳。<span class="mono">workspaceID</span> 那个「为未来集群/远程放置预留」的可选字段，更透露了这条接缝的雄心：今天它让会话能在本地不同目录间搬家，明天它就能让会话在<strong>不同机器、不同远程位置</strong>间流转。<strong>一个想透了的底层抽象，不只解决眼前的问题，还为还没到来的未来，悄悄留好了门。</strong></p>
+  <p>这个类小得不能再小，但它在 opencode 架构里的位置极其关键——<strong>它是一条「接缝」，把一整个会话从「它在哪儿」这件事上剥离了开来。</strong>注意它被实现成一个 Effect 的 <span class="mono">Service</span>（第 2 部分的依赖注入）：工具、权限、文件系统这些子系统，都<strong>通过依赖这个 <span class="mono">Location.Service</span> 来确定自己的作用域</strong>，而非各自去摸一个全局的「当前目录」。</p>
+<p>这一个小小的设计选择，带来了惊人的杠杆：<strong>因为「位置」是被注入的、而非写死的，所以换一份 Location，整个会话的「文件系统视图、权限边界、能跑的命令」就整体平移到了新位置——而会话的逻辑代码一行都不用改。</strong>这正是依赖注入（M2）最深刻的威力：把一个横切一切的关注点（「在哪儿」）抽成一个可注入的服务，于是「换地方」从「改一大堆硬编码路径」的噩梦，变成了「换一个注入值」的举手之劳。</p>
+<p><span class="mono">workspaceID</span> 那个「为未来集群/远程放置预留」的可选字段，更透露了这条接缝的雄心：今天它让会话能在本地不同目录间搬家，明天它就能让会话在<strong>不同机器、不同远程位置</strong>间流转。<strong>一个想透了的底层抽象，不只解决眼前的问题，还为还没到来的未来，悄悄留好了门。</strong></p>
 </div>
 
 <div class="card key">
@@ -10230,7 +10325,9 @@ PtyEnvironment.Service.of({
   <div class="node">写 per-target<br><span class="mono">package.json</span></div>
 </div>
 <p>本地想要一个独立可执行文件，跑 <span class="mono">./packages/opencode/script/build.ts --single</span>——<span class="mono">--single</span> 让它只为<strong>当前平台</strong>编一个原生二进制（不加则按一张<strong>跨平台矩阵</strong>把 linux/macOS/Windows × arm64/x64 × musl/baseline 全编一遍，那是 CI 发版用的）。编完产物在 <span class="mono">./packages/opencode/dist/opencode-&lt;平台&gt;/bin/opencode</span>（<span class="mono">&lt;平台&gt;</span> 如 <span class="mono">linux-x64</span>、<span class="mono">darwin-arm64</span>）。值得一提的是脚本里的<strong>冒烟测试</strong>：编完当前平台的二进制后，它会立刻跑一次 <span class="mono">opencode --version</span>，跑不出来就 <span class="mono">exit(1)</span>——一道「编出来的东西至少能启动」的最低保障，失败就当场拦下，绝不把坏二进制发出去。</p>
-<p>为什么非要做成「单文件、自包含」？因为这直接决定了<strong>分发体验</strong>。如果产物依赖 node_modules，用户就得先装 Node、再 <span class="mono">npm install</span> 一大堆依赖，版本不对还会出岔子；而一个自包含二进制，<span class="mono">curl | bash</span> 下载一个文件、<span class="mono">chmod +x</span> 就能跑，没有任何外部依赖、不挑机器环境。跨平台矩阵的意义也在此：CI 一次把所有平台的二进制都编好，无论用户在 Mac、Linux 还是 Windows、是 Intel 还是 ARM，都能下到一个<strong>专门为他那台机器编译好</strong>的原生文件。这种「一处编译、处处可跑」的发布形态，是 opencode 能做到「一行命令装好」的工程底座——而它几乎是<strong>免费</strong>得来的，全靠 Bun 把「编译成单文件可执行程序」这件以前很麻烦的事变成了一个 <span class="mono">Bun.build</span> 调用。回头看，这也呼应了全书反复出现的主题：<strong>站在成熟工具的肩膀上</strong>——L39 借 Ripgrep、L51 借 git、L59 借语言服务器，而这里借 Bun 的编译能力，把本该自己造的轮子统统省掉，专注于真正独特的 agent 逻辑。</p>
+<p>为什么非要做成「单文件、自包含」？因为这直接决定了<strong>分发体验</strong>。如果产物依赖 node_modules，用户就得先装 Node、再 <span class="mono">npm install</span> 一大堆依赖，版本不对还会出岔子；而一个自包含二进制，<span class="mono">curl | bash</span> 下载一个文件、<span class="mono">chmod +x</span> 就能跑，没有任何外部依赖、不挑机器环境。</p>
+<p>跨平台矩阵的意义也在此：CI 一次把所有平台的二进制都编好，无论用户在 Mac、Linux 还是 Windows、是 Intel 还是 ARM，都能下到一个<strong>专门为他那台机器编译好</strong>的原生文件。</p>
+<p>这种「一处编译、处处可跑」的发布形态，是 opencode 能做到「一行命令装好」的工程底座——而它几乎是<strong>免费</strong>得来的，全靠 Bun 把「编译成单文件可执行程序」这件以前很麻烦的事变成了一个 <span class="mono">Bun.build</span> 调用。回头看，这也呼应了全书反复出现的主题：<strong>站在成熟工具的肩膀上</strong>——L39 借 Ripgrep、L51 借 git、L59 借语言服务器，而这里借 Bun 的编译能力，把本该自己造的轮子统统省掉，专注于真正独特的 agent 逻辑。</p>
 
 <h2>调试器：为什么要 <span class="mono">spawn</span>、要分开调</h2>
 <p>Bun 的调试体验官方坦言「还很粗糙」。最可靠的方式是<strong>手动</strong>带 <span class="mono">--inspect</span> 跑、再把调试器 attach 到那个 URL：<span class="mono">bun run --inspect=ws://localhost:6499/ dev ...</span>。这里的 <span class="mono">--inspect=ws://...</span> 是让 Bun 开一个调试协议的 WebSocket 端口，你的调试器（VSCode、Chrome DevTools）连上这个地址，就能下断点、看变量、单步执行。但这里有个最常见的坑，而它恰恰是一扇<strong>窥见 opencode 运行时结构的窗口</strong>：</p>
@@ -10320,7 +10417,9 @@ PtyEnvironment.Service.of({
 <section class="lesson-print">
 <h1>测试与贡献</h1>
 <p class="lead">上一课你学会了把 opencode <strong>跑起来、编出来、调起来</strong>。这一课是临门一脚：<strong>怎么验证你的改动是对的，又怎么把它贡献回去？</strong>——也就是「测试」与「贡献流程」。这两件事看起来一个技术、一个流程，但读完你会发现，它们被同一条暗线串着。先说测试：opencode 用 Bun 自带的测试跑（<span class="mono">bun test</span>），全仓 500 多个测试文件，但有个反直觉的规矩——<strong>测试不能在仓库根目录跑</strong>，根目录的 <span class="mono">test</span> 脚本被故意写成「打印一句『别在根目录跑测试』然后报错退出」。再说贡献：opencode 有一套<strong>异常严格</strong>的流程——必须先开 issue、PR 必须小而专注、标题要遵循约定式提交、还专门立规矩<strong>禁止「AI 生成的长篇大论」</strong>，甚至有一套 vouch 信任名单能把反复灌水的人「除名」。</p>
-<p>这一课最值得带走的洞见只有一个，但它能解释上面所有看似零散的规矩：<strong>opencode 的整套测试与贡献规范，都在为同一个目标服务——在 AI 能批量生成代码与文字的时代，<em>死守信噪比、敬重维护者的时间</em></strong>。你品品这些规矩背后的统一意图：「issue 先行」是怕重复劳动、让维护者能提前拦下不合适的方向；「PR 要小而专注 + 说清你怎么验证的」是让审阅者能快速读懂、能复现你的结论；「禁止 AI 长篇大论」「issue 必须用模板、空泛会被自动关」是过滤掉<strong>体量大但信息密度低</strong>的噪声；而 vouch 名单，干脆把「反复提交低质量 AI 贡献」明确列为除名理由。<strong>一个本身就是 AI 编程助手的项目，却在贡献门口竖起最严的牌子：请不要把未经你消化的 AI 产物倾倒给我们。</strong>这不矛盾，恰恰是清醒——AI 是放大器，放大的可以是信号、也可以是噪声，而 opencode 选择用规范死死咬住信号那一端。读懂这条暗线，你就读懂了这一课所有规矩的「为什么」。</p>
+<p>这一课最值得带走的洞见只有一个，但它能解释上面所有看似零散的规矩：<strong>opencode 的整套测试与贡献规范，都在为同一个目标服务——在 AI 能批量生成代码与文字的时代，<em>死守信噪比、敬重维护者的时间</em></strong>。你品品这些规矩背后的统一意图：「issue 先行」是怕重复劳动、让维护者能提前拦下不合适的方向；「PR 要小而专注 + 说清你怎么验证的」是让审阅者能快速读懂、能复现你的结论；「禁止 AI 长篇大论」「issue 必须用模板、空泛会被自动关」是过滤掉<strong>体量大但信息密度低</strong>的噪声；而 vouch 名单，干脆把「反复提交低质量 AI 贡献」明确列为除名理由。</p>
+<p><strong>一个本身就是 AI 编程助手的项目，却在贡献门口竖起最严的牌子：请不要把未经你消化的 AI 产物倾倒给我们。</strong></p>
+<p>这不矛盾，恰恰是清醒——AI 是放大器，放大的可以是信号、也可以是噪声，而 opencode 选择用规范死死咬住信号那一端。读懂这条暗线，你就读懂了这一课所有规矩的「为什么」。</p>
 
 <div class="card analogy">
   <div class="tag">📨 生活类比</div>
@@ -10535,7 +10634,9 @@ PtyEnvironment.Service.of({
 <section class="lesson-print">
 <h1>EventV2 持久事件溯源与单写入同步</h1>
 <p class="lead">第 11 课讲事件总线时，我们看的是<strong>传输</strong>那一层：服务器经 SSE 把事件<strong>推</strong>给客户端。但有个更深的问题一直没碰：这些事件<strong>怎么被持久化、怎么定序、怎么让多台设备最终看到同一份会话？</strong>这就是 <span class="mono">EventV2</span>——opencode 的<strong>持久事件溯源 + 单写入同步</strong>底座（<span class="mono">core/src/event.ts</span>、<span class="mono">event/sql.ts</span>、<span class="mono">opencode/src/sync/README.md</span>）。它也正是第 19 课「投影历史」脚下那块地基：投影器之所以能从事件投出一份干净的读模型，前提是事件本身<strong>有持久的、（每个会话各自一条的）全序编号</strong>。它还回答了一个很实际的产品问题：你在终端里开着一个会话，又想在网页或手机上<strong>看到同一个会话的实时进展</strong>——这份「多端看到同一份会话」的能力，底层靠的就是本课讲的事件日志与同步。这一课，我们就把第 11 课只讲了「传输」、第 19 课只讲了「投影」之间那块缺失的拼图补上。</p>
-<p>这一课最值得带走的洞见只有一个，但它优雅得让人会心一笑：<strong>因为 opencode 规定「<em>同一个会话只允许一台设备写</em>」，整个同步系统就被极大地简化了</strong>。源码 <span class="mono">sync/README.md</span> 把话说得很直白——"<strong>只有一台设备能写，我们就不需要任何复杂的分布式时钟或因果排序</strong>"。多设备协作里最难的那部分（两个人同时改、到底谁先谁后、怎么合并）被一个设计决定直接绕开了：既然只有一个写入者，那就<strong>用一个简单的、单调递增的序号 <span class="mono">seq</span>（每生成一个事件就 +1）来给出全序</strong>。其他设备要「同步」，无非是<strong>拿到事件日志、从自己上次的位置往后重放</strong>，放完就和写入者一字不差。读懂这条「<strong>用约束换简单</strong>」的思路，你就懂了为什么 opencode 能用几张朴素的表，做到多端一致——而不必背上一套分布式共识的重担。这是工程里一种反复奏效却常被忽略的智慧：<strong>与其去解一个难题，不如换一个不产生这个难题的设计</strong>。多写入者的一致性是难题，那就只留一个写入者；这一让，整套系统就从「需要博士论文」变成了「一个计数器加一本流水账」。</p>
+<p>这一课最值得带走的洞见只有一个，但它优雅得让人会心一笑：<strong>因为 opencode 规定「<em>同一个会话只允许一台设备写</em>」，整个同步系统就被极大地简化了</strong>。</p>
+<p>源码 <span class="mono">sync/README.md</span> 把话说得很直白——"<strong>只有一台设备能写，我们就不需要任何复杂的分布式时钟或因果排序</strong>"。多设备协作里最难的那部分（两个人同时改、到底谁先谁后、怎么合并）被一个设计决定直接绕开了：既然只有一个写入者，那就<strong>用一个简单的、单调递增的序号 <span class="mono">seq</span>（每生成一个事件就 +1）来给出全序</strong>。其他设备要「同步」，无非是<strong>拿到事件日志、从自己上次的位置往后重放</strong>，放完就和写入者一字不差。</p>
+<p>读懂这条「<strong>用约束换简单</strong>」的思路，你就懂了为什么 opencode 能用几张朴素的表，做到多端一致——而不必背上一套分布式共识的重担。这是工程里一种反复奏效却常被忽略的智慧：<strong>与其去解一个难题，不如换一个不产生这个难题的设计</strong>。多写入者的一致性是难题，那就只留一个写入者；这一让，整套系统就从「需要博士论文」变成了「一个计数器加一本流水账」。</p>
 
 <div class="card analogy">
   <div class="tag">📒 生活类比</div>
@@ -10584,7 +10685,9 @@ PtyEnvironment.Service.of({
   <div class="step"><span class="n">3</span> 逐条喂给本地 <span class="mono">Projector</span> 重放（同 L19 投影器把事件「应用」成读模型）</div>
   <div class="step"><span class="n">4</span> 重放到最新，<span class="mono">Cursor</span> 推进到最大 seq——B 与写入者<strong>状态一致</strong></div>
 </div>
-<p>把这块拼图嵌回全书，三课就连成一条完整链路了：<strong>EventV2（本课）负责事件的「持久化 + 定序 + 同步」，第 11 课的 SSE 负责事件的「实时传输」，第 19 课的投影器负责把事件「投影成可读的消息」。</strong>同一条事件流，三种角色各取所需——这也解释了为什么这三课讲的是「同一件事的不同切面」：事件是贯穿 opencode 的中枢神经，而本课讲的，是这条神经如何被<strong>可靠地记录下来、并在多端之间保持一致</strong>。还有一点容易混淆、值得一辨：第 8 课的 <span class="mono">KeyedMutex</span> 也讲「按 key 排队」，但那是<strong>进程内</strong>同一文件/插件的并发串行；本课的「单写入者 + seq 全序」是<strong>跨设备</strong>的一致性定序——两者都体现「先把顺序定下来，后面就好办」的智慧，但作用在完全不同的层面：一个守的是单机内存里的竞态，一个守的是多台机器之间的一致。</p>
+<p>把这块拼图嵌回全书，三课就连成一条完整链路了：<strong>EventV2（本课）负责事件的「持久化 + 定序 + 同步」，第 11 课的 SSE 负责事件的「实时传输」，第 19 课的投影器负责把事件「投影成可读的消息」。</strong></p>
+<p>同一条事件流，三种角色各取所需——这也解释了为什么这三课讲的是「同一件事的不同切面」：事件是贯穿 opencode 的中枢神经，而本课讲的，是这条神经如何被<strong>可靠地记录下来、并在多端之间保持一致</strong>。</p>
+<p>还有一点容易混淆、值得一辨：第 8 课的 <span class="mono">KeyedMutex</span> 也讲「按 key 排队」，但那是<strong>进程内</strong>同一文件/插件的并发串行；本课的「单写入者 + seq 全序」是<strong>跨设备</strong>的一致性定序——两者都体现「先把顺序定下来，后面就好办」的智慧，但作用在完全不同的层面：一个守的是单机内存里的竞态，一个守的是多台机器之间的一致。</p>
 <div class="vflow">
   <div class="vnode"><b>L15 事件溯源</b>：输入 <span class="mono">admit</span> 也是往事件流追加不可变记录——本课给这条流配上了持久的全序号</div>
   <div class="vnode"><b>L11 SSE 传输</b>：把新事件实时推给已连接的客户端（传输层）；本课管的是这些事件如何被<strong>持久存下、定序</strong></div>
@@ -10663,7 +10766,9 @@ PtyEnvironment.Service.of({
 <section class="lesson-print">
 <h1>斜杠命令系统</h1>
 <p class="lead">你在 opencode 里敲 <span class="mono">/init</span> 或 <span class="mono">/review</span>，按下回车，一段精心写好的长提示词就被发给了模型。这些「斜杠命令」是怎么实现的？翻开 <span class="mono">opencode/src/command/index.ts</span>，你会发现一个出奇简洁、又出奇通用的设计：<strong>一个命令，本质就是一段「参数化的 prompt 模板」</strong>。它有名字、有描述、有一段留了「空」的模板文本，调用时把你给的参数填进空里，就成了发给模型的完整提示词。这件事乍看不起眼，细想却很关键：在一个 AI 编程 agent 里，<strong>「你想让模型干什么」几乎全靠提示词表达</strong>，而把高频、复杂的提示词固化成命令，等于给用户配了一套「常用动作的快捷键」。更妙的是——<strong>自定义命令、MCP 暴露的 prompt、以及 skill，这三种来源完全不同的东西，被塑成了同一种 <span class="mono">Info</span> 形状</strong>，藏在同一个 <span class="mono">get/list</span> 接口后面。你用 <span class="mono">/xxx</span> 的时候，根本感觉不到它来自哪儿。</p>
-<p>这一课最值得带走的洞见有两个。第一，<strong>命令 = 模板 + 占位符</strong>：模板里用 <span class="mono">$ARGUMENTS</span>、<span class="mono">$1/$2</span>、<span class="mono">${path}</span> 这类「空」标记参数位置，<span class="mono">hints()</span> 扫一遍就知道「这个命令吃哪些参数」，调用时把实参填进去——一段死板的 prompt 就变成了一个<strong>可复用、可传参的小工具</strong>。这看似平常，却把「提示词工程」从「每次现敲」升级成了「沉淀成可调用的资产」：一段好提示词写一次，存成命令，全团队 <span class="mono">/它</span> 一下就用上了。第二，也是最点睛的——<strong>三种来源、一套接口</strong>：内置命令（读配置）、MCP 服务器暴露的 prompt、skill，本是三类毫不相干的东西，却被 <span class="mono">Command.layer</span> 统一收集、塑成同一个 <span class="mono">Info</span>（靠一个 <span class="mono">source: "command" | "mcp" | "skill"</span> 字段记出身）。这是全书反复出现的「<strong>统一模子刻同形</strong>」（同 L36 Tool.make、L43 skills、L47 PluginV2）在用户命令层的又一次登场：把异质的东西塑成同形，上层就能一视同仁地用，而所有「它们到底哪不一样」的复杂，都被收进了那个塑形的地方。</p>
+<p>这一课最值得带走的洞见有两个。第一，<strong>命令 = 模板 + 占位符</strong>：模板里用 <span class="mono">$ARGUMENTS</span>、<span class="mono">$1/$2</span>、<span class="mono">${path}</span> 这类「空」标记参数位置，<span class="mono">hints()</span> 扫一遍就知道「这个命令吃哪些参数」，调用时把实参填进去——一段死板的 prompt 就变成了一个<strong>可复用、可传参的小工具</strong>。这看似平常，却把「提示词工程」从「每次现敲」升级成了「沉淀成可调用的资产」：一段好提示词写一次，存成命令，全团队 <span class="mono">/它</span> 一下就用上了。</p>
+<p>第二，也是最点睛的——<strong>三种来源、一套接口</strong>：内置命令（读配置）、MCP 服务器暴露的 prompt、skill，本是三类毫不相干的东西，却被 <span class="mono">Command.layer</span> 统一收集、塑成同一个 <span class="mono">Info</span>（靠一个 <span class="mono">source: "command" | "mcp" | "skill"</span> 字段记出身）。</p>
+<p>这是全书反复出现的「<strong>统一模子刻同形</strong>」（同 L36 Tool.make、L43 skills、L47 PluginV2）在用户命令层的又一次登场：把异质的东西塑成同形，上层就能一视同仁地用，而所有「它们到底哪不一样」的复杂，都被收进了那个塑形的地方。</p>
 
 <div class="card analogy">
   <div class="tag">✉️ 生活类比</div>
@@ -10700,7 +10805,9 @@ PtyEnvironment.Service.of({
   <div class="vnode"><b>MCP prompt</b>（<span class="mono">source:"mcp"</span>）：外部 MCP 服务器（L46）暴露的 prompt，被裹成命令——因为是远程解析，<span class="mono">template</span> 是个 <strong>lazy promise</strong>（源码注释明说："lazy promises from MCP prompt resolution"）</div>
   <div class="vnode"><b>skill</b>（<span class="mono">source:"skill"</span>）：技能（L43）也作为一种命令来源接入</div>
 </div>
-<p>三类异质的东西，最后都长成同一个 <span class="mono">Info</span>，只用一个 <span class="mono">source</span> 字段记着「我从哪来」。上层（命令面板、调用逻辑）于是<strong>一视同仁</strong>：它不关心一个命令是内置的、MCP 的还是 skill 的，只管 <span class="mono">get(name)</span> 拿到一个 <span class="mono">Info</span>、填好模板、跑起来。这正是 <span class="mono">template</span> 的类型要写成 <span class="mono">Promise&lt;string&gt; | string</span> 的原因——它得同时容纳「本地就是字符串」和「MCP 远程要 await」两种形态。为什么这种「三源归一」值得专门拿出来讲？因为它体现了一个深刻的设计权衡：<strong>异质性总要有人消化，问题只是在哪一层消化</strong>。如果不归一，上层每处用命令的地方都要写「如果是内置就这样、如果是 MCP 就那样、如果是 skill 又另一样」的分叉，复杂度会像藤蔓一样爬满整个上层。而 <span class="mono">Command.layer</span> 选择<strong>在「塑形」这一处把差异一次性吃掉</strong>——把三种来源都翻译成同一个 <span class="mono">Info</span>，于是上层每一处都干净。把「来源的差异」收进一个字段、把「共同的形状」抽成一个 <span class="mono">Info</span>，<strong>异质塑同形</strong>，是这套设计能如此干净的根。你会发现这和 L36 的 <span class="mono">Tool.make</span>（各种工具塑成同一个工具形状）、L47 的 <span class="mono">PluginV2</span>（各家 provider 塑成同一个插件形状）是<strong>一模一样的招式</strong>，只是这次塑的是「命令」。</p>
+<p>三类异质的东西，最后都长成同一个 <span class="mono">Info</span>，只用一个 <span class="mono">source</span> 字段记着「我从哪来」。上层（命令面板、调用逻辑）于是<strong>一视同仁</strong>：它不关心一个命令是内置的、MCP 的还是 skill 的，只管 <span class="mono">get(name)</span> 拿到一个 <span class="mono">Info</span>、填好模板、跑起来。这正是 <span class="mono">template</span> 的类型要写成 <span class="mono">Promise&lt;string&gt; | string</span> 的原因——它得同时容纳「本地就是字符串」和「MCP 远程要 await」两种形态。</p>
+<p>为什么这种「三源归一」值得专门拿出来讲？因为它体现了一个深刻的设计权衡：<strong>异质性总要有人消化，问题只是在哪一层消化</strong>。如果不归一，上层每处用命令的地方都要写「如果是内置就这样、如果是 MCP 就那样、如果是 skill 又另一样」的分叉，复杂度会像藤蔓一样爬满整个上层。而 <span class="mono">Command.layer</span> 选择<strong>在「塑形」这一处把差异一次性吃掉</strong>——把三种来源都翻译成同一个 <span class="mono">Info</span>，于是上层每一处都干净。</p>
+<p>把「来源的差异」收进一个字段、把「共同的形状」抽成一个 <span class="mono">Info</span>，<strong>异质塑同形</strong>，是这套设计能如此干净的根。你会发现这和 L36 的 <span class="mono">Tool.make</span>（各种工具塑成同一个工具形状）、L47 的 <span class="mono">PluginV2</span>（各家 provider 塑成同一个插件形状）是<strong>一模一样的招式</strong>，只是这次塑的是「命令」。</p>
 
 <h2>执行与事件：跑起来，并留下痕迹</h2>
 <p><span class="mono">Service</span> 接口极小，只有两个方法：<span class="mono">get(name)</span>（按名取一个命令）和 <span class="mono">list()</span>（列全部命令，供命令面板 L56 摊开）。「接口小」本身就是一种设计美德——把异质来源的复杂全压在 <span class="mono">layer</span> 的构建里，暴露给外界的却只是「按名取、列全部」这两件最朴素的事。一个命令被执行时，模板填好实参成 prompt、按 <span class="mono">agent</span>/<span class="mono">model</span> 覆盖选好模型、若 <span class="mono">subtask:true</span> 就作为子任务跑（不污染主对话，跑完把结果带回）；并发出一个 <span class="mono">command.executed</span> 事件（记下「哪个命令、什么参数被执行了」）——这条事件正好流进 L65 讲的事件体系，可被持久化、被其他设备同步看到。也就是说，「你执行了哪些命令」本身也是会话历史的一部分，可回放、可在网页端同步看到。把整条路径走一遍：</p>
@@ -10797,7 +10904,9 @@ PtyEnvironment.Service.of({
 <section class="lesson-print">
 <h1>http-recorder 磁带录放测试</h1>
 <p class="lead">怎么给一个会<strong>调用真实大模型</strong>的 agent 循环写测试？这是个真问题：模型<strong>每次回答都不一样</strong>（非确定）、调一次<strong>要花钱</strong>、还<strong>慢</strong>、网络还可能抽风。直接在测试里打真 API，等于让测试结果听天由命——今天绿、明天红，谁也说不清是代码坏了还是模型那天心情不好。opencode 的答案是 <span class="mono">http-recorder</span>（<span class="mono">packages/http-recorder/</span>）：<strong>把一次真实的 provider 往返「录成磁带（cassette）」，之后测试时不再打真 API，而是「放磁带」——回放那盘录好的响应</strong>。于是一个本质非确定的循环，被钉成了<strong>可重放、可断言、不花钱、飞快</strong>的确定测试。<span class="mono">core/test/session-runner-recorded.test.ts</span> 就是这么干的：用一盘录好的 OpenAI 流式响应磁带，<strong>回放整条 V2 session runner</strong>（L17 的 agent 循环）。这一课讲的，是 opencode 为「测自己最核心、又最难测的那条循环」打造的专门工具——它本身就是一个独立的包 <span class="mono">@opencode-ai/http-recorder</span>，足见这套「录放」机制在工程上的分量。</p>
-<p>这一课最值得带走的洞见有两个。第一，<strong>「录放（record/replay）」是驯服非确定性的经典手法</strong>：第一次用<strong>录制模式</strong>真打一次 API、把请求与响应原样存成一盘命名磁带；以后用<strong>回放模式</strong>，让进来的请求去磁带库里<strong>按「请求长什么样」匹配</strong>到对应那盘，直接返回录好的响应——外部世界的随机与昂贵，被一次性「冻」进了磁带。第二，也是工程上很见功力的一点——<strong>录的时候自动脱敏（redact）</strong>：API key、<span class="mono">Authorization</span> 头这类秘密会被替换成 <span class="mono">[REDACTED]</span> 再落盘，于是磁带能安全地提交进仓库、当 fixture 用，不会把你的密钥一起带进 git。读懂这套「<strong>把真实世界录一次，之后无限次重放</strong>」，你就掌握了「如何确定性地测试一个不确定系统」这一最棘手测试难题的标准解法。这个手法远不止 opencode 专用——任何依赖外部服务（第三方 API、支付网关、地图服务……）的代码，都面临「测试时要不要真打外部」的两难，而「录放（在测试圈里常叫 VCR / cassette 模式）」就是业界对这道难题的经典答案。opencode 把它做进自己的 <span class="mono">http-recorder</span> 包，正是因为「调真实大模型」恰恰是这类难题里最尖锐的一种：又贵、又慢、又每次不一样。</p>
+<p>这一课最值得带走的洞见有两个。第一，<strong>「录放（record/replay）」是驯服非确定性的经典手法</strong>：第一次用<strong>录制模式</strong>真打一次 API、把请求与响应原样存成一盘命名磁带；以后用<strong>回放模式</strong>，让进来的请求去磁带库里<strong>按「请求长什么样」匹配</strong>到对应那盘，直接返回录好的响应——外部世界的随机与昂贵，被一次性「冻」进了磁带。</p>
+<p>第二，也是工程上很见功力的一点——<strong>录的时候自动脱敏（redact）</strong>：API key、<span class="mono">Authorization</span> 头这类秘密会被替换成 <span class="mono">[REDACTED]</span> 再落盘，于是磁带能安全地提交进仓库、当 fixture 用，不会把你的密钥一起带进 git。读懂这套「<strong>把真实世界录一次，之后无限次重放</strong>」，你就掌握了「如何确定性地测试一个不确定系统」这一最棘手测试难题的标准解法。</p>
+<p>这个手法远不止 opencode 专用——任何依赖外部服务（第三方 API、支付网关、地图服务……）的代码，都面临「测试时要不要真打外部」的两难，而「录放（在测试圈里常叫 VCR / cassette 模式）」就是业界对这道难题的经典答案。opencode 把它做进自己的 <span class="mono">http-recorder</span> 包，正是因为「调真实大模型」恰恰是这类难题里最尖锐的一种：又贵、又慢、又每次不一样。</p>
 <div class="card analogy">
   <div class="tag">🎙️ 生活类比</div>
   想象你要反复<strong>排练一场「打电话问专家」的戏</strong>。专家（大模型）很贵、每次回答还都不一样、还可能占线——你总不能每排练一遍就真打一次长途。聪明的做法是：<strong>认认真真打一次真电话，把整通对话<u>录成磁带</u></strong>（录制模式）；录的时候，把里头的<strong>电话号码、口令这类敏感信息「消音」</strong>（脱敏 redact，盖成「<span class="mono">[REDACTED]</span>」）。之后无论排练多少遍，都<strong>不再打真电话，直接放这盘磁带</strong>（回放模式）：剧务听到「拨了某个号、问了某句话」，就去磁带架上<strong>按「号码 + 问的内容」找到对应那盘</strong>，把录好的回答原样放出来。于是每次排练<strong>分毫不差</strong>、不花一分钱、快如闪电，磁带还因为消了音可以安全地存进剧团档案（提交进仓库当 fixture）。<span class="mono">http-recorder</span> 就是这套「录一次真的、之后放无数次假的」的磁带机。
@@ -10809,7 +10918,9 @@ PtyEnvironment.Service.of({
   <div class="col"><h4>测试里真打 API</h4><p>结果随模型漂移（今天绿明天红）、每跑一次花钱、慢、要联网、密钥还得管。测试变得<strong>不可靠</strong>，红了你都不知道是代码的锅还是模型的锅。</p></div>
   <div class="col"><h4>录放（http-recorder）</h4><p>真打<strong>一次</strong>、录成磁带；之后回放——结果<strong>恒定</strong>、零成本、毫秒级、可离线、磁带脱敏后可入库。测试重新变得<strong>可信</strong>。</p></div>
 </div>
-<p>这正是「录放」这一手法的价值：它把「与外部世界的那一次真实交互」从测试的<strong>每一次运行</strong>里抽出来，只做一次、冻成磁带，让后续每次测试都跑在这盘<strong>确定的录音</strong>上。注意它的边界——录放并不验证「模型答得对不对」（那不是单测该管的），它验证的是「<strong>给定这盘已知的模型响应，我的 runner / 协议解析 / 工具调度逻辑处理得对不对</strong>」。也就是说，它把「模型」这个不确定变量<strong>固定住</strong>，好让你专心测自己那部分代码。打个比方：你要测一台「自动售货机」在收到一张钞票后会不会正确出货，你不会去测「印钞厂印得对不对」——你会拿一张<strong>已知为真的样钞</strong>反复投，看售货机的逻辑。磁带就是那张样钞：一份已知、固定的真实输入。这与 L63「测真实实现、少用 mock」一脉相承：磁带不是凭空捏造的假响应（那就成了 mock，容易测出「假绿」——mock 顺、真实环境却崩），而是<strong>一次真实交互的忠实录音</strong>——测的仍是真实的协议字节、真实的流式分帧，只是把它「定格」了。这是「真实」与「确定」之间一个漂亮的平衡：既不像真打 API 那样不可控，又不像纯 mock 那样脱离真实。</p>
+<p>这正是「录放」这一手法的价值：它把「与外部世界的那一次真实交互」从测试的<strong>每一次运行</strong>里抽出来，只做一次、冻成磁带，让后续每次测试都跑在这盘<strong>确定的录音</strong>上。注意它的边界——录放并不验证「模型答得对不对」（那不是单测该管的），它验证的是「<strong>给定这盘已知的模型响应，我的 runner / 协议解析 / 工具调度逻辑处理得对不对</strong>」。也就是说，它把「模型」这个不确定变量<strong>固定住</strong>，好让你专心测自己那部分代码。</p>
+<p>打个比方：你要测一台「自动售货机」在收到一张钞票后会不会正确出货，你不会去测「印钞厂印得对不对」——你会拿一张<strong>已知为真的样钞</strong>反复投，看售货机的逻辑。磁带就是那张样钞：一份已知、固定的真实输入。</p>
+<p>这与 L63「测真实实现、少用 mock」一脉相承：磁带不是凭空捏造的假响应（那就成了 mock，容易测出「假绿」——mock 顺、真实环境却崩），而是<strong>一次真实交互的忠实录音</strong>——测的仍是真实的协议字节、真实的流式分帧，只是把它「定格」了。这是「真实」与「确定」之间一个漂亮的平衡：既不像真打 API 那样不可控，又不像纯 mock 那样脱离真实。</p>
 
 <h2>磁带机制：录一次，放无数次</h2>
 <p><span class="mono">HttpRecorder = { http, socket }</span>——它能录放两种通道：普通 HTTP，以及 WebSocket（<span class="mono">socket</span>，对应 L33 的流式传输）。围绕「一盘磁带」有一组干净的类型：</p>
@@ -10927,7 +11038,9 @@ PtyEnvironment.Service.of({
 <section class="lesson-print">
 <h1>Account 与设备码 OAuth</h1>
 <p class="lead">你在终端里第一次让 opencode 连上某个账号/服务，会看到这样一幕：屏幕上显示一个<strong>短码</strong>（如 <span class="mono">WDJB-MJHT</span>）和一个网址，让你「<strong>去浏览器打开这个网址、输入这个码</strong>」；你照做、点了授权，回到终端，它已经<strong>自动登录好了</strong>。这背后是 <strong>设备码（device-code）OAuth 流</strong>——一种专为「<strong>没有浏览器回调</strong>」的 CLI/终端设计的登录方式（<span class="mono">opencode/src/account/account.ts</span>）。拿到的凭据则进了一个统一的<strong>凭据库</strong>（<span class="mono">core/src/credential.ts</span>），之后被喂给 provider 去调模型。这一课就讲清楚：CLI 没有浏览器回调，怎么完成 OAuth？拿到的密钥/令牌，又是怎么存、怎么喂给 provider 的？这是一块横切整个运行时、却在前面 64 课里始终没正面讲过的拼图——你用 opencode 连模型、连服务，背后总得先「登录、拿到凭据」，而这一课正是补上「身份与凭据」这一环。</p>
-<p>这一课最值得带走的洞见有两个。第一，<strong>设备码流把「在哪授权」和「令牌落到哪」解耦了</strong>：传统网页 OAuth 靠「浏览器回调」把授权结果送回应用——但 CLI 是个终端进程，没有浏览器、收不了回调。设备码的巧思是：终端只<strong>显示一个短码</strong>，你<strong>在任何一台有浏览器的设备上</strong>（手机、另一台电脑）打开网址、输码、授权；与此同时，终端<strong>在后台「轮询」令牌端点</strong>，直到你那边授权完成，它就拿到了令牌。「授权」发生在浏览器、「令牌」落到 CLI，两端用一个短码牵线。第二，<strong>凭据被统一成一个带类型标签的「值」</strong>：无论是 OAuth 令牌（<span class="mono">access</span>+<span class="mono">refresh</span>+<span class="mono">expires</span>）还是直接的 API Key，都被塑成同一个 <span class="mono">Credential.Info</span> 标签联合，进同一个有 CRUD 接口的凭据库——又一次「异质塑同形」（同 L66/L36），让上层「取个凭据喂给 provider」时不必关心它是哪种。把这两点合起来，这一课其实在讲一个完整的故事：opencode 作为一个要连各种外部服务（模型 provider、MCP、集成）的工具，必须解决「怎么让用户登录、怎么把拿到的密钥安全地存好、再可靠地用上」——而它给出的答案，是一套「<strong>设备码登录 + 统一凭据库</strong>」的组合拳。</p>
+<p>这一课最值得带走的洞见有两个。第一，<strong>设备码流把「在哪授权」和「令牌落到哪」解耦了</strong>：传统网页 OAuth 靠「浏览器回调」把授权结果送回应用——但 CLI 是个终端进程，没有浏览器、收不了回调。设备码的巧思是：终端只<strong>显示一个短码</strong>，你<strong>在任何一台有浏览器的设备上</strong>（手机、另一台电脑）打开网址、输码、授权；与此同时，终端<strong>在后台「轮询」令牌端点</strong>，直到你那边授权完成，它就拿到了令牌。「授权」发生在浏览器、「令牌」落到 CLI，两端用一个短码牵线。</p>
+<p>第二，<strong>凭据被统一成一个带类型标签的「值」</strong>：无论是 OAuth 令牌（<span class="mono">access</span>+<span class="mono">refresh</span>+<span class="mono">expires</span>）还是直接的 API Key，都被塑成同一个 <span class="mono">Credential.Info</span> 标签联合，进同一个有 CRUD 接口的凭据库——又一次「异质塑同形」（同 L66/L36），让上层「取个凭据喂给 provider」时不必关心它是哪种。</p>
+<p>把这两点合起来，这一课其实在讲一个完整的故事：opencode 作为一个要连各种外部服务（模型 provider、MCP、集成）的工具，必须解决「怎么让用户登录、怎么把拿到的密钥安全地存好、再可靠地用上」——而它给出的答案，是一套「<strong>设备码登录 + 统一凭据库</strong>」的组合拳。</p>
 
 <div class="card analogy">
   <div class="tag">🎫 生活类比</div>
@@ -10940,7 +11053,9 @@ PtyEnvironment.Service.of({
   <div class="col"><h4>网页 OAuth（CLI 用不了）</h4><p>跳转到授权页 → 用户同意 → 浏览器<strong>回调</strong>带 code 回应用。依赖「应用能收到浏览器回调」——CLI 没有这个。</p></div>
   <div class="col"><h4>设备码流（CLI 用这个）</h4><p>终端<strong>显示</strong> user_code+URL → 用户<strong>在别处</strong>授权 → 终端<strong>轮询</strong>令牌端点直到成功。不需要回调，只需「显示 + 轮询」。</p></div>
 </div>
-<p>源码把每一步都建了模。第一步换取 <span class="mono">DeviceAuth</span>：<span class="mono">{device_code（保密、轮询用）, user_code（给人看、人去输）, verification_uri_complete（授权网址）, expires_in（多久过期）, interval（多久轮询一次）}</span>。注意这里<strong>两个码的分工</strong>很讲究：<span class="mono">user_code</span> 是给人看的、短而好念（方便你在另一台设备上手输），<span class="mono">device_code</span> 是给机器用的、保密的（CLI 揣着它去换令牌，绝不显示给人）。终端把 <span class="mono">user_code</span> 和网址显示给你，自己揣着 <span class="mono">device_code</span>。第二步是<strong>轮询</strong>：终端每隔 <span class="mono">interval</span> 拿 <span class="mono">device_code</span> 去问令牌端点（<span class="mono">DeviceTokenRequest{grant_type, device_code, client_id}</span>，<span class="mono">client_id="opencode-cli"</span>），返回要么是 <span class="mono">DeviceTokenSuccess{access_token, refresh_token, token_type:"Bearer", expires_in}</span>，要么是 <span class="mono">DeviceTokenError</span>——而 <span class="mono">DeviceTokenError.toPollResult()</span> 把 OAuth 的错误字符串翻译成清晰的轮询状态，这是整个轮询循环的「红绿灯」。这个 <span class="mono">toPollResult</span> 是一处很值得品的小设计：OAuth 协议里，「还没授权」「轮太快了」「过期了」「被拒了」全都以 <span class="mono">error</span> 字符串的形式回来，混在一起；<span class="mono">toPollResult</span> 把这些<strong>字符串翻成有名字的状态类</strong>（PollPending/PollSlow/…），于是轮询循环的代码就能干净地 <span class="mono">switch</span> 这些状态、而不是到处比对魔法字符串——又一次「把字符串/原始值升格成有类型的值」（同 L20 RunError、L05 错误即值）：</p>
+<p>源码把每一步都建了模。第一步换取 <span class="mono">DeviceAuth</span>：<span class="mono">{device_code（保密、轮询用）, user_code（给人看、人去输）, verification_uri_complete（授权网址）, expires_in（多久过期）, interval（多久轮询一次）}</span>。注意这里<strong>两个码的分工</strong>很讲究：<span class="mono">user_code</span> 是给人看的、短而好念（方便你在另一台设备上手输），<span class="mono">device_code</span> 是给机器用的、保密的（CLI 揣着它去换令牌，绝不显示给人）。终端把 <span class="mono">user_code</span> 和网址显示给你，自己揣着 <span class="mono">device_code</span>。</p>
+<p>第二步是<strong>轮询</strong>：终端每隔 <span class="mono">interval</span> 拿 <span class="mono">device_code</span> 去问令牌端点（<span class="mono">DeviceTokenRequest{grant_type, device_code, client_id}</span>，<span class="mono">client_id="opencode-cli"</span>），返回要么是 <span class="mono">DeviceTokenSuccess{access_token, refresh_token, token_type:"Bearer", expires_in}</span>，要么是 <span class="mono">DeviceTokenError</span>——而 <span class="mono">DeviceTokenError.toPollResult()</span> 把 OAuth 的错误字符串翻译成清晰的轮询状态，这是整个轮询循环的「红绿灯」。</p>
+<p>这个 <span class="mono">toPollResult</span> 是一处很值得品的小设计：OAuth 协议里，「还没授权」「轮太快了」「过期了」「被拒了」全都以 <span class="mono">error</span> 字符串的形式回来，混在一起；<span class="mono">toPollResult</span> 把这些<strong>字符串翻成有名字的状态类</strong>（PollPending/PollSlow/…），于是轮询循环的代码就能干净地 <span class="mono">switch</span> 这些状态、而不是到处比对魔法字符串——又一次「把字符串/原始值升格成有类型的值」（同 L20 RunError、L05 错误即值）：</p>
 <table class="t">
   <tr><th>error 字符串</th><th>→ 轮询状态</th><th>含义 / 该怎么办</th></tr>
   <tr><td><span class="mono">authorization_pending</span></td><td><span class="mono">PollPending</span></td><td>用户还没授权完——继续等、接着轮询</td></tr>
@@ -11059,7 +11174,9 @@ PtyEnvironment.Service.of({
 <section class="lesson-print">
 <h1>其余生态一览</h1>
 <p class="lead">前面 68 课，我们几乎全程待在 opencode 的<strong>引擎舱</strong>里——Effect 地基、Session 主循环、Context Epoch、LLM 协议、工具、持久化、扩展。但这台引擎的<strong>外围</strong>，还围着一整圈我们一直没正眼看过的东西：你能用的不止终端 TUI，还有<strong>网页版、Electron 桌面版</strong>；你的会话能<strong>分享成一个链接</strong>让别人在线只读旁观；还有 <strong>Slack 机器人、企业版、云基础设施</strong>……这一课不深挖任何一个的实现，而是做一次<strong>鸟瞰</strong>：把这一整圈生态摆开，看清它们各自是什么、以及<strong>它们如何全都连着同一个内核</strong>。作为全书最后一部分的收官一课，它的任务不是再塞给你一个机制，而是<strong>把你前面学的所有引擎零件，放回它们所驱动的那一整辆「车」里看一眼</strong>——让你对 opencode 的全貌，有一个完整、立体的收尾印象。读完你会发现，这一圈看似五花八门的东西，其实都站在前面几课打下的同一块地基上。</p>
-<p>这一课最值得带走的洞见只有一个，但它把全书好几条线收束到了一起：<strong>opencode 是「<em>一台引擎、多副面孔与接口</em>」</strong>。还记得第 9 课「server 拥有一切」、第 56 课「数据与表现分离」、第 61 课「ACP 让编辑器驱动它」吗？这一课就是这三条线的<strong>最终展开</strong>：内核（那个常驻、自描述、广开门户的 server）只有一个，而围着它，长出了 TUI、网页、桌面、Slack、可分享的云视图……这么多张<strong>面孔</strong>与<strong>接入点</strong>。它们之所以能共存且不重复造轮子，全靠它们<strong>共享同一套内核、同一份 SDK、同一条事件流</strong>（L11/L12）。理解这点，你就理解了 opencode 为什么能「一处内核、处处可达」——而你前面学的每一块引擎机制，正是这一整圈生态共同的底座。换句话说，这一课不会教你任何「新机制」，它教你的是一种<strong>看待全局的眼光</strong>：当你面对一个长出了一大圈周边的系统时，别被表面的五花八门迷惑，去找那个<strong>大家共享的内核</strong>——找到它，整个生态的逻辑就一目了然了。</p>
+<p>这一课最值得带走的洞见只有一个，但它把全书好几条线收束到了一起：<strong>opencode 是「<em>一台引擎、多副面孔与接口</em>」</strong>。还记得第 9 课「server 拥有一切」、第 56 课「数据与表现分离」、第 61 课「ACP 让编辑器驱动它」吗？</p>
+<p>这一课就是这三条线的<strong>最终展开</strong>：内核（那个常驻、自描述、广开门户的 server）只有一个，而围着它，长出了 TUI、网页、桌面、Slack、可分享的云视图……这么多张<strong>面孔</strong>与<strong>接入点</strong>。它们之所以能共存且不重复造轮子，全靠它们<strong>共享同一套内核、同一份 SDK、同一条事件流</strong>（L11/L12）。理解这点，你就理解了 opencode 为什么能「一处内核、处处可达」——而你前面学的每一块引擎机制，正是这一整圈生态共同的底座。</p>
+<p>换句话说，这一课不会教你任何「新机制」，它教你的是一种<strong>看待全局的眼光</strong>：当你面对一个长出了一大圈周边的系统时，别被表面的五花八门迷惑，去找那个<strong>大家共享的内核</strong>——找到它，整个生态的逻辑就一目了然了。</p>
 
 <div class="card analogy">
   <div class="tag">🚗 生活类比</div>
@@ -11089,7 +11206,9 @@ PtyEnvironment.Service.of({
 </div>
 
 <h2>分享与云同步：把会话投影到云端</h2>
-<p>第 65 课讲过 opencode 的「单写入 + 事件溯源」同步底座：本地一台设备是写入者，事件带单调 seq 全序排好。<strong>会话分享</strong>（<span class="mono">opencode/src/share</span>）就建在它之上：一个 <span class="mono">SessionShare.Service</span> 提供 <span class="mono">share(sessionID) → { url }</span> 和 <span class="mono">unshare</span>——把一个本地会话<strong>变成一个可分享的链接</strong>。注意这件事之所以能如此轻巧，正是因为第 65 课那块地基已经备好：会话本就是一条<strong>带全序号、可重放</strong>的事件流，「分享」无非是把这条流<strong>转发到云端一个中转站</strong>，让没有你本地进程的人也能订阅、重放。链接背后是 <span class="mono">packages/function</span> 里的一台云端 <strong>Cloudflare Durable Object</strong>（<span class="mono">SyncServer extends DurableObject&lt;Env&gt;</span>）：它用 WebSocket + 自带存储，接收你本地推上去的会话事件（按 <span class="mono">session/</span> 前缀存），再广播给所有打开了那个链接的旁观者。为什么用 Durable Object？因为它天然适合「一个会话对应一个有状态、长连接的中转点」——每个分享的会话就是一个 Durable Object 实例，存着该会话的事件、维护着旁观者们的 WebSocket。于是别人点开链接，就能<strong>在线只读地看你的会话实时进展</strong>——这正是第 65 课「单写入者写、其他设备重放追平」在云端的落地：你的浏览器/手机是「其他设备」，云 Durable Object 是中转的事件日志。整条「本地会话 → 分享 → 云端 → 他人只读」是这样：</p>
+<p>第 65 课讲过 opencode 的「单写入 + 事件溯源」同步底座：本地一台设备是写入者，事件带单调 seq 全序排好。<strong>会话分享</strong>（<span class="mono">opencode/src/share</span>）就建在它之上：一个 <span class="mono">SessionShare.Service</span> 提供 <span class="mono">share(sessionID) → { url }</span> 和 <span class="mono">unshare</span>——把一个本地会话<strong>变成一个可分享的链接</strong>。注意这件事之所以能如此轻巧，正是因为第 65 课那块地基已经备好：会话本就是一条<strong>带全序号、可重放</strong>的事件流，「分享」无非是把这条流<strong>转发到云端一个中转站</strong>，让没有你本地进程的人也能订阅、重放。</p>
+<p>链接背后是 <span class="mono">packages/function</span> 里的一台云端 <strong>Cloudflare Durable Object</strong>（<span class="mono">SyncServer extends DurableObject&lt;Env&gt;</span>）：它用 WebSocket + 自带存储，接收你本地推上去的会话事件（按 <span class="mono">session/</span> 前缀存），再广播给所有打开了那个链接的旁观者。</p>
+<p>为什么用 Durable Object？因为它天然适合「一个会话对应一个有状态、长连接的中转点」——每个分享的会话就是一个 Durable Object 实例，存着该会话的事件、维护着旁观者们的 WebSocket。于是别人点开链接，就能<strong>在线只读地看你的会话实时进展</strong>——这正是第 65 课「单写入者写、其他设备重放追平」在云端的落地：你的浏览器/手机是「其他设备」，云 Durable Object 是中转的事件日志。整条「本地会话 → 分享 → 云端 → 他人只读」是这样：</p>
 <div class="flow">
   <div class="node">本地会话<br>（你是单写入者 L65）</div>
   <div class="arrow">→</div>

@@ -343,7 +343,9 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="col"><h4>写端 · 事件（底账）</h4><p>append-only、不可变、有序。求<strong>稳</strong>：崩不丢、可重放、可定责。但直接读它，得自己重放一切。</p></div>
   <div class="col"><h4>读端 · 投影消息（报表）</h4><p>誊写好、当下、现成。求<strong>快</strong>：模型一读即用，不必重放。它是底账的「投影」，可随时据底账重建。</p></div>
 </div>
-<p>这套「写一种、读一种」的分家，在工程上有个名字叫 <strong>CQRS / 事件溯源读模型</strong>——但名字不重要，重要的是那个直觉：<strong>底账与报表，是同一份真相的两张脸。</strong>报表丢了不要紧，照底账能重新投影出来；但底账要是被改写了，那就真的失去了真相。所以 opencode 把「不可变的权威」放在事件这一端，把「可重建的便利」放在投影这一端——<strong>权威的那份永不可变，好读的那份随时可弃可重建</strong>。这个主次一旦摆正，可靠和好读就不再打架了。一旦你习惯用「底账 vs 报表」这副眼镜看系统，你会在很多地方认出它：数据库的物化视图、缓存与源数据、甚至 git 的提交历史与工作区——都是同一种「权威只追加、视图可重建」的分工。</p>
+<p>这套「写一种、读一种」的分家，在工程上有个名字叫 <strong>CQRS / 事件溯源读模型</strong>——但名字不重要，重要的是那个直觉：<strong>底账与报表，是同一份真相的两张脸。</strong>报表丢了不要紧，照底账能重新投影出来；但底账要是被改写了，那就真的失去了真相。</p>
+<p>所以 opencode 把「不可变的权威」放在事件这一端，把「可重建的便利」放在投影这一端——<strong>权威的那份永不可变，好读的那份随时可弃可重建</strong>。这个主次一旦摆正，可靠和好读就不再打架了。</p>
+<p>一旦你习惯用「底账 vs 报表」这副眼镜看系统，你会在很多地方认出它：数据库的物化视图、缓存与源数据、甚至 git 的提交历史与工作区——都是同一种「权威只追加、视图可重建」的分工。</p>
 <div class="flow">
   <div class="node">事件日志<span class="sub">append-only·底账（第 15 课）</span></div>
   <div class="arrow">投影器 →</div>
@@ -486,7 +488,9 @@ html[data-lang="zh"] .lang-en { display: none !important; }
   <div class="col"><h4>write end · events (ledger)</h4><p>append-only, immutable, ordered. For <strong>stability</strong>: crash-safe, replayable, accountable. But to read it directly, you'd replay everything.</p></div>
   <div class="col"><h4>read end · projected messages (statement)</h4><p>transcribed, current, ready-made. For <strong>speed</strong>: the model reads it as-is, no replay. It's the ledger's "projection," rebuildable from the ledger anytime.</p></div>
 </div>
-<p>This "write one shape, read another" split has an engineering name: <strong>CQRS / event-sourcing read model</strong> — but the name doesn't matter; what matters is the intuition: <strong>the ledger and the statement are two faces of one truth.</strong> Lose the statement and it's fine, it can be re-projected from the ledger; but rewrite the ledger and you've truly lost the truth. So opencode puts "the immutable authority" at the event end and "the rebuildable convenience" at the projection end — <strong>the authoritative copy is forever immutable, the readable copy is discardable and rebuildable anytime</strong>. Once this priority is set right, reliability and readability stop fighting. Once you get used to viewing systems through the "ledger vs statement" lens, you'll recognize it everywhere: a database's materialized views, a cache vs its source data, even git's commit history vs the working tree — all the same division of "authority only appends, the view rebuilds."</p>
+<p>This "write one shape, read another" split has an engineering name: <strong>CQRS / event-sourcing read model</strong> — but the name doesn't matter; what matters is the intuition: <strong>the ledger and the statement are two faces of one truth.</strong> Lose the statement and it's fine, it can be re-projected from the ledger; but rewrite the ledger and you've truly lost the truth.</p>
+<p>So opencode puts "the immutable authority" at the event end and "the rebuildable convenience" at the projection end — <strong>the authoritative copy is forever immutable, the readable copy is discardable and rebuildable anytime</strong>. Once this priority is set right, reliability and readability stop fighting.</p>
+<p>Once you get used to viewing systems through the "ledger vs statement" lens, you'll recognize it everywhere: a database's materialized views, a cache vs its source data, even git's commit history vs the working tree — all the same division of "authority only appends, the view rebuilds."</p>
 <div class="flow">
   <div class="node">event log<span class="sub">append-only · ledger (Lesson 15)</span></div>
   <div class="arrow">projector →</div>
