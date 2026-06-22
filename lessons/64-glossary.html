@@ -328,8 +328,150 @@ html[data-lang="zh"] .lang-en { display: none !important; }
     <div class="part"><span class="lang-zh">第十二部分 · 实战与速查</span><span class="lang-en">Part 12 · Practice &amp; Reference</span></div>
     <h1><span class="lang-zh">术语表与索引</span><span class="lang-en">Glossary &amp; index</span></h1>
   </div>
-  <div class="lang-zh"><p class="lead">本课《术语表与索引》正在建设中，敬请期待。</p><div class="card macro"><div class="tag">🚧 建设中</div>这一课会逐步拆解 opencode 中“术语表与索引”这一主题，配上图解、简化自源码的真实代码引用与自测题。</div></div>
-  <div class="lang-en"><p class="lead">This lesson "Glossary & index" is under construction.</p><div class="card macro"><div class="tag">🚧 WIP</div>It will break down the "Glossary & index" topic in opencode, with diagrams, simplified real source references and a self-test.</div></div>
+  <div class="lang-zh"><p class="lead">恭喜你走到了最后一课。前面 63 课，我们从「opencode 是什么」一路拆到「怎么给它贡献代码」——地基（Effect）、骨架（客户端/服务器）、主循环（Session 与 agent loop）、记忆（Context Epoch 系统）、嘴巴（LLM 协议）、双手（工具）、配置、持久化、界面（TUI）、扩展、实战。这一课不引入新机制，而是做两件收尾的事：<strong>一张把全书概念串起来的「概念地图」</strong>，和<strong>一份能跳回每一课的「术语速查表」</strong>。它既是复习、也是索引——当你日后读 opencode 源码、忘了某个词是什么意思，回到这里一查、点链接跳回那一课即可。</p>
+<p>而这一课本身，也藏着一个<strong>值得带走的洞见</strong>：<strong>精确、共享的词汇表，本身就是一种工程工具</strong>。opencode 源码根部的 <span class="mono">CONTEXT.md</span> 专门有一节 <span class="mono">Language</span>，像字典一样给每个核心概念下定义，甚至明确写出「<strong>不要叫它什么</strong>」——比如「System Context」旁注「_Avoid_: System prompt」、「Session History」旁注「_Avoid_: Session Context」。为什么一个代码项目要如此较真用词？因为<strong>当一个团队（如今还包括 AI 协作者）共享一套精确、无歧义的词汇时，沟通的损耗、误解的 bug、来回的澄清，都会大幅减少</strong>。给概念起一个好名字、并坚持只用这个名字，是把复杂系统讲清楚的第一步——这本可视化指南做的，本质上也是同一件事。所以这份术语表不只是「附录」，它是 opencode「用词即设计」哲学的延续。</p>
+
+<h2>概念地图：从地基到表面，层层垒起</h2>
+<p>opencode 这套系统，是<strong>自底向上</strong>垒起来的：每一层都站在下一层的肩膀上。理解了这张依赖图，你就有了一张「该先读哪、再读哪」的路线图——下层是上层的地基，越往上越接近你眼睛看到的界面：</p>
+<div class="flow">
+  <div class="node"><b>地基</b><br>Effect（M2）<br><span class="mono">DI / Fiber / 错误即值</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>骨架</b><br>客户端/服务器（M3）<br><span class="mono">Hono · SSE · SDK</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>主循环</b><br>Session（M4）<br><span class="mono">agent loop · 工具调用</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>记忆</b><br>Context Epoch（M5）<br><span class="mono">系统上下文的真源</span></div>
+</div>
+<div class="flow">
+  <div class="node"><b>嘴巴</b><br>LLM 协议（M6）<br><span class="mono">多家 provider 归一</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>双手</b><br>工具（M7）<br><span class="mono">Tool.make · 权限</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>装配</b><br>配置/持久化（M8–9）<br><span class="mono">agents · SQLite</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>表面</b><br>TUI/扩展（M10–11）<br><span class="mono">opentui · 插件 · LSP</span></div>
+</div>
+<p>这条「地基→骨架→主循环→记忆→嘴巴→双手→装配→表面」的链路，正是本书 12 个部分的组织顺序，也是 opencode 代码本身的依赖方向。一个新读者若问「我该从哪读起」，答案就在这张图里：<strong>从最左边的地基开始，因为上层的一切都建立在它之上</strong>。</p>
+
+<h2>术语速查表：全书关键概念一句话 + 跳转</h2>
+<p>下表按 12 个部分组织，每个核心术语给一句话定义，并链接回详讲它的那一课（点击即跳）。这是你日后查阅的主入口。</p>
+<table class="t">
+  <tr><th>术语</th><th>一句话</th><th>详见</th></tr>
+  <tr><td><b>opencode</b></td><td>一个开源的 AI 编程 agent：客户端/服务器架构、可在终端/Web/桌面/编辑器里用</td><td><a href="01-what-is-opencode.html">L01</a></td></tr>
+  <tr><td><b>Effect</b></td><td>贯穿全栈的函数式效果系统：把「副作用、依赖、错误」都变成可组合的值</td><td><a href="05-why-effect.html">L05</a></td></tr>
+  <tr><td><b>Layer / Context（DI）</b></td><td>Effect 的依赖注入：用 Layer 装配服务、用 Context 索取依赖</td><td><a href="06-context-layer.html">L06</a></td></tr>
+  <tr><td><b>Fiber</b></td><td>Effect 的轻量并发单元：可结构化地派生、中断、汇合</td><td><a href="07-concurrency-primitives.html">L07</a></td></tr>
+  <tr><td><b>Server（Hono）</b></td><td>opencode 内核跑成一个本地 HTTP 服务器，TUI 等都是它的客户端</td><td><a href="09-server-overview.html">L09</a></td></tr>
+  <tr><td><b>Event Bus（SSE）</b></td><td>服务器经 Server-Sent Events 把事件流推给客户端</td><td><a href="11-event-bus.html">L11</a></td></tr>
+  <tr><td><b>Session / Message / Part</b></td><td>会话的三层数据模型：会话含消息、消息含片段（文本/工具/文件…）</td><td><a href="14-session-messages-parts.html">L14</a></td></tr>
+  <tr><td><b>Agent Loop</b></td><td>「问模型→执行工具→把结果喂回→再问」的主循环</td><td><a href="17-agent-loop.html">L17</a></td></tr>
+  <tr><td><b>Projected History</b></td><td>每轮 provider 调用前，从持久数据「投影」出的那份会话历史</td><td><a href="19-projected-history.html">L19</a></td></tr>
+  <tr><td><b>System Context</b></td><td>呈给模型的结构化上下文事实集合（_勿称_ system prompt）</td><td><a href="21-system-context.html">L21</a></td></tr>
+  <tr><td><b>Context Source</b></td><td>System Context 里一个独立观测的带类型值（稳定 key + 编解码 + 渲染器）</td><td><a href="22-context-source.html">L22</a></td></tr>
+  <tr><td><b>Context Epoch</b></td><td>一份基线 System Context 保持不变的时间段，至压缩或基线替换才结束</td><td><a href="24-context-epoch.html">L24</a></td></tr>
+  <tr><td><b>LLM 协议适配器</b></td><td>把 Anthropic/OpenAI/Gemini 等各家协议归一成统一内部表示</td><td><a href="29-protocol-adapters.html">L29</a></td></tr>
+  <tr><td><b>Model Resolution</b></td><td>把「provider/模型名」解析成可调用的具体模型与传输</td><td><a href="35-model-resolution.html">L35</a></td></tr>
+  <tr><td><b>Tool.make</b></td><td>定义工具的统一模子：名字 + 参数 schema + execute</td><td><a href="36-tool-definition.html">L36</a></td></tr>
+  <tr><td><b>Permissions</b></td><td>工具执行前的策略门：ask/allow/deny（_后者胜_ 的 findLast）</td><td><a href="41-permissions.html">L41</a></td></tr>
+  <tr><td><b>Skills</b></td><td>把「一组提示词+工具+规则」打包成可复用的技能</td><td><a href="43-skills.html">L43</a></td></tr>
+  <tr><td><b>Agents（build/plan）</b></td><td>同一内核的不同「权限画像」：build 能写、plan 只读</td><td><a href="45-agents.html">L45</a></td></tr>
+  <tr><td><b>MCP</b></td><td>Model Context Protocol：动态接入外部作用域工具（含 OAuth）</td><td><a href="46-mcp.html">L46</a></td></tr>
+  <tr><td><b>Provider Plugin（IoC）</b></td><td>内核用控制反转让 provider 插件自登记装配（<span class="mono">PluginV2.define</span>）</td><td><a href="47-provider-plugins.html">L47</a></td></tr>
+  <tr><td><b>Drizzle / SQLite</b></td><td>代码即 schema 的持久化：会话/消息存在本地 SQLite</td><td><a href="48-drizzle-sqlite.html">L48</a></td></tr>
+  <tr><td><b>Compaction / Snapshot / Revert</b></td><td>记忆管理：压缩历史、影子 git 快照、回退</td><td><a href="51-compaction-snapshots.html">L51</a></td></tr>
+  <tr><td><b>opentui</b></td><td>把 SolidJS 渲染到终端的「终端里的浏览器」</td><td><a href="52-opentui.html">L52</a></td></tr>
+  <tr><td><b>frecency</b></td><td>frequency+recency 的排序公式：<span class="mono">freq/(1+天数)</span></td><td><a href="55-prompt-component.html">L55</a></td></tr>
+  <tr><td><b>Plugin / Hooks</b></td><td>外部插件 = 返回 Hooks 的函数；trigger 传草稿、插件层层涂改</td><td><a href="57-plugin-system.html">L57</a></td></tr>
+  <tr><td><b>LSP（客户端）</b></td><td>opencode 当 LSP 客户端，借来整个 IDE 语言服务器生态</td><td><a href="59-lsp.html">L59</a></td></tr>
+  <tr><td><b>PTY</b></td><td>给交互式程序一个真终端；环境「可定制在中间、不可妥协在最后」</td><td><a href="60-pty-shell.html">L60</a></td></tr>
+  <tr><td><b>ACP / Location</b></td><td>opencode 当 ACP 服务器（LSP 的镜像）；Location 解耦「会话」与「在哪儿跑」</td><td><a href="61-acp-location.html">L61</a></td></tr>
+</table>
+
+<h2>读完之后：opencode 教给你的「可迁移智慧」</h2>
+<p>这本书真正想留给你的，不是 64 课的零散知识点，而是几条<strong>跨越具体技术、能迁移到你自己项目</strong>的设计智慧。它们在全书反复出现、彼此印证。最后用一张表把它们收拢，并各指一两课作为「最佳范例」，方便你日后回味：</p>
+<table class="t">
+  <tr><th>可迁移智慧</th><th>一句话</th><th>范例课</th></tr>
+  <tr><td><b>复用成熟生态</b></td><td>能借就不自造：搜索借 Ripgrep、版本控制借 git、语言智能借 LSP、编译借 Bun</td><td><a href="39-search-exec-tools.html">L39</a> · <a href="59-lsp.html">L59</a></td></tr>
+  <tr><td><b>编辑一份草稿</b></td><td>传一份可变草稿让各方层层涂改，比约定复杂的返回值合并更可组合</td><td><a href="54-events-to-store.html">L54</a> · <a href="58-plugin-hooks.html">L58</a></td></tr>
+  <tr><td><b>找准接缝</b></td><td>切开「会变的」与「不变的」：核心 vs provider、数据 vs 表现、是什么 vs 在哪里</td><td><a href="47-provider-plugins.html">L47</a> · <a href="61-acp-location.html">L61</a></td></tr>
+  <tr><td><b>用错即响亮失败</b></td><td>把易踩的坑提前变成「踩到就报警」，而非埋成远处的诡异 bug</td><td><a href="37-tool-registry.html">L37</a> · <a href="63-test-contribute.html">L63</a></td></tr>
+  <tr><td><b>注意力是稀缺资源</b></td><td>无论模型还是维护者，注意力都有限——只留高信号，挡住噪声</td><td><a href="42-bounded-output.html">L42</a> · <a href="63-test-contribute.html">L63</a></td></tr>
+  <tr><td><b>统一模子刻同形</b></td><td>一个谁都顺手用的模子（Tool.make/createSimpleContext/Plugin），让正确成为最省力</td><td><a href="36-tool-definition.html">L36</a> · <a href="53-tui-structure.html">L53</a></td></tr>
+</table>
+<p>如果你只带走一句话，那就让它是这个：<strong>opencode 之所以能在「AI agent」这个快速演化、充满不确定的领域里保持清晰，靠的不是更聪明的技巧，而是反复地「找准接缝、复用成熟、让正确省力、为未知留门」</strong>。这些智慧不属于 opencode，它们属于一切想把复杂系统做扎实的工程师——也包括正在读这本书的你。至此，全书 64 课圆满收尾。愿你带着这张地图，去读源码、去改它、去贡献，或者，去建造你自己的东西。</p>
+</div>
+  <div class="lang-en"><p class="lead">Congratulations on reaching the final lesson. Over the previous 63 lessons, we took apart everything from "what opencode is" all the way to "how to contribute code to it"—the foundation (Effect), the skeleton (client/server), the main loop (Session and the agent loop), memory (the Context Epoch system), the mouth (the LLM protocol), the hands (tools), config, persistence, the interface (TUI), extensions, and practice. This lesson introduces no new mechanism; it does two closing things: <strong>one "concept map" threading the whole book's concepts together</strong>, and <strong>one "glossary cheat sheet" that jumps back to every lesson</strong>. It's both review and index—when you later read opencode source and forget what some term means, come back here, look it up, and click the link to jump back to that lesson.</p>
+<p>And this lesson itself hides an <strong>insight worth taking away</strong>: <strong>a precise, shared vocabulary is itself an engineering tool</strong>. opencode's root <span class="mono">CONTEXT.md</span> has a dedicated <span class="mono">Language</span> section that, like a dictionary, defines each core concept, even spelling out "<strong>what NOT to call it</strong>"—e.g. "System Context" annotated "_Avoid_: System prompt," "Session History" annotated "_Avoid_: Session Context." Why would a code project be so fussy about wording? Because <strong>when a team (now including AI collaborators) shares one precise, unambiguous vocabulary, communication loss, misunderstanding bugs, and back-and-forth clarification all drop sharply</strong>. Giving a concept a good name and insisting on only that name is the first step to explaining a complex system clearly—and what this visual guide does is, in essence, the same thing. So this glossary isn't merely an "appendix"; it's a continuation of opencode's "wording is design" philosophy.</p>
+
+<h2>Concept map: from foundation to surface, stacked layer by layer</h2>
+<p>opencode's system is built <strong>bottom-up</strong>: each layer stands on the shoulders of the one below. Understand this dependency graph and you have a "what to read first, then next" roadmap—the lower is the foundation of the upper, and the higher you go the closer you get to the interface your eyes see:</p>
+<div class="flow">
+  <div class="node"><b>Foundation</b><br>Effect (M2)<br><span class="mono">DI / Fiber / errors-as-values</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>Skeleton</b><br>client/server (M3)<br><span class="mono">Hono · SSE · SDK</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>Main loop</b><br>Session (M4)<br><span class="mono">agent loop · tool calls</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>Memory</b><br>Context Epoch (M5)<br><span class="mono">source of truth for context</span></div>
+</div>
+<div class="flow">
+  <div class="node"><b>Mouth</b><br>LLM protocol (M6)<br><span class="mono">many providers unified</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>Hands</b><br>tools (M7)<br><span class="mono">Tool.make · permissions</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>Assembly</b><br>config/persistence (M8–9)<br><span class="mono">agents · SQLite</span></div>
+  <div class="arrow">→</div>
+  <div class="node"><b>Surface</b><br>TUI/extensions (M10–11)<br><span class="mono">opentui · plugins · LSP</span></div>
+</div>
+<p>This "foundation → skeleton → main loop → memory → mouth → hands → assembly → surface" chain is exactly the order of the book's 12 parts, and also the dependency direction of opencode's own code. If a new reader asks "where should I start," the answer is in this graph: <strong>start from the leftmost foundation, because everything above is built on it</strong>.</p>
+
+<h2>Glossary cheat sheet: one line per key concept + a jump</h2>
+<p>The table below is organized by the 12 parts; each core term gets a one-line definition and links back to the lesson that covers it in depth (click to jump). This is your main entry point for future lookups.</p>
+<table class="t">
+  <tr><th>Term</th><th>One line</th><th>See</th></tr>
+  <tr><td><b>opencode</b></td><td>An open-source AI coding agent: client/server architecture, usable in terminal/Web/desktop/editors</td><td><a href="01-what-is-opencode.html">L01</a></td></tr>
+  <tr><td><b>Effect</b></td><td>A full-stack functional effect system: turns "side effects, dependencies, errors" all into composable values</td><td><a href="05-why-effect.html">L05</a></td></tr>
+  <tr><td><b>Layer / Context (DI)</b></td><td>Effect's dependency injection: assemble services with Layer, request dependencies via Context</td><td><a href="06-context-layer.html">L06</a></td></tr>
+  <tr><td><b>Fiber</b></td><td>Effect's lightweight concurrency unit: structurally forked, interrupted, joined</td><td><a href="07-concurrency-primitives.html">L07</a></td></tr>
+  <tr><td><b>Server (Hono)</b></td><td>opencode's core runs as a local HTTP server; the TUI etc. are its clients</td><td><a href="09-server-overview.html">L09</a></td></tr>
+  <tr><td><b>Event Bus (SSE)</b></td><td>The server pushes an event stream to clients via Server-Sent Events</td><td><a href="11-event-bus.html">L11</a></td></tr>
+  <tr><td><b>Session / Message / Part</b></td><td>The session's three-tier data model: session holds messages, messages hold parts (text/tool/file…)</td><td><a href="14-session-messages-parts.html">L14</a></td></tr>
+  <tr><td><b>Agent Loop</b></td><td>The main loop of "ask the model → run tools → feed results back → ask again"</td><td><a href="17-agent-loop.html">L17</a></td></tr>
+  <tr><td><b>Projected History</b></td><td>The session history "projected" from durable data before each provider call</td><td><a href="19-projected-history.html">L19</a></td></tr>
+  <tr><td><b>System Context</b></td><td>The structured collection of context facts presented to the model (_don't call_ it system prompt)</td><td><a href="21-system-context.html">L21</a></td></tr>
+  <tr><td><b>Context Source</b></td><td>One independently-observed typed value within the System Context (stable key + codec + renderers)</td><td><a href="22-context-source.html">L22</a></td></tr>
+  <tr><td><b>Context Epoch</b></td><td>The span during which one baseline System Context stays immutable, ending at compaction or baseline replacement</td><td><a href="24-context-epoch.html">L24</a></td></tr>
+  <tr><td><b>LLM protocol adapter</b></td><td>Unifies each vendor's protocol (Anthropic/OpenAI/Gemini…) into one internal representation</td><td><a href="29-protocol-adapters.html">L29</a></td></tr>
+  <tr><td><b>Model Resolution</b></td><td>Resolves "provider/model name" into a concrete callable model and transport</td><td><a href="35-model-resolution.html">L35</a></td></tr>
+  <tr><td><b>Tool.make</b></td><td>The uniform mold for defining a tool: name + params schema + execute</td><td><a href="36-tool-definition.html">L36</a></td></tr>
+  <tr><td><b>Permissions</b></td><td>A policy gate before tool execution: ask/allow/deny (_last wins_ via findLast)</td><td><a href="41-permissions.html">L41</a></td></tr>
+  <tr><td><b>Skills</b></td><td>Packaging "a set of prompts + tools + rules" into a reusable skill</td><td><a href="43-skills.html">L43</a></td></tr>
+  <tr><td><b>Agents (build/plan)</b></td><td>Different "permission profiles" of one core: build can write, plan is read-only</td><td><a href="45-agents.html">L45</a></td></tr>
+  <tr><td><b>MCP</b></td><td>Model Context Protocol: dynamically attach external scoped tools (incl. OAuth)</td><td><a href="46-mcp.html">L46</a></td></tr>
+  <tr><td><b>Provider Plugin (IoC)</b></td><td>The core uses inversion of control to let provider plugins self-register (<span class="mono">PluginV2.define</span>)</td><td><a href="47-provider-plugins.html">L47</a></td></tr>
+  <tr><td><b>Drizzle / SQLite</b></td><td>Code-as-schema persistence: sessions/messages stored in local SQLite</td><td><a href="48-drizzle-sqlite.html">L48</a></td></tr>
+  <tr><td><b>Compaction / Snapshot / Revert</b></td><td>Memory management: compress history, shadow-git snapshots, revert</td><td><a href="51-compaction-snapshots.html">L51</a></td></tr>
+  <tr><td><b>opentui</b></td><td>A "browser inside the terminal" rendering SolidJS to a TTY</td><td><a href="52-opentui.html">L52</a></td></tr>
+  <tr><td><b>frecency</b></td><td>A frequency+recency ranking formula: <span class="mono">freq/(1+days)</span></td><td><a href="55-prompt-component.html">L55</a></td></tr>
+  <tr><td><b>Plugin / Hooks</b></td><td>An external plugin = a function returning Hooks; trigger passes a draft, plugins paint over it in layers</td><td><a href="57-plugin-system.html">L57</a></td></tr>
+  <tr><td><b>LSP (client)</b></td><td>opencode acts as an LSP client, borrowing the whole IDE language-server ecosystem</td><td><a href="59-lsp.html">L59</a></td></tr>
+  <tr><td><b>PTY</b></td><td>Gives interactive programs a real terminal; env "customizable in the middle, non-negotiable last"</td><td><a href="60-pty-shell.html">L60</a></td></tr>
+  <tr><td><b>ACP / Location</b></td><td>opencode as an ACP server (mirror of LSP); Location decouples "the session" from "where it runs"</td><td><a href="61-acp-location.html">L61</a></td></tr>
+</table>
+
+<h2>After finishing: the "transferable wisdom" opencode teaches you</h2>
+<p>What this book really wants to leave you isn't 64 lessons' worth of scattered facts, but a few pieces of design wisdom that <strong>cross specific technologies and transfer to your own projects</strong>. They recur throughout the book, corroborating one another. Let's gather them in one table, each pointing to a lesson or two as a "best example" for you to revisit later:</p>
+<table class="t">
+  <tr><th>Transferable wisdom</th><th>One line</th><th>Example lessons</th></tr>
+  <tr><td><b>Reuse mature ecosystems</b></td><td>Borrow rather than build: search borrows Ripgrep, version control git, language intelligence LSP, compilation Bun</td><td><a href="39-search-exec-tools.html">L39</a> · <a href="59-lsp.html">L59</a></td></tr>
+  <tr><td><b>Edit a draft</b></td><td>Passing a mutable draft for parties to paint over in layers is more composable than negotiating complex return-value merges</td><td><a href="54-events-to-store.html">L54</a> · <a href="58-plugin-hooks.html">L58</a></td></tr>
+  <tr><td><b>Find the seam</b></td><td>Cut "what changes" from "what doesn't": core vs provider, data vs presentation, what vs where</td><td><a href="47-provider-plugins.html">L47</a> · <a href="61-acp-location.html">L61</a></td></tr>
+  <tr><td><b>Wrong usage fails loudly</b></td><td>Turn easy pitfalls into "trips an alarm on contact" ahead of time, rather than burying them as distant ghostly bugs</td><td><a href="37-tool-registry.html">L37</a> · <a href="63-test-contribute.html">L63</a></td></tr>
+  <tr><td><b>Attention is scarce</b></td><td>Whether model or maintainer, attention is finite—keep only high signal, hold back the noise</td><td><a href="42-bounded-output.html">L42</a> · <a href="63-test-contribute.html">L63</a></td></tr>
+  <tr><td><b>One mold stamps the same shape</b></td><td>A mold anyone uses comfortably (Tool.make/createSimpleContext/Plugin) makes the right thing the easiest thing</td><td><a href="36-tool-definition.html">L36</a> · <a href="53-tui-structure.html">L53</a></td></tr>
+</table>
+<p>If you take away only one sentence, let it be this: <strong>opencode stays clear in the fast-evolving, uncertainty-filled field of "AI agents" not through cleverer tricks, but by repeatedly "finding the seam, reusing the mature, making the right thing effortless, and leaving a door open for the unknown"</strong>. This wisdom doesn't belong to opencode; it belongs to every engineer who wants to build a complex system solidly—including you, reading this book. With that, all 64 lessons come to a close. May you take this map and go read the source, change it, contribute—or go build something of your own.</p>
+</div>
   <div class="footnav"><a class="prev" href="63-test-contribute.html"><div class="dir"><span class="lang-zh">← 上一课</span><span class="lang-en">← Prev</span></div><div class="ttl"><span class="lang-zh">测试与贡献</span><span class="lang-en">Test &amp; contribute</span></div></a><a class="next" href="../index.html"><div class="dir"><span class="lang-zh">完成 →</span><span class="lang-en">Done →</span></div><div class="ttl"><span class="lang-zh">返回目录</span><span class="lang-en">Back to index</span></div></a></div>
 </div>
 <script>
